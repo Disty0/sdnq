@@ -1,10 +1,10 @@
-# SD.Next Quantization
+# SDNQ: SD.Next Quantization Engine
 
 For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
 Install command:
 ```sh
-pip install git+https://github.com/Disty0/ipex_to_cuda
+pip install git+https://github.com/Disty0/sdnq
 ```
 
 
