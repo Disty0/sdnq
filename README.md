@@ -52,6 +52,19 @@ model = apply_sdnq_to_module(
 
 
 Example code for quantized optimizer states:  
+```py
+from sdnq_optimizers import AdafactorBF16, AdamW, CAME, Muon
+optimizer = AdamW(
+    parameters,
+    bf16_stochastic_round=False, # for BF16 weights. Do not enable this with static quantized weights
+    use_quantized_buffers=True,
+    quantized_buffers_dtype="int8",
+    use_stochastic_quantization=True,
+)
+```
+
+
+Example code for quantized optimizer states for custom optimizers:  
 
 ```py
 from sdnq_training import SDNQTensor
