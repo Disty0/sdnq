@@ -5,10 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sdnq"
 version = "0.0.1"
-authors = [
-  { name="Disty0", email="disty@disty.xyz" },
-]
-description = "SD.Next Quantization"
+authors = [{ name="Disty0", email="disty@disty.xyz" }]
+description = "SD.Next Quantization Engine"
 readme = "README.md"
 requires-python = ">=3.8"
 classifiers = [
@@ -17,6 +15,8 @@ classifiers = [
 ]
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
+
+dependencies = ["torch", "diffusers"]
 
 [project.urls]
 Homepage = "https://github.com/Disty0/sdnq"
