@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdnq"
+version = "0.0.1"
+authors = [
+  { name="Disty0", email="disty@disty.xyz" },
+]
+description = "SD.Next Quantization"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+
+[project.urls]
+Homepage = "https://github.com/Disty0/sdnq"
+Issues = "https://github.com/Disty0/sdnq/issues"

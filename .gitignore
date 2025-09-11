@@ -1,0 +1,4 @@
+__pycache__
+.ruff_cache
+build
+src/sdnq.egg-info
