@@ -3,12 +3,12 @@
 import os
 import torch
 
-# wrapper for modules.devices from SDNext
+# wrapper for modules.devices and modules.shared from SD.Next
 class Devices():
     def __init__(self):
         self.cpu = torch.device("cpu")
         self.device = torch.device(
-            os.environ.get('SDNQ_DEVICE',
+            os.environ.get("SDNQ_DEVICE",
                 "xpu" if hasattr(torch,"xpu") and torch.xpu.is_available()
                 else "mps" if hasattr(torch,"mps") and torch.mps.is_available()
                 else "cuda" if torch.cuda.is_available()
@@ -16,7 +16,7 @@ class Devices():
             ).lower()
         )
         self.backend = self.device.type
-        self.dtype = getattr(torch, os.environ.get('SDNQ_DTYPE', "bfloat16" if self.backend != "cpu" else "float32"))
+        self.dtype = getattr(torch, os.environ.get("SDNQ_DTYPE", "bfloat16" if self.backend != "cpu" else "float32"))
         self.inference_context = torch.no_grad
 
     def normalize_device(self, dev):
@@ -47,8 +47,8 @@ class Devices():
 
 class SharedOpts():
     def __init__(self, backend):
-        self.diffusers_offload_mode = os.environ.get('SDNQ_OFFLOAD_MODE', "none").lower()
-        self.sdnq_dequantize_compile = devices.has_triton() and os.environ.get('SDNQ_USE_TORCH_COMPILE', "1").lower() not in {"0", "false", "no"}
+        self.diffusers_offload_mode = os.environ.get("SDNQ_OFFLOAD_MODE", "none").lower()
+        self.sdnq_dequantize_compile = devices.has_triton() and os.environ.get("SDNQ_USE_TORCH_COMPILE", "1").lower() not in {"0", "false", "no"}
 
 
 class Shared():
