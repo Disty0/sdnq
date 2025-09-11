@@ -40,7 +40,9 @@ model = AutoModel.from_pretrained(model_path, quantization_config=sdnq_config)
 
 
 Example code for quantized training:  
-Note: Only INT8 and FP8 (E4) are supported in training.  
+Note:  
+ - Only INT8 and FP8 (E4) are supported in training.  
+ - Safetensors serialization is not supported with static quantized training.  
 
 ```py
 from sdnq.training import apply_sdnq_to_module
