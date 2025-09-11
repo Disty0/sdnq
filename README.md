@@ -2,6 +2,11 @@
 
 For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
+Install command:
+```sh
+pip install git+https://github.com/Disty0/ipex_to_cuda
+```
+
 
 Example quantization config code for Diffusers and Transformers libraries:  
 
