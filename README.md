@@ -42,7 +42,7 @@ model = AutoModel.from_pretrained(model_path, quantization_config=sdnq_config)
 Example code for quantized training:  
 
 ```py
-from sdnq_training import apply_sdnq_to_module
+from sdnq.training import apply_sdnq_to_module
 
 model = apply_sdnq_to_module(
     model,
@@ -58,7 +58,7 @@ model = apply_sdnq_to_module(
 
 Example code for quantized optimizer states:  
 ```py
-from sdnq_optimizers import AdafactorBF16, AdamW, CAME, Muon
+from sdnq.optim import AdafactorBF16, AdamW, CAME, Muon
 optimizer = AdamW(
     parameters,
     bf16_stochastic_round=False, # for BF16 weights. Do not enable this with static quantized weights
@@ -72,7 +72,7 @@ optimizer = AdamW(
 Example code for quantized optimizer states for custom optimizers:  
 
 ```py
-from sdnq_training import SDNQTensor
+from sdnq.training import SDNQTensor
 
 state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p).add_(torch.finfo(p.dtype).eps), qtype="int8", sr=True)
 ```

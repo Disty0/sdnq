@@ -3,10 +3,10 @@ from typing import Tuple, Optional
 import torch
 
 from .stochastic import copy_stochastic_
-from sdnq_training import SDNQTensor
+from sdnq.training import SDNQTensor
 
-from sdnq_training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
-from sdnq_training.layers.linear.linear_fp8_dynamic import fp8_matmul_dynamic
+from sdnq.training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
+from sdnq.training.layers.linear.linear_fp8_dynamic import fp8_matmul_dynamic
 
 
 class Muon(torch.optim.Optimizer):
