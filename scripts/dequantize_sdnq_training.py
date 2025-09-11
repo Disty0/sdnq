@@ -1,6 +1,6 @@
 import torch
 from safetensors.torch import save_file
-from sdnq.training.dequantizer import SDNQTensor
+from sdnq.training import SDNQTensor
 
 
 def main(model_path, out_path, dtype=None):
