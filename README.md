@@ -30,7 +30,7 @@ sdnq_config = SDNQConfig(
     modules_dtype_dict={"int8": ["lm_head"]},
 )
 
-model = AutoModel.from_pretrained(model_id, quantization_config=sdnq_config)
+model = AutoModel.from_pretrained(model_path, quantization_config=sdnq_config)
 ```
 
 
@@ -42,9 +42,9 @@ from sdnq_training import apply_sdnq_to_module
 model = apply_sdnq_to_module(
     model,
     weights_dtype="int8",
-    use_grad_ckpt=True,
+    use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
     use_quantized_matmul=True,
-    use_static_quantization=True,
+    use_static_quantization=True, # quantize the model weights
     use_stochastic_quantization=True,
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
 )
