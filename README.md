@@ -1,3 +1,4 @@
+# SD.Next Quantization
 
 For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
