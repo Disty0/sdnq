@@ -11,7 +11,7 @@ pip install git+https://github.com/Disty0/sdnq
 Example quantization config code for Diffusers and Transformers libraries:  
 
 ```py
-from sdnq import SDNQQuantizer, SDNQConfig
+from sdnq import SDNQConfig
 
 sdnq_config = SDNQConfig(
     weights_dtype="int8",
