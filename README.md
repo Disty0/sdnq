@@ -12,12 +12,13 @@ Example quantization config code for Diffusers and Transformers libraries:
 
 ```py
 from sdnq import SDNQConfig
+from sdnq.common import use_torch_compile as triton_is_available
 
 sdnq_config = SDNQConfig(
     weights_dtype="int8",
     group_size=0,
     quant_conv=False,
-    use_quantized_matmul=True,
+    use_quantized_matmul=triton_is_available,
     use_quantized_matmul_conv=False,
     dequantize_fp32=False,
     non_blocking=False,
