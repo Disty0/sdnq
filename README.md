@@ -13,14 +13,6 @@ Example quantization config code for Diffusers and Transformers libraries:
 ```py
 from sdnq import SDNQQuantizer, SDNQConfig
 
-import diffusers
-diffusers.quantizers.auto.AUTO_QUANTIZER_MAPPING["sdnq"] = SDNQQuantizer
-diffusers.quantizers.auto.AUTO_QUANTIZATION_CONFIG_MAPPING["sdnq"] = SDNQConfig
-
-import transformers
-transformers.quantizers.auto.AUTO_QUANTIZER_MAPPING["sdnq"] = SDNQQuantizer
-transformers.quantizers.auto.AUTO_QUANTIZATION_CONFIG_MAPPING["sdnq"] = SDNQConfig
-
 sdnq_config = SDNQConfig(
     weights_dtype="int8",
     group_size=0,

@@ -16,7 +16,7 @@ classifiers = [
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 
-dependencies = ["torch", "diffusers"]
+dependencies = ["torch", "diffusers", "transformers"]
 
 [project.urls]
 Homepage = "https://github.com/Disty0/sdnq"
