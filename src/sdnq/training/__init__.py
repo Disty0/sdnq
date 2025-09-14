@@ -89,7 +89,3 @@ def apply_sdnq_to_module(
             modules_to_not_convert=modules_to_not_convert,
         )
     return model
-
-
-torch._dynamo.config.cache_size_limit = max(8192, torch._dynamo.config.cache_size_limit)
-torch._dynamo.config.accumulated_recompile_limit = max(8192, torch._dynamo.config.accumulated_recompile_limit)

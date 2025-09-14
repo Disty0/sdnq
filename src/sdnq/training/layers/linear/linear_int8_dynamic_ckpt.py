@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import torch
+from sdnq.common import use_torch_compile
 
 from .linear_int8 import int8_matmul, quantize_int8_matmul_input
 from .linear_int8_dynamic import int8_matmul_dynamic
@@ -30,7 +31,7 @@ def int8_matmul_dynamic_backward_ckpt(grad_output: torch.FloatTensor, input: tor
 class INT8MatmulBackwardCKPT(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
-        result, new_input, new_weight, input_scale, weight_scale = int8_matmul_dynamic_ckpt(input, weight, bias)
+        result, new_input, new_weight, input_scale, weight_scale = int8_matmul_dynamic_ckpt_compiled(input, weight, bias)
         ctx.save_for_backward(new_input, new_weight, bias, input_scale, weight_scale)
         return result
 
@@ -47,5 +48,8 @@ def quantized_linear_forward_int8_matmul_dynamic_ckpt(self, input: torch.FloatTe
 
 
 int8_matmul_with_backward_ckpt = INT8MatmulBackwardCKPT.apply
-int8_matmul_dynamic_ckpt = torch.compile(int8_matmul_dynamic_ckpt, fullgraph=True, dynamic=False)
-int8_matmul_dynamic_backward_ckpt = torch.compile(int8_matmul_dynamic_backward_ckpt, fullgraph=True, dynamic=False)
+if use_torch_compile:
+    int8_matmul_dynamic_ckpt_compiled = torch.compile(int8_matmul_dynamic_ckpt, fullgraph=True, dynamic=False)
+    int8_matmul_dynamic_backward_ckpt = torch.compile(int8_matmul_dynamic_backward_ckpt, fullgraph=True, dynamic=False)
+else:
+    int8_matmul_dynamic_ckpt_compiled = int8_matmul_dynamic_ckpt

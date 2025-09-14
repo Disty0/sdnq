@@ -3,6 +3,7 @@ from typing import Tuple, Optional
 import torch
 
 from .stochastic import copy_stochastic_
+from sdnq.common import use_torch_compile
 from sdnq.training import SDNQTensor
 
 from sdnq.training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
@@ -262,8 +263,8 @@ def zeropower_via_newtonschulz5_fp8_matmul(G: torch.FloatTensor, steps: int, dty
         X = X.mT
     return X.to(dtype=G.dtype)
 
-
-torch._dynamo.config.cache_size_limit = max(8192, torch._dynamo.config.cache_size_limit)
-torch._dynamo.config.accumulated_recompile_limit = max(8192, torch._dynamo.config.accumulated_recompile_limit)
-zeropower_via_newtonschulz5_int8_matmul = torch.compile(zeropower_via_newtonschulz5_int8_matmul, fullgraph=True, dynamic=False)
-zeropower_via_newtonschulz5_fp8_matmul = torch.compile(zeropower_via_newtonschulz5_fp8_matmul, fullgraph=True, dynamic=False)
+if use_torch_compile:
+    torch._dynamo.config.cache_size_limit = max(8192, torch._dynamo.config.cache_size_limit)
+    torch._dynamo.config.accumulated_recompile_limit = max(8192, torch._dynamo.config.accumulated_recompile_limit)
+    zeropower_via_newtonschulz5_int8_matmul = torch.compile(zeropower_via_newtonschulz5_int8_matmul, fullgraph=True, dynamic=False)
+    zeropower_via_newtonschulz5_fp8_matmul = torch.compile(zeropower_via_newtonschulz5_fp8_matmul, fullgraph=True, dynamic=False)

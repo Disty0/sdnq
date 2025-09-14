@@ -2,6 +2,7 @@ from typing import Any, List, Tuple, Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
+from sdnq.common import use_torch_compile
 
 
 @torch.no_grad()
@@ -343,10 +344,15 @@ def sdnq_view(func, *args, **kwargs):
 
 torch.serialization.add_safe_globals([SDNQTensor])
 
-torch._dynamo.config.cache_size_limit = max(8192, torch._dynamo.config.cache_size_limit)
-torch._dynamo.config.accumulated_recompile_limit = max(8192, torch._dynamo.config.accumulated_recompile_limit)
-dequantize_symmetric_compiled = torch.compile(dequantize_symmetric, fullgraph=True, dynamic=False)
-quantize_int8_sr_compiled = torch.compile(quantize_int8_sr, fullgraph=True, dynamic=False)
-quantize_int8_compiled = torch.compile(quantize_int8, fullgraph=True, dynamic=False)
-quantize_fp8_sr_compiled = torch.compile(quantize_fp8_sr, fullgraph=True, dynamic=False)
-quantize_fp8_compiled = torch.compile(quantize_fp8, fullgraph=True, dynamic=False)
+if use_torch_compile:
+    dequantize_symmetric_compiled = torch.compile(dequantize_symmetric, fullgraph=True, dynamic=False)
+    quantize_int8_sr_compiled = torch.compile(quantize_int8_sr, fullgraph=True, dynamic=False)
+    quantize_int8_compiled = torch.compile(quantize_int8, fullgraph=True, dynamic=False)
+    quantize_fp8_sr_compiled = torch.compile(quantize_fp8_sr, fullgraph=True, dynamic=False)
+    quantize_fp8_compiled = torch.compile(quantize_fp8, fullgraph=True, dynamic=False)
+else:
+    dequantize_symmetric_compiled = dequantize_symmetric
+    quantize_int8_sr_compiled = quantize_int8_sr
+    quantize_int8_compiled = quantize_int8
+    quantize_fp8_sr_compiled = quantize_fp8_sr
+    quantize_fp8_compiled = quantize_fp8

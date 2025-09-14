@@ -1,6 +1,8 @@
 from typing import Tuple, Optional
 
 import torch
+from sdnq.common import use_torch_compile
+
 from ...dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8 # noqa: TID252
 from .linear_int8_dynamic import int8_matmul_dynamic # noqa: TID252
 
@@ -59,5 +61,8 @@ def quantized_linear_forward_int8_matmul(self, input: torch.FloatTensor) -> torc
 
 
 int8_matmul_with_backward = INT8MatmulBackward.apply
-int8_matmul_compiled = torch.compile(int8_matmul, fullgraph=True, dynamic=False)
-int8_matmul_backward = torch.compile(int8_matmul_backward, fullgraph=True, dynamic=False)
+if use_torch_compile:
+    int8_matmul_compiled = torch.compile(int8_matmul, fullgraph=True, dynamic=False)
+    int8_matmul_backward = torch.compile(int8_matmul_backward, fullgraph=True, dynamic=False)
+else:
+    int8_matmul_compiled = int8_matmul
