@@ -27,7 +27,7 @@ def dequantize_symmetric_with_bias(weight: torch.CharTensor, scale: torch.FloatT
 
 @torch.no_grad()
 def quantize_int8(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.CharTensor, torch.FloatTensor]:
-    input = input.add(1e-8) if input.dtype == torch.float32 else input.to(dtype=torch.float32).add_(1e-8)
+    input = input.to(dtype=torch.float32)
     scale = torch.amax(input.abs(), dim=dim, keepdims=True).div_(127)
     input = torch.div(input, scale).round_().clamp_(-128, 127).to(dtype=torch.int8)
     return input, scale
@@ -35,7 +35,7 @@ def quantize_int8(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.CharTe
 
 @torch.no_grad()
 def quantize_int8_sr(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.CharTensor, torch.FloatTensor]:
-    input = input.add(1e-8) if input.dtype == torch.float32 else input.to(dtype=torch.float32).add_(1e-8)
+    input = input.to(dtype=torch.float32)
     scale = torch.amax(input.abs(), dim=dim, keepdims=True).div_(127)
     input = torch.normal(0, 0.1, input.shape, device=input.device, dtype=input.dtype
     ).addcdiv_(input, scale).round_().clamp_(-128, 127).to(dtype=torch.int8)
@@ -44,9 +44,9 @@ def quantize_int8_sr(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.Cha
 
 @torch.no_grad()
 def quantize_fp8(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.Tensor, torch.FloatTensor]:
-    input = input.add(1e-8) if input.dtype == torch.float32 else input.to(dtype=torch.float32).add_(1e-8)
+    input = input.to(dtype=torch.float32)
     scale = torch.amax(input.abs(), dim=dim, keepdims=True).div_(448)
-    input = torch.div(input, scale).clamp_(-448, 448).to(dtype=torch.float8_e4m3fn)
+    input = torch.div(input, scale).nan_to_num_().clamp_(-448, 448).to(dtype=torch.float8_e4m3fn)
     return input, scale
 
 
@@ -238,6 +238,13 @@ def sdnq_zeros_like(func, x, *args, **kwargs):
     dtype = kwargs.pop("dtype", x.return_dtype)
     device = kwargs.pop("device", x.device)
     return torch.zeros(x.shape, *args, dtype=dtype, device=device, **kwargs)
+
+
+@register_op([torch.ops.aten.ones_like.default])
+def sdnq_ones_like(func, x, *args, **kwargs):
+    dtype = kwargs.pop("dtype", x.return_dtype)
+    device = kwargs.pop("device", x.device)
+    return torch.ones(x.shape, *args, dtype=dtype, device=device, **kwargs)
 
 
 @register_op([torch.ops.aten.mul.Tensor, torch.ops.aten.mul.Scalar])
