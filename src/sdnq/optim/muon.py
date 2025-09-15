@@ -65,9 +65,9 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["step"] = 0
                         if group["use_quantized_buffers"]:
-                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                            state["momentum_buffer"] = SDNQTensor.from_float(torch.ones_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
                             if group["adaptive"]:
-                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                                state["v_buffer"] = SDNQTensor.from_float(torch.ones_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
                         else:
                             state["momentum_buffer"] = torch.zeros_like(p)
                             if group["adaptive"]:
@@ -117,8 +117,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         if group["use_quantized_buffers"]:
-                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
-                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                            state["exp_avg"] = SDNQTensor.from_float(torch.ones_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.ones_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
                         else:
                             state["exp_avg"] = torch.zeros_like(p)
                             state["exp_avg_sq"] = torch.zeros_like(p)

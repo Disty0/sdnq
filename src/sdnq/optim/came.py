@@ -80,7 +80,7 @@ class CAME(torch.optim.Optimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
-                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(grad), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg"] = SDNQTensor.from_float(torch.ones_like(grad), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
                     else:
                         state["exp_avg"] = torch.zeros_like(grad)
 
