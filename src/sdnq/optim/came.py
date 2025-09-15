@@ -29,7 +29,7 @@ class CAME(torch.optim.Optimizer):
             param_groups = params
         for group in param_groups:
             group["lr"] = group.get("lr", 1e-4)
-            group["eps"] = group.get("eps", (1e-30, 1e-16, 1e-8))
+            group["eps"] = group.get("eps", (1e-30, 1e-16))
             group["betas"] = group.get("betas", (0.9, 0.999, 0.9999))
             group["weight_decay"] = group.get("weight_decay", 0.0)
             group["clip_threshold"] = group.get("clip_threshold", 1.0)
@@ -80,7 +80,7 @@ class CAME(torch.optim.Optimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
-                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(grad).add_(group["eps"][-1]), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(grad), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
                     else:
                         state["exp_avg"] = torch.zeros_like(grad)
 

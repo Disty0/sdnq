@@ -71,5 +71,5 @@ Example code for quantized optimizer states for custom optimizers:
 ```py
 from sdnq.training import SDNQTensor
 
-state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype="int8", sr=True)
+state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p), qtype="int8", sr=True)
 ```

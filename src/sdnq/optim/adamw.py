@@ -41,8 +41,8 @@ class AdamW(torch.optim.Optimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
-                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
-                        state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
                     else:
                         state["exp_avg"] = torch.zeros_like(p)
                         state["exp_avg_sq"] = torch.zeros_like(p)
