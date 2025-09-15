@@ -20,7 +20,6 @@ class Muon(torch.optim.Optimizer):
         for group in param_groups:
             assert "use_muon" in group
             if group["use_muon"]:
-                # defaults
                 group["lr"] = group.get("lr", 1e-3)
                 group["eps"] = group.get("eps", 1e-8)
                 group["betas"] = group.get("betas", (0.9, 0.95))
@@ -39,13 +38,15 @@ class Muon(torch.optim.Optimizer):
                     group["zeropower_dtype"] = getattr(torch, group["zeropower_dtype"])
                 assert set(group.keys()) == set(["params", "lr", "use_muon", "eps", "betas", "weight_decay", "ns_steps", "nesterov", "adaptive", "bf16_stochastic_round", "zeropower_dtype", "use_quantized_matmul", "quantized_matmul_dtype", "use_quantized_buffers", "quantized_buffers_dtype", "use_stochastic_quantization"])
             else:
-                # defaults
                 group["lr"] = group.get("lr", 1e-4)
                 group["eps"] = group.get("eps", 1e-8)
                 group["betas"] = group.get("betas", (0.9, 0.95))
                 group["weight_decay"] = group.get("weight_decay", 0)
                 group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
-                assert set(group.keys()) == set(["params", "lr", "use_muon", "eps", "betas", "weight_decay", "bf16_stochastic_round"])
+                group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
+                group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "int8")
+                group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
+                assert set(group.keys()) == set(["params", "lr", "use_muon", "eps", "betas", "weight_decay", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
 
     @torch.no_grad()
@@ -64,13 +65,12 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["step"] = 0
                         if group["use_quantized_buffers"]:
-                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(p).add_(torch.finfo(p.dtype).eps), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                            if group["adaptive"]:
+                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
                         else:
                             state["momentum_buffer"] = torch.zeros_like(p)
-                        if group["adaptive"]:
-                            if group["use_quantized_buffers"]:
-                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(p).add_(torch.finfo(p.dtype).eps), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
-                            else:
+                            if group["adaptive"]:
                                 state["v_buffer"] = torch.zeros_like(p)
 
                     state["step"] += 1
@@ -116,8 +116,12 @@ class Muon(torch.optim.Optimizer):
                         continue
                     state = self.state[p]
                     if len(state) == 0:
-                        state["exp_avg"] = torch.zeros_like(p)
-                        state["exp_avg_sq"] = torch.zeros_like(p)
+                        if group["use_quantized_buffers"]:
+                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                        else:
+                            state["exp_avg"] = torch.zeros_like(p)
+                            state["exp_avg_sq"] = torch.zeros_like(p)
                         state["step"] = 0
 
                     state["step"] += 1

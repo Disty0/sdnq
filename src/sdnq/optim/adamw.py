@@ -14,12 +14,11 @@ class AdamW(torch.optim.Optimizer):
         else:
             param_groups = params
         for group in param_groups:
-            # defaults
             group["lr"] = group.get("lr", 1e-4)
             group["eps"] = group.get("eps", 1e-8)
             group["betas"] = group.get("betas", (0.9, 0.95))
             group["weight_decay"] = group.get("weight_decay", 0)
-            group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", True)
+            group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
             group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
             group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "int8")
             group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
@@ -42,8 +41,8 @@ class AdamW(torch.optim.Optimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
-                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p).add_(torch.finfo(p.dtype).eps), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
-                        state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p).add_(torch.finfo(p.dtype).eps), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
                     else:
                         state["exp_avg"] = torch.zeros_like(p)
                         state["exp_avg_sq"] = torch.zeros_like(p)

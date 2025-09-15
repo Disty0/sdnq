@@ -39,12 +39,13 @@ Note:
 
 ```py
 from sdnq.training import apply_sdnq_to_module
+from sdnq.common import use_torch_compile as triton_is_available
 
 model = apply_sdnq_to_module(
     model,
     weights_dtype="int8",
     use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
-    use_quantized_matmul=True,
+    use_quantized_matmul=triton_is_available,
     use_static_quantization=True, # quantize the model weights
     use_stochastic_quantization=True,
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
@@ -70,5 +71,5 @@ Example code for quantized optimizer states for custom optimizers:
 ```py
 from sdnq.training import SDNQTensor
 
-state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p).add_(torch.finfo(p.dtype).eps), qtype="int8", sr=True)
+state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p).add_(group["eps"]), qtype="int8", sr=True)
 ```
