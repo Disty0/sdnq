@@ -82,7 +82,6 @@ class Muon(torch.optim.Optimizer):
                         state["v_buffer"] if group["adaptive"] else None,
                         state["step"],
                         group["betas"],
-                        group["eps"],
                         group["clip_threshold"],
                         ns_steps=group["ns_steps"],
                         nesterov=group["nesterov"],
@@ -134,7 +133,6 @@ class Muon(torch.optim.Optimizer):
                         state["exp_avg_sq"],
                         state["step"],
                         group["betas"],
-                        group["eps"],
                         group["clip_threshold"],
                     )
 
@@ -152,7 +150,7 @@ class Muon(torch.optim.Optimizer):
         return loss
 
 
-def adam_update(grad: torch.FloatTensor, buf1: torch.FloatTensor, buf2: torch.FloatTensor, step: int, betas: Tuple[float, float], eps: float, clip: float) -> torch.FloatTensor:
+def adam_update(grad: torch.FloatTensor, buf1: torch.FloatTensor, buf2: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
     beta, beta2 = betas
     buf1.lerp_(grad, 1 - beta)
     buf2.lerp_(grad.square(), 1 - beta2)
@@ -167,7 +165,6 @@ def muon_update(
     v_buffer: Optional[torch.FloatTensor],
     step: int,
     betas: Tuple[float, float],
-    eps: float,
     clip: float,
     ns_steps: int = 5,
     nesterov: bool = True,

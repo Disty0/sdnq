@@ -55,7 +55,6 @@ class AdamW(torch.optim.Optimizer):
                     state["exp_avg_sq"],
                     state["step"],
                     group["betas"],
-                    group["eps"],
                     group["clip_threshold"],
                 )
 
@@ -73,7 +72,7 @@ class AdamW(torch.optim.Optimizer):
         return loss
 
 
-def adam_update(grad: torch.FloatTensor, buf1: torch.FloatTensor, buf2: torch.FloatTensor, step: int, betas: Tuple[float, float], eps: float, clip: float) -> torch.FloatTensor:
+def adam_update(grad: torch.FloatTensor, buf1: torch.FloatTensor, buf2: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
     beta, beta2 = betas
     buf1.lerp_(grad, 1 - beta)
     buf2.lerp_(grad.square(), 1 - beta2)
