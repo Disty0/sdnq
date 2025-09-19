@@ -1,7 +1,7 @@
 from typing import Tuple
 
 import torch
-from sdnq.common import use_torch_compile
+from sdnq.common import compile_func
 
 from ...dequantizer import dequantize_symmetric
 from .linear_fp8 import fp8_matmul, quantize_fp8_matmul_input # noqa: TID252
@@ -46,8 +46,5 @@ def quantized_linear_forward_fp8_matmul_ckpt(self, input: torch.FloatTensor) -> 
 
 
 fp8_matmul_with_backward_ckpt = FP8MatmulBackwardCKPT.apply
-if use_torch_compile:
-    fp8_matmul_ckpt_compiled = torch.compile(fp8_matmul_ckpt, fullgraph=True, dynamic=False)
-    fp8_matmul_backward_ckpt = torch.compile(fp8_matmul_backward_ckpt, fullgraph=True, dynamic=False)
-else:
-    fp8_matmul_ckpt_compiled = fp8_matmul_ckpt
+fp8_matmul_ckpt_compiled = compile_func(fp8_matmul_ckpt)
+fp8_matmul_backward_ckpt = compile_func(fp8_matmul_backward_ckpt)

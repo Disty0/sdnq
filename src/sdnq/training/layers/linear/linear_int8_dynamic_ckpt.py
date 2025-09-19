@@ -1,7 +1,7 @@
 from typing import Tuple
 
 import torch
-from sdnq.common import use_torch_compile
+from sdnq.common import compile_func
 
 from .linear_int8 import int8_matmul, quantize_int8_matmul_input
 from .linear_int8_dynamic import int8_matmul_dynamic
@@ -48,8 +48,5 @@ def quantized_linear_forward_int8_matmul_dynamic_ckpt(self, input: torch.FloatTe
 
 
 int8_matmul_with_backward_ckpt = INT8MatmulBackwardCKPT.apply
-if use_torch_compile:
-    int8_matmul_dynamic_ckpt_compiled = torch.compile(int8_matmul_dynamic_ckpt, fullgraph=True, dynamic=False)
-    int8_matmul_dynamic_backward_ckpt = torch.compile(int8_matmul_dynamic_backward_ckpt, fullgraph=True, dynamic=False)
-else:
-    int8_matmul_dynamic_ckpt_compiled = int8_matmul_dynamic_ckpt
+int8_matmul_dynamic_ckpt_compiled = compile_func(int8_matmul_dynamic_ckpt)
+int8_matmul_dynamic_backward_ckpt = compile_func(int8_matmul_dynamic_backward_ckpt)

@@ -4,7 +4,7 @@ import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 from torch._guards import detect_fake_mode
 
-from sdnq.common import use_torch_compile
+from sdnq.common import compile_func
 
 
 @torch.no_grad()
@@ -163,6 +163,11 @@ def register_op(ops: List[torch._ops.OpOverload]):
     return impl_decorator
 
 
+def sdnq_generic_func_inner(func, *args, **kwargs):
+    args = [x.dequantize() if isinstance(x, SDNQTensor) else x for x in args]
+    return func(*args, **kwargs)
+sdnq_generic_func_inner_compiled = compile_func(sdnq_generic_func_inner)
+
 @register_op([
     torch.ops.aten.sub.Tensor,
     torch.ops.aten.sub.Scalar,
@@ -176,9 +181,21 @@ def register_op(ops: List[torch._ops.OpOverload]):
     torch.ops.aten.linalg_vector_norm.default,
 ])
 def sdnq_generic_func(func, *args, **kwargs):
-    args = [x.dequantize() if isinstance(x, SDNQTensor) else x for x in args]
-    return func(*args, **kwargs)
+    fake_mode = detect_fake_mode(args)
+    if fake_mode is not None:
+        with fake_mode:
+            return sdnq_generic_func_inner(func, *args, **kwargs)
+    return sdnq_generic_func_inner_compiled(func, *args, **kwargs)
 
+
+def sdnq_generic_func_inner_(func, *args, **kwargs):
+    input = args[0]
+    args = [x.dequantize() if isinstance(x, SDNQTensor) else x for x in args]
+    result = func(*args, **kwargs)
+    if isinstance(input, SDNQTensor):
+        input.copy_(result)
+    return input
+sdnq_generic_func_inner_compiled_ = compile_func(sdnq_generic_func_inner_)
 
 @register_op([
     torch.ops.aten.sub_.Tensor,
@@ -192,19 +209,17 @@ def sdnq_generic_func(func, *args, **kwargs):
     torch.ops.aten.sqrt_.default,
 ])
 def sdnq_generic_func_(func, *args, **kwargs):
-    input = args[0]
-    args = [x.dequantize() if isinstance(x, SDNQTensor) else x for x in args]
-    result = func(*args, **kwargs)
-    if isinstance(input, SDNQTensor):
-        input.copy_(result)
-    return input
+    fake_mode = detect_fake_mode(args)
+    if fake_mode is not None:
+        with fake_mode:
+            return sdnq_generic_func_inner_(func, *args, **kwargs)
+    return sdnq_generic_func_inner_compiled_(func, *args, **kwargs)
 
 
 @register_op([
     torch.ops.aten.detach.default,
     torch.ops.aten.clone.default,
     torch.ops.aten.t.default,
-    # FSDP ops
     torch.ops.aten.slice.Tensor,
     torch.ops.c10d_functional.all_gather_into_tensor.default,
     torch.ops._c10d_functional.all_gather_into_tensor.default,
@@ -263,32 +278,33 @@ def sdnq_ones_like(func, x, *args, **kwargs):
     return torch.ones(x.shape, *args, dtype=dtype, device=device, **kwargs)
 
 
-@register_op([torch.ops.aten.mul.Tensor, torch.ops.aten.mul.Scalar])
-def sdnq_mul(func, x, y):
+def sdnq_mul_inner(func, x, y):
     if isinstance(x, SDNQTensor):
-        input = x
-        other = y
+        input, other = x, y
     else:
-        input = y
-        other = x
+        input, other = y, x
     if isinstance(other, SDNQTensor):
         other = other.dequantize()
     if func == torch.ops.aten.mul.Scalar or isinstance(other, (int,float)) or other.shape == input.scale.shape or other.numel() == 1:
         return dequantize_symmetric_compiled(input.quant_data, torch.mul(input.scale, other), dtype=input.return_dtype)
     else:
         return input.dequantize().mul_(other)
+sdnq_mul_inner_compiled = compile_func(sdnq_mul_inner)
+
+@register_op([torch.ops.aten.mul.Tensor, torch.ops.aten.mul.Scalar])
+def sdnq_mul(func, x, y):
+    fake_mode = detect_fake_mode((x,y))
+    if fake_mode is not None:
+        with fake_mode:
+            return sdnq_mul_inner(func, x, y)
+    return sdnq_mul_inner_compiled(func, x, y)
 
 
-@register_op([torch.ops.aten.mul_.Tensor, torch.ops.aten.mul_.Scalar])
-def sdnq_mul_(func, x, y):
+def sdnq_mul_inner_(func, x, y):
     if isinstance(x, SDNQTensor):
-        sdnq_first = True
-        input = x
-        other = y
+        input, other, sdnq_first = x, y, True
     else:
-        sdnq_first = False
-        input = y
-        other = x
+        input, other, sdnq_first = y, x, False
     if isinstance(other, SDNQTensor):
         other = other.dequantize()
     if sdnq_first and (func == torch.ops.aten.mul_.Scalar or isinstance(other, (int,float)) or other.shape == input.scale.shape or other.numel() == 1):
@@ -297,18 +313,22 @@ def sdnq_mul_(func, x, y):
     else:
         result = input.dequantize().mul_(other)
         return x.copy_(result)
+sdnq_mul_inner_compiled_ = compile_func(sdnq_mul_inner_)
+
+@register_op([torch.ops.aten.mul_.Tensor, torch.ops.aten.mul_.Scalar])
+def sdnq_mul_(func, x, y):
+    fake_mode = detect_fake_mode((x,y))
+    if fake_mode is not None:
+        with fake_mode:
+            return sdnq_mul_inner_(func, x, y)
+    return sdnq_mul_inner_compiled_(func, x, y)
 
 
-@register_op([torch.ops.aten.div.Tensor, torch.ops.aten.div.Scalar])
-def sdnq_div(func, x, y):
+def sdnq_div_inner(func, x, y):
     if isinstance(x, SDNQTensor):
-        sdnq_first = True
-        input = x
-        other = y
+        input, other, sdnq_first = x, y, True
     else:
-        sdnq_first = False
-        input = y
-        other = x
+        input, other, sdnq_first = y, x, False
     if isinstance(other, SDNQTensor):
         other = other.dequantize()
     if func == torch.ops.aten.div.Scalar or isinstance(other, (int,float)) or other.shape == input.scale.shape or other.numel() == 1:
@@ -316,18 +336,22 @@ def sdnq_div(func, x, y):
         return dequantize_symmetric_compiled(input.quant_data, scale, dtype=input.return_dtype)
     else:
         return input.dequantize().div_(other)
+sdnq_div_inner_compiled = compile_func(sdnq_div_inner)
+
+@register_op([torch.ops.aten.div.Tensor, torch.ops.aten.div.Scalar])
+def sdnq_div(func, x, y):
+    fake_mode = detect_fake_mode((x,y))
+    if fake_mode is not None:
+        with fake_mode:
+            return sdnq_div_inner(func, x, y)
+    return sdnq_div_inner_compiled(func, x, y)
 
 
-@register_op([torch.ops.aten.div_.Tensor, torch.ops.aten.div_.Scalar])
-def sdnq_div_(func, x, y):
+def sdnq_div_inner_(func, x, y):
     if isinstance(x, SDNQTensor):
-        sdnq_first = True
-        input = x
-        other = y
+        input, other, sdnq_first = x, y, True
     else:
-        sdnq_first = False
-        input = y
-        other = x
+        input, other, sdnq_first = y, x, False
     if isinstance(other, SDNQTensor):
         other = other.dequantize()
     if sdnq_first and (func == torch.ops.aten.div_.Scalar or isinstance(other, (int,float)) or other.shape == input.scale.shape or other.numel() == 1):
@@ -336,6 +360,15 @@ def sdnq_div_(func, x, y):
     else:
         result = input.dequantize().div_(other)
         return x.copy_(result)
+sdnq_div_inner_compiled_ = compile_func(sdnq_div_inner_)
+
+@register_op([torch.ops.aten.div_.Tensor, torch.ops.aten.div_.Scalar])
+def sdnq_div_(func, x, y):
+    fake_mode = detect_fake_mode((x,y))
+    if fake_mode is not None:
+        with fake_mode:
+            return sdnq_div_inner_(func, x, y)
+    return sdnq_div_inner_compiled_(func, x, y)
 
 
 # FSDP ops
@@ -367,15 +400,8 @@ def sdnq_view(func, *args, **kwargs):
 
 torch.serialization.add_safe_globals([SDNQTensor])
 
-if use_torch_compile:
-    dequantize_symmetric_compiled = torch.compile(dequantize_symmetric, fullgraph=True, dynamic=False)
-    quantize_int8_sr_compiled = torch.compile(quantize_int8_sr, fullgraph=True, dynamic=False)
-    quantize_int8_compiled = torch.compile(quantize_int8, fullgraph=True, dynamic=False)
-    quantize_fp8_sr_compiled = torch.compile(quantize_fp8_sr, fullgraph=True, dynamic=False)
-    quantize_fp8_compiled = torch.compile(quantize_fp8, fullgraph=True, dynamic=False)
-else:
-    dequantize_symmetric_compiled = dequantize_symmetric
-    quantize_int8_sr_compiled = quantize_int8_sr
-    quantize_int8_compiled = quantize_int8
-    quantize_fp8_sr_compiled = quantize_fp8_sr
-    quantize_fp8_compiled = quantize_fp8
+dequantize_symmetric_compiled = compile_func(dequantize_symmetric)
+quantize_int8_sr_compiled = compile_func(quantize_int8_sr)
+quantize_int8_compiled = compile_func(quantize_int8)
+quantize_fp8_sr_compiled = compile_func(quantize_fp8_sr)
+quantize_fp8_compiled = compile_func(quantize_fp8)

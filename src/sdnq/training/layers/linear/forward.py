@@ -1,7 +1,7 @@
 from typing import Tuple
 
 import torch
-from sdnq.common import use_torch_compile
+from sdnq.common import compile_func
 
 from ...dequantizer import dequantize_symmetric # noqa: TID252
 
@@ -35,5 +35,4 @@ def quantized_linear_forward(self, input: torch.FloatTensor) -> torch.FloatTenso
 
 
 quantized_linear_with_backward = QuantizedLinearBackward.apply
-if use_torch_compile:
-    quantized_linear_backward = torch.compile(quantized_linear_backward, fullgraph=True, dynamic=False)
+quantized_linear_backward = compile_func(quantized_linear_backward)

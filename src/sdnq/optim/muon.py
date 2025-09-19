@@ -3,7 +3,7 @@ from typing import Tuple, Optional
 import torch
 
 from .stochastic import copy_stochastic_
-from sdnq.common import use_torch_compile
+from sdnq.common import compile_func
 from sdnq.training import SDNQTensor
 
 from sdnq.training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
@@ -269,6 +269,6 @@ def zeropower_via_newtonschulz5_fp8_matmul(G: torch.FloatTensor, steps: int, dty
         X = X.mT
     return X.to(dtype=G.dtype)
 
-if use_torch_compile:
-    zeropower_via_newtonschulz5_int8_matmul = torch.compile(zeropower_via_newtonschulz5_int8_matmul, fullgraph=True, dynamic=False)
-    zeropower_via_newtonschulz5_fp8_matmul = torch.compile(zeropower_via_newtonschulz5_fp8_matmul, fullgraph=True, dynamic=False)
+
+zeropower_via_newtonschulz5_int8_matmul = compile_func(zeropower_via_newtonschulz5_int8_matmul)
+zeropower_via_newtonschulz5_fp8_matmul = compile_func(zeropower_via_newtonschulz5_fp8_matmul)
