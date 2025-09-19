@@ -60,7 +60,6 @@ def quantize_fp8_sr(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.Tens
 
 class SDNQTensor(torch.Tensor):
     @staticmethod
-    @torch._dynamo.disable
     def __new__(cls, quant_data: torch.Tensor, scale: torch.Tensor, dtype: torch.dtype, qtype: str = "int8", sr: bool = False):
         return torch.Tensor._make_wrapper_subclass(
             cls,
@@ -71,7 +70,6 @@ class SDNQTensor(torch.Tensor):
             device=quant_data.device,
         )
 
-    @torch._dynamo.disable
     def __init__(self, quant_data: torch.Tensor, scale: torch.Tensor, dtype: torch.dtype, qtype: str = "int8", sr: bool = False):
         self.quant_data = quant_data
         self.scale = scale
@@ -85,18 +83,12 @@ class SDNQTensor(torch.Tensor):
         return dequantize_symmetric_compiled(self.quant_data, self.scale, dtype=dtype)
     
     def __tensor_flatten__(self) -> Tuple[List[str], Any]:
-        return ["quant_data", "scale", "return_dtype", "qtype", "sr"], None
+        return ("quant_data", "scale"), (self.return_dtype, self.qtype, self.sr)
 
     @classmethod
     def __tensor_unflatten__(cls, tensor_data_dict, extra_metadata, outer_size=None, outer_stride=None):
-        assert extra_metadata is None
-        return SDNQTensor(
-            tensor_data_dict["quant_data"],
-            tensor_data_dict["scale"],
-            tensor_data_dict["return_dtype"],
-            tensor_data_dict["qtype"],
-            sr=tensor_data_dict["sr"],
-        )
+        dtype, qtype, sr = extra_metadata
+        return SDNQTensor(tensor_data_dict["quant_data"], tensor_data_dict["scale"], dtype, qtype=qtype, sr=sr)
 
     def __repr__(self):
         return f'SDNQTensor(quant_data={repr(self.quant_data)}, scale={repr(self.scale)}, dtype={self.return_dtype}, qtype={self.qtype}, sr={self.sr})'
@@ -130,10 +122,11 @@ class SDNQTensor(torch.Tensor):
 
     def fsdp_pre_all_gather(self, mesh, outer_size=None, outer_stride=None, module=None, mp_policy=None):
         dtype = mp_policy.param_dtype if mp_policy is not None else self.return_dtype
-        return (self.quant_data, self.scale, dtype, self.qtype, self.sr), None
+        return (self.quant_data, self.scale), (dtype, self.qtype, self.sr)
 
     def fsdp_post_all_gather(self, all_gather_outputs: Tuple[torch.Tensor, ...], metadata: Any, param_dtype: torch.dtype, *, out: Optional[torch.Tensor] = None):
-        quant_data, scale, dtype, qtype, sr = all_gather_outputs
+        quant_data, scale = all_gather_outputs
+        dtype, qtype, sr = metadata
         return SDNQTensor(quant_data, scale, dtype, qtype=qtype, sr=sr), all_gather_outputs
 
 
