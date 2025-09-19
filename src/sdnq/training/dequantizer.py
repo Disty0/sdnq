@@ -2,6 +2,8 @@ from typing import Any, List, Tuple, Optional
 
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
+from torch._guards import detect_fake_mode
+
 from sdnq.common import use_torch_compile
 
 
@@ -80,6 +82,10 @@ class SDNQTensor(torch.Tensor):
     def dequantize(self, dtype=None):
         if dtype is None:
             dtype = self.return_dtype
+        fake_mode = detect_fake_mode((self.quant_data, self.scale))
+        if fake_mode is not None:
+            with fake_mode:
+                return dequantize_symmetric(self.quant_data, self.scale, dtype=dtype)
         return dequantize_symmetric_compiled(self.quant_data, self.scale, dtype=dtype)
     
     def __tensor_flatten__(self) -> Tuple[List[str], Any]:
@@ -95,16 +101,33 @@ class SDNQTensor(torch.Tensor):
 
     @staticmethod
     def from_float(float_tensor: torch.FloatTensor, qtype: str = "int8", sr: bool = False):
+        fake_mode = detect_fake_mode(float_tensor)
         if qtype == "int8":
             if sr:
-                quant_data, scale = quantize_int8_sr_compiled(float_tensor.detach())
+                if fake_mode is not None:
+                    with fake_mode:
+                        quant_data, scale = quantize_int8_sr(float_tensor.detach())
+                else:
+                    quant_data, scale = quantize_int8_sr_compiled(float_tensor.detach())
             else:
-                quant_data, scale = quantize_int8_compiled(float_tensor.detach())
+                if fake_mode is not None:
+                    with fake_mode:
+                        quant_data, scale = quantize_int8(float_tensor.detach())
+                else:
+                    quant_data, scale = quantize_int8_compiled(float_tensor.detach())
         elif qtype == "fp8":
             if sr:
-                quant_data, scale = quantize_fp8_sr_compiled(float_tensor.detach())
+                if fake_mode is not None:
+                    with fake_mode:
+                        quant_data, scale = quantize_fp8_sr(float_tensor.detach())
+                else:
+                    quant_data, scale = quantize_fp8_sr_compiled(float_tensor.detach())
             else:
-                quant_data, scale = quantize_fp8_compiled(float_tensor.detach())
+                if fake_mode is not None:
+                    with fake_mode:
+                        quant_data, scale = quantize_fp8(float_tensor.detach())
+                else:
+                    quant_data, scale = quantize_fp8_compiled(float_tensor.detach())
             weight_stride = quant_data.stride()
             if not (weight_stride[0] == 1 and weight_stride[1] > 1):
                 quant_data = quant_data.t().contiguous().t()
