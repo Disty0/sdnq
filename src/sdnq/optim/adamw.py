@@ -15,15 +15,14 @@ class AdamW(torch.optim.Optimizer):
             param_groups = params
         for group in param_groups:
             group["lr"] = group.get("lr", 1e-4)
-            group["eps"] = group.get("eps", 1e-8)
             group["betas"] = group.get("betas", (0.9, 0.95))
-            group["weight_decay"] = group.get("weight_decay", 0)
-            group["clip_threshold"] = group.get("clip_threshold", 1)
+            group["weight_decay"] = group.get("weight_decay", 0.01)
+            group["clip_threshold"] = group.get("clip_threshold", 1.0)
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
             group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
             group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "int8")
             group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
-            assert set(group.keys()) == set(["params", "lr", "eps", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "use_stochastic_quantization"])
+            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
 
     @torch.no_grad()
@@ -42,15 +41,15 @@ class AdamW(torch.optim.Optimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
-                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
-                        state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
                     else:
                         state["exp_avg"] = torch.zeros_like(p)
                         state["exp_avg_sq"] = torch.zeros_like(p)
 
                 state["step"] += 1
                 update = adam_update(
-                    p.grad,
+                    p.grad.to(dtype=state["exp_avg"].dtype),
                     state["exp_avg"],
                     state["exp_avg_sq"],
                     state["step"],
@@ -78,4 +77,4 @@ def adam_update(grad: torch.FloatTensor, buf1: torch.FloatTensor, buf2: torch.Fl
     buf2.lerp_(grad.square(), 1 - beta2)
     buf1c = buf1 / (1 - beta ** step)
     buf2c = buf2 / (1 - beta2 ** step)
-    return buf1c.mul_(buf2c.rsqrt_().nan_to_num_()).clamp_(-clip,clip)
+    return buf1c.mul_(buf2c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)
