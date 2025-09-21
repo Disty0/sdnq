@@ -1,9 +1,11 @@
+from typing import Optional
+
 import torch
 
 from .stochastic import copy_stochastic_
 
 
-class AdafactorBF16(torch.optim.Optimizer):
+class Adafactor(torch.optim.Optimizer):
     def __init__(self, params, **kwargs):
         if isinstance(params, torch.nn.Parameter) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             kwargs["params"] = params
@@ -53,6 +55,7 @@ class AdafactorBF16(torch.optim.Optimizer):
                     state["row_var"] if factored else None,
                     state["col_var"] if factored else None,
                     state["variance"] if not factored else None,
+                    group["lr"],
                     state["step"],
                     group["betas"],
                     group["clip_threshold"],
@@ -73,11 +76,12 @@ class AdafactorBF16(torch.optim.Optimizer):
 
 
 def adafactor_update(
-    param: torch.Tensor,
-    grad: torch.Tensor,
-    row_var: torch.Tensor,
-    col_var: torch.Tensor,
-    variance: torch.Tensor,
+    param: torch.FloatTensor,
+    grad: torch.FloatTensor,
+    row_var: torch.FloatTensor,
+    col_var: torch.FloatTensor,
+    variance: Optional[torch.FloatTensor],
+    lr: float,
     step: int,
     betas: float,
     clip: float,
@@ -95,5 +99,5 @@ def adafactor_update(
         var_estimate = variance.clone()
 
     update = var_estimate.rsqrt_().mul_(grad).nan_to_num_().clamp_(-clip,clip)
-    update = update.mul_(param.norm(2).mul_(clip * 0.2).div_(update.norm(2)))
+    update = update.mul_(param.norm(2).clamp_(min=lr).div_(update.norm(2).clamp_(min=1/clip)))
     return update

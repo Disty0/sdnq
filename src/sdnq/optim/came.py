@@ -95,7 +95,6 @@ def came_update(
     clip: float,
 ):
     one_minus_betas_1 = 1 - betas[1]
-
     update = torch.square(grad)
     if exp_avg_sq is None:
         exp_avg_sq_row.lerp_(update.mean(dim=-1), one_minus_betas_1)
@@ -106,7 +105,7 @@ def came_update(
         update = exp_avg_sq.rsqrt()
 
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
-    update = update.mul_((clip * 0.2 * update.numel()**0.5) / update.norm(2)).clamp_(-clip,clip)
+    update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
 
     exp_avg.lerp_(update.to(dtype=exp_avg.dtype), 1 - betas[0])
     if exp_avg_sq is None:
