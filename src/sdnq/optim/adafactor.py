@@ -33,18 +33,15 @@ class Adafactor(torch.optim.Optimizer):
                 if p.grad is None:
                     continue
 
-                factored = p.ndim >= 2
                 state = self.state[p]
+                grad_shape = p.grad.shape
+                factored = len(grad_shape) >= 2
 
                 if len(state) == 0:
                     state["step"] = 0
                     if factored:
-                        row_shape = list(p.shape)
-                        col_shape = list(p.shape)
-                        row_shape[-1] = 1
-                        col_shape[-2] = 1
-                        state["row_var"] = torch.zeros(row_shape, dtype=torch.float32, device=p.device)
-                        state["col_var"] = torch.zeros(col_shape, dtype=torch.float32, device=p.device)
+                        state["row_var"] = torch.zeros(grad_shape[:-1], dtype=torch.float32, device=p.device)
+                        state["col_var"] = torch.zeros(grad_shape[:-2] + grad_shape[-1:], dtype=torch.float32, device=p.device)
                     else:
                         state["variance"] = torch.zeros_like(p, dtype=torch.float32)
 
@@ -87,17 +84,21 @@ def adafactor_update(
     clip: float,
 ):
     beta_t = step**betas
-
+    update = torch.square(grad)
     if variance is None:
-        row_mean = torch.norm(grad, dim=-1, keepdim=True).square_().div_(grad.size(-1))
-        row_var.lerp_(row_mean, beta_t)
-        col_mean = torch.norm(grad, dim=-2, keepdim=True).square_().div_(grad.size(-2))
-        col_var.lerp_(col_mean, beta_t)
-        var_estimate = (row_var @ col_var).div_(row_var.mean(dim=-2, keepdim=True)).nan_to_num_()
+        row_var.lerp_(update.mean(dim=-1), beta_t)
+        col_var.lerp_(update.mean(dim=-2), beta_t)
+        update = approx_sq_grad(row_var, col_var)
     else:
-        variance.lerp_(grad.square(), beta_t)
-        var_estimate = variance.clone()
+        variance.lerp_(update, beta_t)
+        update = variance.rsqrt()
 
-    update = var_estimate.rsqrt_().mul_(grad).nan_to_num_().clamp_(-clip,clip)
+    update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
     update = update.mul_(param.norm(2).clamp_(min=lr).div_(update.norm(2).clamp_(min=1/clip)))
     return update
+
+
+def approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col):
+    r_factor = torch.div(exp_avg_sq_row, exp_avg_sq_row.mean(dim=-1, keepdim=True)).rsqrt_().unsqueeze(-1)
+    c_factor = exp_avg_sq_col.rsqrt().unsqueeze(-2)
+    return torch.mul(r_factor, c_factor)
