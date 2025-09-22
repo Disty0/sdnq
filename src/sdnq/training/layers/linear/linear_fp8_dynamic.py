@@ -3,7 +3,8 @@ from typing import Tuple
 import torch
 from sdnq.common import compile_func
 
-from ...dequantizer import quantize_fp8 # noqa: TID252
+from ...dequantizer import SDNQTensor, quantize_fp8 # noqa: TID252
+from .forward import quantized_linear_with_backward # noqa: TID252
 
 
 def check_fp8_mats(input: torch.Tensor, weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -53,17 +54,20 @@ class FP8MatmulBackwardDynamic(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
         ctx.save_for_backward(input, weight, bias)
-        return fp8_matmul_dynamic_compiled(input, weight, bias)
+        return fp8_matmul_dynamic_compiled(input, weight.dequantize(), bias)
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, bias = ctx.saved_tensors
-        return fp8_matmul_dynamic_backward(grad_output, input, weight, bias, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
+        return fp8_matmul_dynamic_backward(grad_output, input, weight.dequantize(), bias, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
 
 
 def quantized_linear_forward_fp8_matmul_dynamic(self, input: torch.FloatTensor) -> torch.FloatTensor:
     if torch.numel(input) / input.shape[-1] < 32:
-        return torch.nn.functional.linear(input, self.weight, self.bias)
+        if isinstance(self.weight, SDNQTensor):
+            return quantized_linear_with_backward(input, self.weight, self.bias)
+        else:
+            return torch.nn.functional.linear(input, self.weight, self.bias)
     return fp8_matmul_with_backward_dynamic(input, self.weight, self.bias)
 
 

@@ -4,8 +4,9 @@ import torch
 from sdnq.common import compile_func
 
 from ...dequantizer import SDNQTensor
-from .linear_int8 import int8_matmul, quantize_int8_matmul_input
-from .linear_int8_dynamic import int8_matmul_dynamic
+from .forward import quantized_linear_with_backward # noqa: TID252
+from .linear_int8 import int8_matmul, quantize_int8_matmul_input # noqa: TID252
+from .linear_int8_dynamic import int8_matmul_dynamic # noqa: TID252
 
 
 def int8_matmul_dynamic_ckpt(input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True) -> torch.FloatTensor:
@@ -43,8 +44,11 @@ class INT8MatmulBackwardCKPT(torch.autograd.Function):
 
 
 def quantized_linear_forward_int8_matmul_dynamic_ckpt(self, input: torch.FloatTensor) -> torch.FloatTensor:
-    if not isinstance(self.weight, SDNQTensor) and torch.numel(input) / input.shape[-1] < 32:
-        return torch.nn.functional.linear(input, self.weight, self.bias)
+    if torch.numel(input) / input.shape[-1] < 32:
+        if isinstance(self.weight, SDNQTensor):
+            return quantized_linear_with_backward(input, self.weight, self.bias)
+        else:
+            return torch.nn.functional.linear(input, self.weight, self.bias)
     return int8_matmul_with_backward_ckpt(input, self.weight, self.bias)
 
 

@@ -4,6 +4,7 @@ import torch
 from sdnq.common import compile_func
 
 from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8 # noqa: TID252
+from .forward import quantized_linear_with_backward # noqa: TID252
 
 
 def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True) -> Tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
@@ -55,8 +56,11 @@ class INT8MatmulBackward(torch.autograd.Function):
 
 
 def quantized_linear_forward_int8_matmul_dynamic(self, input: torch.FloatTensor) -> torch.FloatTensor:
-    if not isinstance(self.weight, SDNQTensor) and torch.numel(input) / input.shape[-1] < 32:
-        return torch.nn.functional.linear(input, self.weight, self.bias)
+    if torch.numel(input) / input.shape[-1] < 32:
+        if isinstance(self.weight, SDNQTensor):
+            return quantized_linear_with_backward(input, self.weight, self.bias)
+        else:
+            return torch.nn.functional.linear(input, self.weight, self.bias)
     return int8_matmul_with_backward(input, self.weight, self.bias)
 
 
