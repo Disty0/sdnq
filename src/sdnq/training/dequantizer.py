@@ -92,10 +92,14 @@ def quantize_fp8_sr(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.Tens
 class SDNQTensor(torch.Tensor):
     @staticmethod
     def __new__(cls, quant_data: torch.Tensor, scale: torch.FloatTensor, zero_point: torch.FloatTensor, original_shape: torch.Size, dtype: torch.dtype, qtype: str, group_size: int, sr: bool):
+        using_group_size = bool(original_shape is not None)
+        stride = quant_data.stride()
+        if using_group_size:
+            stride = stride[:-2] + (stride[-1],)
         return torch.Tensor._make_wrapper_subclass(
             cls,
-            quant_data.shape,
-            strides=quant_data.stride(),
+            original_shape if using_group_size else quant_data.shape,
+            strides=stride,
             storage_offset=quant_data.storage_offset(),
             dtype=dtype,
             device=quant_data.device,
@@ -365,14 +369,16 @@ def sdnq_copy_(func, x, y, *args, **kwargs):
 def sdnq_zeros_like(func, x, *args, **kwargs):
     dtype = kwargs.pop("dtype", x.return_dtype)
     device = kwargs.pop("device", x.device)
-    return torch.zeros(x.original_shape, *args, dtype=dtype, device=device, **kwargs)
+    shape = x.original_shape if x.original_shape is not None else x.shape
+    return torch.zeros(shape, *args, dtype=dtype, device=device, **kwargs)
 
 
 @register_op([torch.ops.aten.ones_like.default])
 def sdnq_ones_like(func, x, *args, **kwargs):
     dtype = kwargs.pop("dtype", x.return_dtype)
     device = kwargs.pop("device", x.device)
-    return torch.ones(x.original_shape, *args, dtype=dtype, device=device, **kwargs)
+    shape = x.original_shape if x.original_shape is not None else x.shape
+    return torch.ones(shape, *args, dtype=dtype, device=device, **kwargs)
 
 
 def sdnq_mul_inner(func, x, y):

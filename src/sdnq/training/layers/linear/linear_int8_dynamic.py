@@ -43,7 +43,7 @@ def int8_matmul_dynamic_backward(grad_output: torch.FloatTensor, input: torch.Fl
     return grad_input, grad_weight, grad_bias
 
 
-class INT8MatmulBackward(torch.autograd.Function):
+class INT8MatmulDynamicBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
         ctx.save_for_backward(input, weight, bias)
@@ -61,9 +61,9 @@ def quantized_linear_forward_int8_matmul_dynamic(self, input: torch.FloatTensor)
             return quantized_linear_with_backward(input, self.weight, self.bias)
         else:
             return torch.nn.functional.linear(input, self.weight, self.bias)
-    return int8_matmul_with_backward(input, self.weight, self.bias)
+    return int8_matmul_dynamic_with_backward(input, self.weight, self.bias)
 
 
-int8_matmul_with_backward = INT8MatmulBackward.apply
+int8_matmul_dynamic_with_backward = INT8MatmulDynamicBackward.apply
 int8_matmul_dynamic_compiled = compile_func(int8_matmul_dynamic)
 int8_matmul_dynamic_backward = compile_func(int8_matmul_dynamic_backward)
