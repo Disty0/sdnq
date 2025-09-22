@@ -19,13 +19,14 @@ def linear_backward(grad_output: torch.FloatTensor, input: torch.FloatTensor, we
 class QuantizedLinearBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
+        weight = weight.dequantize()
         ctx.save_for_backward(input, weight, bias)
-        return torch.nn.functional.linear(input, weight.dequantize(), bias)
+        return torch.nn.functional.linear(input, weight, bias)
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, bias = ctx.saved_tensors
-        return linear_backward(grad_output, input, weight.dequantize(), bias, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
+        return linear_backward(grad_output, input, weight, bias, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
 
 
 def quantized_linear_forward(self, input: torch.FloatTensor) -> torch.FloatTensor:
