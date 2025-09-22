@@ -21,6 +21,18 @@ class Adafactor(torch.optim.Optimizer):
             assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round"])
         super().__init__(param_groups, dict())
 
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        for group in self.param_groups:
+            for p in group["params"]:
+                state = self.state.get(p, None)
+                if state is not None:
+                    if state.get("variance", None) is None:
+                        state["row_var"] = state["row_var"].to(dtype=torch.float32)
+                        state["col_var"] = state["col_var"].to(dtype=torch.float32)
+                    else:
+                        state["variance"] = state["variance"].to(dtype=torch.float32)
+
     @torch.no_grad()
     def step(self, closure=None):
         loss = None

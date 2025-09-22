@@ -26,6 +26,16 @@ class AdamW(torch.optim.Optimizer):
             assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
 
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        for group in self.param_groups:
+            if group["use_quantized_buffers"]:
+                for p in group["params"]:
+                    state = self.state.get(p, None)
+                    if state is not None:
+                            state["exp_avg"] = state["exp_avg"].to(dtype=torch.float32)
+                            state["exp_avg"] = state["exp_avg"].to(dtype=torch.float32)
+
     @torch.no_grad()
     def step(self, closure=None):
         loss = None
