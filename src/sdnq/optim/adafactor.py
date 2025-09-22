@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Tuple, Optional
 
 import torch
 
@@ -16,7 +16,7 @@ class Adafactor(torch.optim.Optimizer):
             group["lr"] = group.get("lr", 1e-2)
             group["betas"] = group.get("betas", -0.8)
             group["weight_decay"] = group.get("weight_decay", 0.01)
-            group["clip_threshold"] = group.get("clip_threshold", 1.0)
+            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3))
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
             assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round"])
         super().__init__(param_groups, dict())
@@ -52,7 +52,6 @@ class Adafactor(torch.optim.Optimizer):
                     state["row_var"] if factored else None,
                     state["col_var"] if factored else None,
                     state["variance"] if not factored else None,
-                    group["lr"],
                     state["step"],
                     group["betas"],
                     group["clip_threshold"],
@@ -79,11 +78,11 @@ def adafactor_update(
     row_var: torch.FloatTensor,
     col_var: torch.FloatTensor,
     variance: Optional[torch.FloatTensor],
-    lr: float,
     step: int,
     betas: float,
-    clip: float,
+    clips: Tuple[float, float],
 ):
+    clip, clip2 = clips
     beta_t = step**betas
     update = torch.square(grad)
     if variance is None:
@@ -95,7 +94,7 @@ def adafactor_update(
         update = variance.rsqrt()
 
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
-    update = update.mul_(param.norm(2).clamp_(min=lr).div_(update.norm(2).clamp_(min=1/clip)))
+    update = update.mul_(param.norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
     return update
 
 

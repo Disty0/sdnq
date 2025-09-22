@@ -23,7 +23,7 @@ class Muon(torch.optim.Optimizer):
                 group["lr"] = group.get("lr", 1e-3)
                 group["betas"] = group.get("betas", (0.9, 0.95))
                 group["weight_decay"] = group.get("weight_decay", 0.01)
-                group["clip_threshold"] = group.get("clip_threshold", 1.0)
+                group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3))
                 group["ns_steps"] = group.get("ns_steps", 5)
                 group["nesterov"] = group.get("nesterov", True)
                 group["adaptive"] = group.get("adaptive", False)
@@ -81,7 +81,6 @@ class Muon(torch.optim.Optimizer):
                         p.grad.to(dtype=state["momentum_buffer"].dtype),
                         state["momentum_buffer"],
                         state["v_buffer"] if group["adaptive"] else None,
-                        group["lr"],
                         state["step"],
                         group["betas"],
                         group["clip_threshold"],
@@ -156,10 +155,9 @@ def muon_update(
     grad: torch.FloatTensor,
     momentum_buffer: torch.FloatTensor,
     v_buffer: Optional[torch.FloatTensor],
-    lr: float,
     step: int,
     betas: Tuple[float, float],
-    clip: float,
+    clips: Tuple[float, float],
     ns_steps: int = 5,
     nesterov: bool = True,
     norm_mode: str = "muon",
@@ -168,6 +166,7 @@ def muon_update(
     quantized_matmul_dtype: str = "int8",
 ) -> torch.FloatTensor:
     beta, beta2 = betas
+    clip, clip2 = clips
     reshape_grad = (grad.ndim > 2)
     momentum_buffer.lerp_(grad, 1 - beta)
     grad = grad.lerp_(momentum_buffer, beta) if nesterov else momentum_buffer
@@ -201,9 +200,7 @@ def muon_update(
     elif norm_mode == "adamuon":
         grad = grad.mul_(torch.div((clip * 0.2 * grad.numel()**0.5), grad.norm(2)).clamp_(max=1))
     elif norm_mode == "adafactor":
-        if isinstance(lr, torch.Tensor):
-            lr = lr.item()
-        grad = grad.mul_(param.to(dtype=grad.dtype).norm(2).clamp_(min=lr).div_(grad.norm(2).clamp_(min=1/clip)))
+        grad = grad.mul_(param.to(dtype=grad.dtype).norm(2).clamp_(min=clip2).div_(grad.norm(2).clamp_(min=1/clip)))
     elif norm_mode != "none":
         raise NotImplementedError(f'Norm mode {norm_mode} is not implemented')
 
