@@ -81,7 +81,7 @@ def adafactor_update(
     step: int,
     betas: float,
     clips: Tuple[float, float],
-):
+) -> torch.FloatTensor:
     clip, clip2 = clips
     beta_t = step**betas
     update = torch.square(grad)

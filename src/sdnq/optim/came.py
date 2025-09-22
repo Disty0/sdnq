@@ -1,5 +1,6 @@
+from typing import Tuple, Optional
+
 import torch
-import torch.optim
 
 from .stochastic import copy_stochastic_
 from sdnq.training import SDNQTensor
@@ -83,39 +84,41 @@ class CAME(torch.optim.Optimizer):
 
 
 def came_update(
-    grad: torch.Tensor,
-    exp_avg_sq_row: torch.Tensor,
-    exp_avg_sq_col: torch.Tensor,
-    exp_avg_res_row: torch.Tensor,
-    exp_avg_res_col: torch.Tensor,
-    exp_avg_sq: torch.Tensor,
-    exp_avg: torch.Tensor,
+    grad: torch.FloatTensor,
+    exp_avg_sq_row: torch.FloatTensor,
+    exp_avg_sq_col: torch.FloatTensor,
+    exp_avg_res_row: torch.FloatTensor,
+    exp_avg_res_col: torch.FloatTensor,
+    exp_avg_sq: Optional[torch.FloatTensor],
+    exp_avg: torch.FloatTensor,
     step: int,
-    betas: float,
+    betas: Tuple[float, float, float],
     clip: float,
-):
-    one_minus_betas_1 = 1 - betas[1]
+) -> torch.FloatTensor:
+    beta0, beta1, beta2 = betas
+
+    one_minus_beta1 = 1 - beta1
     update = torch.square(grad)
     if exp_avg_sq is None:
-        exp_avg_sq_row.lerp_(update.mean(dim=-1), one_minus_betas_1)
-        exp_avg_sq_col.lerp_(update.mean(dim=-2), one_minus_betas_1)
+        exp_avg_sq_row.lerp_(update.mean(dim=-1), one_minus_beta1)
+        exp_avg_sq_col.lerp_(update.mean(dim=-2), one_minus_beta1)
         update = approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
     else:
-        exp_avg_sq.lerp_(update, one_minus_betas_1)
+        exp_avg_sq.lerp_(update, one_minus_beta1)
         update = exp_avg_sq.rsqrt()
 
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
     update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
 
-    exp_avg.lerp_(update.to(dtype=exp_avg.dtype), 1 - betas[0])
+    exp_avg.lerp_(update.to(dtype=exp_avg.dtype), 1 - beta0)
     if exp_avg_sq is None:
         res = torch.sub(update, exp_avg.to(dtype=torch.float32)).square_()
-        one_minus_betas_2 = 1 - betas[2]
-        exp_avg_res_row.lerp_(res.mean(dim=-1), one_minus_betas_2)
-        exp_avg_res_col.lerp_(res.mean(dim=-2), one_minus_betas_2)
+        one_minus_beta2 = 1 - beta2
+        exp_avg_res_row.lerp_(res.mean(dim=-1), one_minus_beta2)
+        exp_avg_res_col.lerp_(res.mean(dim=-2), one_minus_beta2)
         update = approx_sq_grad(exp_avg_res_row, exp_avg_res_col).mul_(exp_avg)
     else:
-        update = exp_avg
+        update = exp_avg.clone()
 
     update = update.nan_to_num_().clamp_(-clip,clip)
     return update
