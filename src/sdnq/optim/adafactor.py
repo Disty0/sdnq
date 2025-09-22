@@ -58,16 +58,17 @@ class Adafactor(torch.optim.Optimizer):
                     group["clip_threshold"],
                 )
 
+                alpha = -min(group["lr"], 1 / (state["step"]**0.5))
                 if group["bf16_stochastic_round"]:
                     p_fp32 = p.to(dtype=torch.float32)
                     if group["weight_decay"] != 0:
                         p_fp32.mul_(1 - group["lr"] * group["weight_decay"])
-                    p_fp32.add_(update, alpha=-min(group["lr"], 1 / (state["step"]**0.5)))
+                    p_fp32.add_(update, alpha=alpha)
                     copy_stochastic_(p, p_fp32)
                 else:
                     if group["weight_decay"] != 0:
                         p.mul_(1 - group["lr"] * group["weight_decay"])
-                    p.add_(update, alpha=-min(group["lr"], 1 / (state["step"]**0.5)))
+                    p.add_(update, alpha=alpha)
 
         return loss
 

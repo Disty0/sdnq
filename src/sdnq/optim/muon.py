@@ -201,8 +201,10 @@ def muon_update(
     elif norm_mode == "adamuon":
         grad = grad.mul_(torch.div((clip * 0.2 * grad.numel()**0.5), grad.norm(2)).clamp_(max=1))
     elif norm_mode == "adafactor":
+        if isinstance(lr, torch.Tensor):
+            lr = lr.item()
         grad = grad.mul_(param.to(dtype=grad.dtype).norm(2).clamp_(min=lr).div_(grad.norm(2).clamp_(min=1/clip)))
-    else:
+    elif norm_mode != "none":
         raise NotImplementedError(f'Norm mode {norm_mode} is not implemented')
 
     return grad
