@@ -33,11 +33,12 @@ class Muon(torch.optim.Optimizer):
                 group["use_quantized_matmul"] = group.get("use_quantized_matmul", False)
                 group["quantized_matmul_dtype"] = group.get("quantized_matmul_dtype", "int8")
                 group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
-                group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "int8")
+                group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
+                group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
                 group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
                 if isinstance(group["zeropower_dtype"], str):
                     group["zeropower_dtype"] = getattr(torch, group["zeropower_dtype"])
-                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "ns_steps", "nesterov", "adaptive", "norm_mode", "bf16_stochastic_round", "zeropower_dtype", "use_quantized_matmul", "quantized_matmul_dtype", "use_quantized_buffers", "quantized_buffers_dtype", "use_stochastic_quantization"])
+                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "ns_steps", "nesterov", "adaptive", "norm_mode", "bf16_stochastic_round", "zeropower_dtype", "use_quantized_matmul", "quantized_matmul_dtype", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
             else:
                 group["lr"] = group.get("lr", 1e-4)
                 group["betas"] = group.get("betas", (0.9, 0.95))
@@ -45,9 +46,10 @@ class Muon(torch.optim.Optimizer):
                 group["clip_threshold"] = group.get("clip_threshold", 1.0)
                 group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
                 group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
-                group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "int8")
+                group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
+                group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
                 group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
-                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "use_stochastic_quantization"])
+                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
 
     @torch.no_grad()
@@ -67,9 +69,9 @@ class Muon(torch.optim.Optimizer):
                     if len(state) == 0:
                         state["step"] = 0
                         if group["use_quantized_buffers"]:
-                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
                             if group["adaptive"]:
-                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
                         else:
                             state["momentum_buffer"] = torch.zeros_like(p)
                             if group["adaptive"]:
@@ -110,8 +112,8 @@ class Muon(torch.optim.Optimizer):
                     state = self.state[p]
                     if len(state) == 0:
                         if group["use_quantized_buffers"]:
-                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
-                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], sr=group["use_stochastic_quantization"])
+                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
+                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
                         else:
                             state["exp_avg"] = torch.zeros_like(p)
                             state["exp_avg_sq"] = torch.zeros_like(p)

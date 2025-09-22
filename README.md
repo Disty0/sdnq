@@ -34,7 +34,7 @@ model = AutoModel.from_pretrained(model_path, quantization_config=sdnq_config)
 
 Example code for quantized training:  
 Note:  
- - Only INT8 and FP8 (E4) are supported in training.  
+ - Only INT8, UINT8 and FP8 (E4) are supported in training.  
  - Safetensors serialization is not supported with static quantized training.  
 
 ```py
@@ -44,6 +44,7 @@ from sdnq.common import use_torch_compile as triton_is_available
 model = apply_sdnq_to_module(
     model,
     weights_dtype="int8",
+    group_size=-1, # -1 means disabled
     use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
     use_quantized_matmul=triton_is_available,
     use_static_quantization=True, # quantize the model weights
@@ -60,7 +61,8 @@ optimizer = AdamW(
     parameters,
     bf16_stochastic_round=False, # for BF16 weights. Do not enable this with static quantized weights
     use_quantized_buffers=True,
-    quantized_buffers_dtype="int8",
+    quantized_buffers_dtype="uint8",
+    quantized_buffers_group_size=32,
     use_stochastic_quantization=True,
 )
 ```
@@ -71,5 +73,5 @@ Example code for quantized optimizer states for custom optimizers:
 ```py
 from sdnq.training import SDNQTensor
 
-state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p), qtype="int8", sr=True)
+state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p), qtype="uint8", group_size=32, sr=True)
 ```
