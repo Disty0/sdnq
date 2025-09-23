@@ -59,8 +59,7 @@ class Adafactor(torch.optim.Optimizer):
 
                 state["step"] += 1
                 update = adafactor_update(
-                    p.to(dtype=torch.float32),
-                    p.grad.to(dtype=torch.float32),
+                    p, p.grad,
                     state["row_var"] if factored else None,
                     state["col_var"] if factored else None,
                     state["variance"] if not factored else None,
@@ -95,6 +94,8 @@ def adafactor_update(
     clips: Tuple[float, float],
 ) -> torch.FloatTensor:
     clip, clip2 = clips
+    grad = grad.to(dtype=torch.float32)
+
     beta_t = step**betas
     update = torch.square(grad)
     if variance is None:
@@ -106,7 +107,7 @@ def adafactor_update(
         update = variance.rsqrt()
 
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
-    update = update.mul_(param.norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
+    update = update.mul_(param.to(dtype=torch.float32).norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
     return update
 
 

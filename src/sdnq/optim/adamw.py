@@ -60,7 +60,7 @@ class AdamW(torch.optim.Optimizer):
 
                 state["step"] += 1
                 update = adam_update(
-                    p.grad.to(dtype=state["exp_avg"].dtype),
+                    p.grad,
                     state["exp_avg"],
                     state["exp_avg_sq"],
                     state["step"],
@@ -84,8 +84,9 @@ class AdamW(torch.optim.Optimizer):
 
 def adam_update(grad: torch.FloatTensor, buf1: torch.FloatTensor, buf2: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
     beta, beta2 = betas
+    grad = grad.to(dtype=buf1.dtype)
     buf1.lerp_(grad, 1 - beta)
     buf2.lerp_(grad.square(), 1 - beta2)
-    buf1c = buf1 / (1 - beta ** step)
-    buf2c = buf2 / (1 - beta2 ** step)
+    buf1c = buf1.to(dtype=torch.float32) / (1 - beta ** step)
+    buf2c = buf2.to(dtype=torch.float32) / (1 - beta2 ** step)
     return buf1c.mul_(buf2c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)

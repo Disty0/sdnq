@@ -90,8 +90,7 @@ class Muon(torch.optim.Optimizer):
 
                     state["step"] += 1
                     update = muon_update(
-                        p,
-                        p.grad.to(dtype=torch.float32),
+                        p, p.grad,
                         state["momentum_buffer"],
                         state["v_buffer"] if group["adaptive"] else None,
                         state["step"],
@@ -132,7 +131,7 @@ class Muon(torch.optim.Optimizer):
 
                     state["step"] += 1
                     update = adam_update(
-                        p.grad.to(dtype=torch.float32),
+                        p.grad,
                         state["exp_avg"],
                         state["exp_avg_sq"],
                         state["step"],
@@ -156,8 +155,9 @@ class Muon(torch.optim.Optimizer):
 
 def adam_update(grad: torch.FloatTensor, buf1: torch.FloatTensor, buf2: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
     beta, beta2 = betas
-    buf1.lerp_(grad.to(dtype=buf1.dtype), 1 - beta)
-    buf2.lerp_(grad.square().to(dtype=buf2.dtype), 1 - beta2)
+    grad = grad.to(dtype=buf1.dtype)
+    buf1.lerp_(grad, 1 - beta)
+    buf2.lerp_(grad.square(), 1 - beta2)
     buf1c = buf1.to(dtype=torch.float32) / (1 - beta ** step)
     buf2c = buf2.to(dtype=torch.float32) / (1 - beta2 ** step)
     return buf1c.mul_(buf2c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)
@@ -182,7 +182,7 @@ def muon_update(
     clip, clip2 = clips
     reshape_grad = (grad.ndim > 2)
     momentum_buffer.lerp_(grad.to(dtype=momentum_buffer.dtype), 1 - beta)
-    grad = grad.lerp_(momentum_buffer.to(dtype=torch.float32), beta) if nesterov else momentum_buffer.to(dtype=torch.float32)
+    grad = grad.to(dtype=torch.float32).lerp_(momentum_buffer.to(dtype=torch.float32), beta) if nesterov else momentum_buffer.to(dtype=torch.float32)
 
     if reshape_grad: # for the case of conv filters
         grad_shape = grad.shape

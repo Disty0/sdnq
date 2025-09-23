@@ -75,7 +75,7 @@ class CAME(torch.optim.Optimizer):
 
                 state["step"] += 1
                 update = came_update(
-                    p.grad.to(dtype=torch.float32),
+                    p.grad,
                     state["exp_avg_sq_row"] if factored else None,
                     state["exp_avg_sq_col"] if factored else None,
                     state["exp_avg_res_row"] if factored else None,
@@ -114,6 +114,7 @@ def came_update(
     clip: float,
 ) -> torch.FloatTensor:
     beta0, beta1, beta2 = betas
+    grad = grad.to(dtype=torch.float32)
 
     one_minus_beta1 = 1 - beta1
     update = torch.square(grad)
