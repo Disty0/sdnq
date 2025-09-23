@@ -91,7 +91,7 @@ class Muon(torch.optim.Optimizer):
                     state["step"] += 1
                     update = muon_update(
                         p,
-                        p.grad.to(dtype=state["momentum_buffer"].dtype),
+                        p.grad.to(dtype=torch.float32),
                         state["momentum_buffer"],
                         state["v_buffer"] if group["adaptive"] else None,
                         state["step"],
@@ -132,7 +132,7 @@ class Muon(torch.optim.Optimizer):
 
                     state["step"] += 1
                     update = adam_update(
-                        p.grad.to(dtype=state["exp_avg"].dtype),
+                        p.grad.to(dtype=torch.float32),
                         state["exp_avg"],
                         state["exp_avg_sq"],
                         state["step"],
@@ -156,10 +156,10 @@ class Muon(torch.optim.Optimizer):
 
 def adam_update(grad: torch.FloatTensor, buf1: torch.FloatTensor, buf2: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
     beta, beta2 = betas
-    buf1.lerp_(grad, 1 - beta)
-    buf2.lerp_(grad.square(), 1 - beta2)
-    buf1c = buf1 / (1 - beta ** step)
-    buf2c = buf2 / (1 - beta2 ** step)
+    buf1.lerp_(grad.to(dtype=buf1.dtype), 1 - beta)
+    buf2.lerp_(grad.square().to(dtype=buf2.dtype), 1 - beta2)
+    buf1c = buf1.to(dtype=torch.float32) / (1 - beta ** step)
+    buf2c = buf2.to(dtype=torch.float32) / (1 - beta2 ** step)
     return buf1c.mul_(buf2c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)
 
 
@@ -181,8 +181,8 @@ def muon_update(
     beta, beta2 = betas
     clip, clip2 = clips
     reshape_grad = (grad.ndim > 2)
-    momentum_buffer.lerp_(grad, 1 - beta)
-    grad = grad.lerp_(momentum_buffer, beta) if nesterov else momentum_buffer
+    momentum_buffer.lerp_(grad.to(dtype=momentum_buffer.dtype), 1 - beta)
+    grad = grad.lerp_(momentum_buffer.to(dtype=torch.float32), beta) if nesterov else momentum_buffer.to(dtype=torch.float32)
 
     if reshape_grad: # for the case of conv filters
         grad_shape = grad.shape
@@ -191,9 +191,9 @@ def muon_update(
 
     if use_quantized_matmul:
         if quantized_matmul_dtype == "int8":
-            grad = zeropower_via_newtonschulz5_int8_matmul(grad, steps=ns_steps, clip=clip, dtype=zeropower_dtype)
+            grad = zeropower_via_newtonschulz5_int8_matmul(grad, steps=ns_steps, clip=clip)
         elif quantized_matmul_dtype == "fp8":
-            grad = zeropower_via_newtonschulz5_fp8_matmul(grad, steps=ns_steps, clip=clip, dtype=zeropower_dtype)
+            grad = zeropower_via_newtonschulz5_fp8_matmul(grad, steps=ns_steps, clip=clip)
         else:
             raise NotImplementedError(f'Quantization type {quantized_matmul_dtype} is not implemented')
     else:
@@ -203,8 +203,8 @@ def muon_update(
         grad = grad.unflatten(-1, grad_shape[1:])
 
     if v_buffer is not None:
-        v_buffer.lerp_(grad.square(), 1 - beta2)
-        v_hat = v_buffer / (1 - beta2 ** step)
+        v_buffer.lerp_(grad.square().to(dtype=v_buffer.dtype), 1 - beta2)
+        v_hat = v_buffer.to(dtype=torch.float32) / (1 - beta2 ** step)
         grad = grad.mul_(v_hat.rsqrt_())
     grad = grad.nan_to_num_().clamp_(-clip,clip)
 
@@ -213,7 +213,7 @@ def muon_update(
     elif norm_mode == "adamuon":
         grad = grad.mul_(torch.div((clip * 0.2 * grad.numel()**0.5), grad.norm(2)).clamp_(max=1))
     elif norm_mode == "adafactor":
-        grad = grad.mul_(param.to(dtype=grad.dtype).norm(2).clamp_(min=clip2).div_(grad.norm(2).clamp_(min=1/clip)))
+        grad = grad.mul_(param.to(dtype=torch.float32).norm(2).clamp_(min=clip2).div_(grad.norm(2).clamp_(min=1/clip)))
     elif norm_mode != "none":
         raise NotImplementedError(f'Norm mode {norm_mode} is not implemented')
 
@@ -222,11 +222,12 @@ def muon_update(
 
 def zeropower_via_newtonschulz5(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
-    X = G.to(dtype=dtype)
+    X = G.to(dtype=torch.float32)
     if G.shape[0] > G.shape[1]:
         X = X.t()
 
     X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
+    X = X.to(dtype=dtype)
     for _ in range(steps):
         A = torch.mm(X, X.t())
         B = torch.addmm(A, A, A, beta=b, alpha=c)
@@ -237,9 +238,9 @@ def zeropower_via_newtonschulz5(G: torch.FloatTensor, steps: int = 5, clip: floa
     return X.to(dtype=G.dtype)
 
 
-def zeropower_via_newtonschulz5_int8_matmul(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
+def zeropower_via_newtonschulz5_int8_matmul(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
-    X = G.to(dtype=dtype)
+    X = G.to(dtype=torch.float32)
     if G.shape[0] > G.shape[1]:
         X = X.t()
 
@@ -254,9 +255,9 @@ def zeropower_via_newtonschulz5_int8_matmul(G: torch.FloatTensor, steps: int = 5
     return X.to(dtype=G.dtype)
 
 
-def zeropower_via_newtonschulz5_fp8_matmul(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
+def zeropower_via_newtonschulz5_fp8_matmul(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
-    X = G.to(dtype=dtype)
+    X = G.to(dtype=torch.float32)
     if G.shape[0] > G.shape[1]:
         X = X.t()
 

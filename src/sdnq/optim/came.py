@@ -129,14 +129,15 @@ def came_update(
     update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
 
     exp_avg.lerp_(update.to(dtype=exp_avg.dtype), 1 - beta0)
+    exp_avg_fp32 = exp_avg.to(dtype=torch.float32)
     if exp_avg_sq is None:
-        res = torch.sub(update, exp_avg.to(dtype=torch.float32)).square_()
+        res = torch.sub(update, exp_avg_fp32).square_()
         one_minus_beta2 = 1 - beta2
         exp_avg_res_row.lerp_(res.mean(dim=-1), one_minus_beta2)
         exp_avg_res_col.lerp_(res.mean(dim=-2), one_minus_beta2)
-        update = approx_sq_grad(exp_avg_res_row, exp_avg_res_col).mul_(exp_avg)
+        update = approx_sq_grad(exp_avg_res_row, exp_avg_res_col).mul_(exp_avg_fp32)
     else:
-        update = exp_avg.clone()
+        update = exp_avg_fp32.clone()
 
     update = update.nan_to_num_().clamp_(-clip,clip)
     return update
