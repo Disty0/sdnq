@@ -181,8 +181,13 @@ def muon_update(
     beta, beta2 = betas
     clip, clip2 = clips
     reshape_grad = (grad.ndim > 2)
-    momentum_buffer.lerp_(grad.to(dtype=momentum_buffer.dtype), 1 - beta)
-    grad = grad.to(dtype=torch.float32).lerp_(momentum_buffer.to(dtype=torch.float32), beta) if nesterov else momentum_buffer.to(dtype=torch.float32)
+    if momentum_buffer.dtype != torch.float32:
+        momentum_buffer.lerp_(grad.to(dtype=momentum_buffer.dtype), 1 - beta)
+        grad = grad.to(dtype=torch.float32)
+    else:
+        grad = grad.to(dtype=torch.float32)
+        momentum_buffer.lerp_(grad, 1 - beta)
+    grad = grad.lerp_(momentum_buffer.to(dtype=torch.float32), beta) if nesterov else momentum_buffer.to(dtype=torch.float32)
 
     if reshape_grad: # for the case of conv filters
         grad_shape = grad.shape
