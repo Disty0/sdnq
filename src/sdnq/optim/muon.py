@@ -191,13 +191,13 @@ def muon_update(
 
     if use_quantized_matmul:
         if quantized_matmul_dtype == "int8":
-            grad = zeropower_via_newtonschulz5_int8_matmul(grad, steps=ns_steps, dtype=zeropower_dtype)
+            grad = zeropower_via_newtonschulz5_int8_matmul(grad, steps=ns_steps, clip=clip, dtype=zeropower_dtype)
         elif quantized_matmul_dtype == "fp8":
-            grad = zeropower_via_newtonschulz5_fp8_matmul(grad, steps=ns_steps, dtype=zeropower_dtype)
+            grad = zeropower_via_newtonschulz5_fp8_matmul(grad, steps=ns_steps, clip=clip, dtype=zeropower_dtype)
         else:
             raise NotImplementedError(f'Quantization type {quantized_matmul_dtype} is not implemented')
     else:
-        grad = zeropower_via_newtonschulz5(grad, steps=ns_steps, dtype=zeropower_dtype)
+        grad = zeropower_via_newtonschulz5(grad, steps=ns_steps, clip=clip, dtype=zeropower_dtype)
 
     if reshape_grad:
         grad = grad.unflatten(-1, grad_shape[1:])
@@ -220,13 +220,13 @@ def muon_update(
     return grad
 
 
-def zeropower_via_newtonschulz5(G: torch.FloatTensor, steps: int = 5, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
+def zeropower_via_newtonschulz5(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
     X = G.to(dtype=dtype)
     if G.shape[0] > G.shape[1]:
         X = X.t()
 
-    X = torch.div(X, X.norm().clamp_(min=1))
+    X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
     for _ in range(steps):
         A = torch.mm(X, X.t())
         B = torch.addmm(A, A, A, beta=b, alpha=c)
@@ -237,13 +237,13 @@ def zeropower_via_newtonschulz5(G: torch.FloatTensor, steps: int = 5, dtype: tor
     return X.to(dtype=G.dtype)
 
 
-def zeropower_via_newtonschulz5_int8_matmul(G: torch.FloatTensor, steps: int = 5, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
+def zeropower_via_newtonschulz5_int8_matmul(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
     X = G.to(dtype=dtype)
     if G.shape[0] > G.shape[1]:
         X = X.t()
 
-    X = torch.div(X, X.norm().clamp_(min=1))
+    X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
     for _ in range(steps):
         A = int8_matmul_dynamic(X, X, None, do_input_reshape=True)
         B = int8_matmul_dynamic((A*c), A, (A*b), do_input_reshape=False)
@@ -254,13 +254,13 @@ def zeropower_via_newtonschulz5_int8_matmul(G: torch.FloatTensor, steps: int = 5
     return X.to(dtype=G.dtype)
 
 
-def zeropower_via_newtonschulz5_fp8_matmul(G: torch.FloatTensor, steps: int = 5, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
+def zeropower_via_newtonschulz5_fp8_matmul(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
     X = G.to(dtype=dtype)
     if G.shape[0] > G.shape[1]:
         X = X.t()
 
-    X = torch.div(X, X.norm().clamp_(min=1))
+    X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
     for _ in range(steps):
         A = fp8_matmul_dynamic(X, X, None, do_input_reshape=True)
         B = fp8_matmul_dynamic((A*c), A, None, do_input_reshape=False).add_(A, alpha=b)
