@@ -89,8 +89,9 @@ class Muon(torch.optim.Optimizer):
                                 state["v_buffer"] = torch.zeros_like(p)
 
                     state["step"] += 1
+                    p_fp32 = p.to(dtype=torch.float32)
                     update = muon_update(
-                        p, p.grad,
+                        p_fp32, p.grad,
                         state["momentum_buffer"],
                         state["v_buffer"] if group["adaptive"] else None,
                         state["step"],
@@ -102,18 +103,15 @@ class Muon(torch.optim.Optimizer):
                         zeropower_dtype=group["zeropower_dtype"],
                         use_quantized_matmul=group["use_quantized_matmul"],
                         quantized_matmul_dtype=group["quantized_matmul_dtype"],
-                    )
+                    ).to(dtype=torch.float32)
 
+                    if group["weight_decay"] != 0:
+                        p_fp32.mul_(1 - group["lr"] * group["weight_decay"])
+                    p_fp32.add_(update, alpha=-group["lr"])
                     if group["bf16_stochastic_round"]:
-                        p_fp32 = p.to(dtype=torch.float32)
-                        if group["weight_decay"] != 0:
-                            p_fp32.mul_(1 - group["lr"] * group["weight_decay"])
-                        p_fp32.add_(update, alpha=-group["lr"])
                         copy_stochastic_(p, p_fp32)
                     else:
-                        if group["weight_decay"] != 0:
-                            p.mul_(1 - group["lr"] * group["weight_decay"])
-                        p.add_(update, alpha=-group["lr"])
+                        p.copy_(p_fp32)
             else:
                 for p in group["params"]:
                     if p.grad is None:
@@ -130,6 +128,7 @@ class Muon(torch.optim.Optimizer):
                         state["step"] = 0
 
                     state["step"] += 1
+                    p_fp32 = p.to(dtype=torch.float32)
                     update = adam_update(
                         p.grad,
                         state["exp_avg"],
@@ -137,18 +136,15 @@ class Muon(torch.optim.Optimizer):
                         state["step"],
                         group["betas"],
                         group["clip_threshold"],
-                    )
+                    ).to(dtype=torch.float32)
 
+                    if group["weight_decay"] != 0:
+                        p_fp32.mul_(1 - group["lr"] * group["weight_decay"])
+                    p_fp32.add_(update, alpha=-group["lr"])
                     if group["bf16_stochastic_round"]:
-                        p_fp32 = p.to(dtype=torch.float32)
-                        if group["weight_decay"] != 0:
-                            p_fp32.mul_(1 - group["lr"] * group["weight_decay"])
-                        p_fp32.add_(update, alpha=-group["lr"])
                         copy_stochastic_(p, p_fp32)
                     else:
-                        if group["weight_decay"] != 0:
-                            p.mul_(1 - group["lr"] * group["weight_decay"])
-                        p.add_(update, alpha=-group["lr"])
+                        p.copy_(p_fp32)
 
         return loss
 
