@@ -189,13 +189,13 @@ def muon_update(
         momentum_buffer.lerp_(grad, 1 - beta1)
     grad = grad.lerp_(momentum_buffer.to(dtype=torch.float32), beta1) if nesterov else momentum_buffer.to(dtype=torch.float32)
 
+    if v_buffer is not None:
+        grad = grad.sign_()
+
     if reshape_grad: # for the case of conv filters
         grad_shape = grad.shape
         grad = grad.flatten(1, -1)
     output_shape, input_shape = grad.shape
-
-    if v_buffer is not None:
-        grad = grad.sign_()
 
     if use_quantized_matmul:
         if quantized_matmul_dtype == "int8":
