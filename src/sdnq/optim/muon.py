@@ -149,14 +149,14 @@ class Muon(torch.optim.Optimizer):
         return loss
 
 
-def adam_update(grad: torch.FloatTensor, buf1: torch.FloatTensor, buf2: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
-    beta, beta2 = betas
-    grad = grad.to(dtype=buf1.dtype)
-    buf1.lerp_(grad, 1 - beta)
-    buf2.lerp_(grad.square(), 1 - beta2)
-    buf1c = buf1.to(dtype=torch.float32) / (1 - beta ** step)
-    buf2c = buf2.to(dtype=torch.float32) / (1 - beta2 ** step)
-    return buf1c.mul_(buf2c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)
+def adam_update(grad: torch.FloatTensor, exp_avg: torch.FloatTensor, exp_avg_sq: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
+    beta1, beta2 = betas
+    grad = grad.to(dtype=exp_avg.dtype)
+    exp_avg.lerp_(grad, 1 - beta1)
+    exp_avg_sq.lerp_(grad.square(), 1 - beta2)
+    exp_avg_c = exp_avg.to(dtype=torch.float32) / (1 - beta1 ** step)
+    exp_avg_sq_c = exp_avg_sq.to(dtype=torch.float32) / (1 - beta2 ** step)
+    return exp_avg_c.mul_(exp_avg_sq_c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)
 
 
 def muon_update(
@@ -174,16 +174,16 @@ def muon_update(
     use_quantized_matmul: bool = False,
     quantized_matmul_dtype: str = "int8",
 ) -> torch.FloatTensor:
-    beta, beta2 = betas
+    beta1, beta2 = betas
     clip, clip2 = clips
     reshape_grad = (grad.ndim > 2)
     if momentum_buffer.dtype != torch.float32:
-        momentum_buffer.lerp_(grad.to(dtype=momentum_buffer.dtype), 1 - beta)
+        momentum_buffer.lerp_(grad.to(dtype=momentum_buffer.dtype), 1 - beta1)
         grad = grad.to(dtype=torch.float32)
     else:
         grad = grad.to(dtype=torch.float32)
-        momentum_buffer.lerp_(grad, 1 - beta)
-    grad = grad.lerp_(momentum_buffer.to(dtype=torch.float32), beta) if nesterov else momentum_buffer.to(dtype=torch.float32)
+        momentum_buffer.lerp_(grad, 1 - beta1)
+    grad = grad.lerp_(momentum_buffer.to(dtype=torch.float32), beta1) if nesterov else momentum_buffer.to(dtype=torch.float32)
 
     if reshape_grad: # for the case of conv filters
         grad_shape = grad.shape

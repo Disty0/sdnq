@@ -111,29 +111,29 @@ def came_update(
     betas: Tuple[float, float, float],
     clip: float,
 ) -> torch.FloatTensor:
-    beta0, beta1, beta2 = betas
+    beta1, beta2, beta3 = betas
     grad = grad.to(dtype=torch.float32)
 
-    one_minus_beta1 = 1 - beta1
+    one_minus_beta2 = 1 - beta2
     update = torch.square(grad)
     if exp_avg_sq is None:
-        exp_avg_sq_row.lerp_(update.mean(dim=-1), one_minus_beta1)
-        exp_avg_sq_col.lerp_(update.mean(dim=-2), one_minus_beta1)
+        exp_avg_sq_row.lerp_(update.mean(dim=-1), one_minus_beta2)
+        exp_avg_sq_col.lerp_(update.mean(dim=-2), one_minus_beta2)
         update = approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col)
     else:
-        exp_avg_sq.lerp_(update, one_minus_beta1)
+        exp_avg_sq.lerp_(update, one_minus_beta2)
         update = exp_avg_sq.rsqrt()
 
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
     update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
 
-    exp_avg.lerp_(update.to(dtype=exp_avg.dtype), 1 - beta0)
+    exp_avg.lerp_(update.to(dtype=exp_avg.dtype), 1 - beta1)
     exp_avg_fp32 = exp_avg.to(dtype=torch.float32)
     if exp_avg_sq is None:
         res = torch.sub(update, exp_avg_fp32).square_()
-        one_minus_beta2 = 1 - beta2
-        exp_avg_res_row.lerp_(res.mean(dim=-1), one_minus_beta2)
-        exp_avg_res_col.lerp_(res.mean(dim=-2), one_minus_beta2)
+        one_minus_beta3 = 1 - beta3
+        exp_avg_res_row.lerp_(res.mean(dim=-1), one_minus_beta3)
+        exp_avg_res_col.lerp_(res.mean(dim=-2), one_minus_beta3)
         update = approx_sq_grad(exp_avg_res_row, exp_avg_res_col).mul_(exp_avg_fp32)
     else:
         update = exp_avg_fp32.clone()

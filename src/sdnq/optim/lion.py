@@ -6,7 +6,7 @@ from .stochastic import copy_stochastic_
 from sdnq.training import SDNQTensor
 
 
-class AdamW(torch.optim.Optimizer):
+class Lion(torch.optim.Optimizer):
     def __init__(self, params, **kwargs):
         if isinstance(params, torch.nn.Parameter) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             kwargs["params"] = params
@@ -17,13 +17,12 @@ class AdamW(torch.optim.Optimizer):
             group["lr"] = group.get("lr", 1e-4)
             group["betas"] = group.get("betas", (0.9, 0.95))
             group["weight_decay"] = group.get("weight_decay", 0.01)
-            group["clip_threshold"] = group.get("clip_threshold", 1.0)
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
             group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
             group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
             group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
             group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
-            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
+            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
 
     def __setstate__(self, state):
@@ -34,7 +33,6 @@ class AdamW(torch.optim.Optimizer):
                     state = self.state.get(p, None)
                     if state is not None:
                             state["exp_avg"] = state["exp_avg"].to(dtype=torch.float32)
-                            state["exp_avg_sq"] = state["exp_avg_sq"].to(dtype=torch.float32)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -53,21 +51,12 @@ class AdamW(torch.optim.Optimizer):
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
                         state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
-                        state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
                     else:
                         state["exp_avg"] = torch.zeros_like(p)
-                        state["exp_avg_sq"] = torch.zeros_like(p)
 
                 state["step"] += 1
                 p_fp32 = p.to(dtype=torch.float32)
-                update = adam_update(
-                    p.grad,
-                    state["exp_avg"],
-                    state["exp_avg_sq"],
-                    state["step"],
-                    group["betas"],
-                    group["clip_threshold"],
-                ).to(dtype=torch.float32)
+                update = lion_update(p.grad, state["exp_avg"], group["betas"]).to(dtype=torch.float32)
 
                 if group["weight_decay"] != 0:
                     p_fp32.mul_(1 - group["lr"] * group["weight_decay"])
@@ -80,11 +69,9 @@ class AdamW(torch.optim.Optimizer):
         return loss
 
 
-def adam_update(grad: torch.FloatTensor, exp_avg: torch.FloatTensor, exp_avg_sq: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
+def lion_update(grad: torch.FloatTensor, exp_avg: torch.FloatTensor, betas: Tuple[float, float]) -> torch.FloatTensor:
     beta1, beta2 = betas
     grad = grad.to(dtype=exp_avg.dtype)
-    exp_avg.lerp_(grad, 1 - beta1)
-    exp_avg_sq.lerp_(grad.square(), 1 - beta2)
-    exp_avg_c = exp_avg.to(dtype=torch.float32) / (1 - beta1 ** step)
-    exp_avg_sq_c = exp_avg_sq.to(dtype=torch.float32) / (1 - beta2 ** step)
-    return exp_avg_c.mul_(exp_avg_sq_c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)
+    update = exp_avg.lerp(grad, 1 - beta1).sign_()
+    exp_avg.lerp_(grad, 1 - beta2)
+    return update
