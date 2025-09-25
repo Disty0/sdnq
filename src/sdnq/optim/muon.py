@@ -27,7 +27,7 @@ class Muon(torch.optim.Optimizer):
                 group["ns_steps"] = group.get("ns_steps", 5)
                 group["nesterov"] = group.get("nesterov", True)
                 group["adaptive"] = group.get("adaptive", False)
-                group["norm_mode"] = group.get("norm_mode", "adamuon" if group["adaptive"] else "muon")
+                group["norm_mode"] = group.get("norm_mode", "adamuon" if group["adaptive"] else "adamuon_clip")
                 group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
                 group["zeropower_dtype"] = group.get("zeropower_dtype", "bfloat16")
                 group["use_quantized_matmul"] = group.get("use_quantized_matmul", False)
@@ -194,6 +194,9 @@ def muon_update(
         grad = grad.flatten(1, -1)
     output_shape, input_shape = grad.shape
 
+    if v_buffer is not None:
+        grad = grad.sign_()
+
     if use_quantized_matmul:
         if quantized_matmul_dtype == "int8":
             grad = zeropower_via_newtonschulz5_int8_matmul(grad, steps=ns_steps, clip=clip)
@@ -216,6 +219,8 @@ def muon_update(
     if norm_mode == "muon":
         grad = grad.mul_(max(1, output_shape / input_shape)**0.5)
     elif norm_mode == "adamuon":
+        grad = grad.mul_(torch.div((clip * 0.2 * grad.numel()**0.5), grad.norm(2))).nan_to_num_().clamp_(-clip,clip)
+    elif norm_mode == "adamuon_clip":
         grad = grad.mul_(torch.div((clip * 0.2 * grad.numel()**0.5), grad.norm(2)).clamp_(max=1))
     elif norm_mode == "adafactor":
         grad = grad.mul_(param.to(dtype=torch.float32).norm(2).clamp_(min=clip2).div_(grad.norm(2).clamp_(min=1/clip)))
