@@ -27,7 +27,7 @@ class Muon(torch.optim.Optimizer):
                 group["ns_steps"] = group.get("ns_steps", 5)
                 group["nesterov"] = group.get("nesterov", True)
                 group["adaptive"] = group.get("adaptive", False)
-                group["norm_mode"] = group.get("norm_mode", "adamuon" if group["adaptive"] else "adamuon_clip")
+                group["norm_mode"] = group.get("norm_mode", "adamuon_clip")
                 group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
                 group["zeropower_dtype"] = group.get("zeropower_dtype", "bfloat16")
                 group["use_quantized_matmul"] = group.get("use_quantized_matmul", False)
