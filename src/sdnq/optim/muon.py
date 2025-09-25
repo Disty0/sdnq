@@ -103,7 +103,7 @@ class Muon(torch.optim.Optimizer):
                         group["clip_threshold"],
                         ns_steps=group["ns_steps"],
                         nesterov=group["nesterov"],
-                        norm_mode=group["nesterov"],
+                        norm_mode=group["norm_mode"],
                         zeropower_dtype=group["zeropower_dtype"],
                         use_quantized_matmul=group["use_quantized_matmul"],
                         quantized_matmul_dtype=group["quantized_matmul_dtype"],
