@@ -59,9 +59,13 @@ class Muon(torch.optim.Optimizer):
                 for p in group["params"]:
                     state = self.state.get(p, None)
                     if state is not None:
-                        state["momentum_buffer"] = state["momentum_buffer"].to(dtype=torch.float32)
-                        if group["adaptive"]:
-                            state["v_buffer"] = state["v_buffer"].to(dtype=torch.float32)
+                        if group["use_muon"]:
+                            state["momentum_buffer"] = state["momentum_buffer"].to(dtype=torch.float32)
+                            if group["adaptive"]:
+                                state["v_buffer"] = state["v_buffer"].to(dtype=torch.float32)
+                        else:
+                            state["exp_avg"] = state["exp_avg"].to(dtype=torch.float32)
+                            state["exp_avg_sq"] = state["exp_avg_sq"].to(dtype=torch.float32)
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -99,7 +103,7 @@ class Muon(torch.optim.Optimizer):
                         group["clip_threshold"],
                         ns_steps=group["ns_steps"],
                         nesterov=group["nesterov"],
-                        norm_mode=group["norm_mode"],
+                        norm_mode=group["nesterov"],
                         zeropower_dtype=group["zeropower_dtype"],
                         use_quantized_matmul=group["use_quantized_matmul"],
                         quantized_matmul_dtype=group["quantized_matmul_dtype"],
