@@ -15,7 +15,7 @@ class CAME(torch.optim.Optimizer):
             param_groups = params
         for group in param_groups:
             group["lr"] = group.get("lr", 1e-4)
-            group["betas"] = group.get("betas", (0.9, 0.999, 0.9999))
+            group["betas"] = group.get("betas", (0.9, 0.95, 0.99))
             group["weight_decay"] = group.get("weight_decay", 0.01)
             group["clip_threshold"] = group.get("clip_threshold", 1.0)
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
