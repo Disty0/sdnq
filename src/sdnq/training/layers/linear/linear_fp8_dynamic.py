@@ -53,7 +53,8 @@ def fp8_matmul_dynamic_backward(grad_output: torch.FloatTensor, input: torch.Flo
 class FP8MatmulBackwardDynamic(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
-        weight = weight.dequantize()
+        if isinstance(weight, SDNQTensor):
+            weight = weight.dequantize()
         ctx.save_for_backward(input, weight, bias)
         return fp8_matmul_dynamic_compiled(input, weight, bias)
 

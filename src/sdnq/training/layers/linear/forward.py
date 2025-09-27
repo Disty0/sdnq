@@ -3,6 +3,8 @@ from typing import Tuple
 import torch
 from sdnq.common import compile_func
 
+from ...dequantizer import SDNQTensor
+
 
 def linear_backward(grad_output: torch.FloatTensor, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, do_grad_input: bool = True, do_grad_weight: bool = True, do_grad_bias: bool = True) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     grad_input = grad_weight = grad_bias = None
@@ -19,7 +21,8 @@ def linear_backward(grad_output: torch.FloatTensor, input: torch.FloatTensor, we
 class QuantizedLinearBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
-        weight = weight.dequantize()
+        if isinstance(weight, SDNQTensor):
+            weight = weight.dequantize()
         ctx.save_for_backward(input, weight, bias)
         return torch.nn.functional.linear(input, weight, bias)
 

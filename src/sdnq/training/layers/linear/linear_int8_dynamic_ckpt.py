@@ -33,7 +33,9 @@ def int8_matmul_dynamic_backward_ckpt(grad_output: torch.FloatTensor, input: tor
 class INT8MatmulBackwardCKPT(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
-        result, new_input, new_weight, input_scale, weight_scale = int8_matmul_dynamic_ckpt_compiled(input, weight.dequantize(), bias)
+        if isinstance(weight, SDNQTensor):
+            weight = weight.dequantize()
+        result, new_input, new_weight, input_scale, weight_scale = int8_matmul_dynamic_ckpt_compiled(input, weight, bias)
         ctx.save_for_backward(new_input, new_weight, bias, input_scale, weight_scale)
         return result
 
