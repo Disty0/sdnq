@@ -76,6 +76,7 @@ class Adafactor(torch.optim.Optimizer):
                     copy_stochastic_(p, p_fp32)
                 else:
                     p.copy_(p_fp32)
+                del p_fp32
 
         return loss
 
