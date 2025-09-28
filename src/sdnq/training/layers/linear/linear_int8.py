@@ -21,7 +21,8 @@ def int8_matmul(input: torch.FloatTensor, weight: torch.Tensor, bias: torch.Floa
     return_dtype = input.dtype
     if do_transpose:
         weight = weight.t()
-        scale = scale.t()
+        if scale is not None:
+            scale = scale.t()
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[-1]
@@ -36,7 +37,7 @@ def int8_matmul_backward(grad_output: torch.FloatTensor, input: torch.FloatTenso
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = int8_matmul_dynamic(grad_output, dequantize_symmetric(weight, scale), None, output_shape=input.shape, do_input_reshape=False)
+        grad_input = int8_matmul(grad_output.mul(scale.t().to(dtype=grad_output.dtype)), weight, None, None, output_shape=input.shape, do_input_reshape=False)
     if do_grad_weight:
         grad_weight = int8_matmul_dynamic(grad_output.t(), input.flatten(0,-2), None, output_shape=None, do_input_reshape=False)
     if do_grad_bias and bias is not None:
