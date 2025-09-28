@@ -360,6 +360,7 @@ def sdnq_copy_(func, x, y, *args, **kwargs):
         x.scale.copy_(y.scale, *args, **kwargs)
         if x.zero_point is not None:
             x.zero_point.copy_(y.zero_point, *args, **kwargs)
+        x.original_shape = y.original_shape
     else:
         x.copy_(y.dequantize(), *args, **kwargs)
     return x

@@ -116,7 +116,6 @@ class Muon(torch.optim.Optimizer):
                         copy_stochastic_(p, p_fp32)
                     else:
                         p.copy_(p_fp32)
-                    del p_fp32
             else:
                 for p in group["params"]:
                     if p.grad is None:
@@ -150,7 +149,6 @@ class Muon(torch.optim.Optimizer):
                         copy_stochastic_(p, p_fp32)
                     else:
                         p.copy_(p_fp32)
-                    del p_fp32
 
         return loss
 
