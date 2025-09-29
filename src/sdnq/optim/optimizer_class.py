@@ -66,3 +66,16 @@ class SDNQOptimizer(torch.optim.Optimizer):
                 state[param] = self._load_state_dict_cast(param, v, param_id=k, param_groups=state_dict["param_groups"])
             else:
                 state[k] = v
+
+        # Update parameter groups, setting their 'params' value
+        def update_group(group: dict[str, Any], new_group: dict[str, Any]) -> dict[str, Any]:
+            new_group["params"] = group["params"]
+            if "param_names" in group and "param_names" not in new_group:
+                new_group["param_names"] = group["param_names"]
+            return new_group
+
+        param_groups = [update_group(g, ng) for g, ng in zip(groups, saved_groups)]
+        self.__setstate__({"state": state, "param_groups": param_groups})
+
+        for post_hook in self._optimizer_load_state_dict_post_hooks.values():
+            post_hook(self)
