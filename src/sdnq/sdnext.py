@@ -18,6 +18,8 @@ class Devices():
         self.backend = self.device.type
         self.dtype = getattr(torch, os.environ.get("SDNQ_DTYPE", "bfloat16" if self.backend != "cpu" else "float32"))
         self.inference_context = torch.no_grad
+        if self.backend == "xpu":
+            self.backend == "ipex"
 
     def normalize_device(self, dev):
         if torch.device(dev).type in {"cpu", "mps", "meta"}:
