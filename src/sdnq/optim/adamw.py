@@ -2,11 +2,12 @@ from typing import Tuple
 
 import torch
 
+from .optimizer_class import SDNQOptimizer
 from .stochastic import copy_stochastic_
 from sdnq.training import SDNQTensor
 
 
-class AdamW(torch.optim.Optimizer):
+class AdamW(SDNQOptimizer):
     def __init__(self, params, **kwargs):
         if isinstance(params, torch.nn.Parameter) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             kwargs["params"] = params
@@ -25,16 +26,7 @@ class AdamW(torch.optim.Optimizer):
             group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
             assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
-
-    def __setstate__(self, state):
-        super().__setstate__(state)
-        for group in self.param_groups:
-            if group["use_quantized_buffers"]:
-                for p in group["params"]:
-                    state = self.state.get(p, None)
-                    if state is not None:
-                            state["exp_avg"] = state["exp_avg"].to(dtype=torch.float32)
-                            state["exp_avg_sq"] = state["exp_avg_sq"].to(dtype=torch.float32)
+        self.keep_in_fp32_keys = {}
 
     @torch.no_grad()
     def step(self, closure=None):

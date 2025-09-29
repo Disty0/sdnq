@@ -2,10 +2,11 @@ from typing import Tuple, Optional
 
 import torch
 
+from .optimizer_class import SDNQOptimizer
 from .stochastic import copy_stochastic_
 
 
-class Adafactor(torch.optim.Optimizer):
+class Adafactor(SDNQOptimizer):
     def __init__(self, params, **kwargs):
         if isinstance(params, torch.nn.Parameter) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             kwargs["params"] = params
@@ -20,18 +21,7 @@ class Adafactor(torch.optim.Optimizer):
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
             assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round"])
         super().__init__(param_groups, dict())
-
-    def __setstate__(self, state):
-        super().__setstate__(state)
-        for group in self.param_groups:
-            for p in group["params"]:
-                state = self.state.get(p, None)
-                if state is not None:
-                    if state.get("variance", None) is None:
-                        state["row_var"] = state["row_var"].to(dtype=torch.float32)
-                        state["col_var"] = state["col_var"].to(dtype=torch.float32)
-                    else:
-                        state["variance"] = state["variance"].to(dtype=torch.float32)
+        self.keep_in_fp32_keys = {"variance", "row_var", "col_var"}
 
     @torch.no_grad()
     def step(self, closure=None):
