@@ -256,11 +256,6 @@ def register_op(ops: List[torch._ops.OpOverload]):
     return impl_decorator
 
 
-def sdnq_generic_func_inner(func, *args, **kwargs):
-    args = [x.dequantize() if isinstance(x, SDNQTensor) else x for x in args]
-    return func(*args, **kwargs)
-sdnq_generic_func_inner_compiled = compile_func(sdnq_generic_func_inner)
-
 @register_op([
     torch.ops.aten.sub.Tensor,
     torch.ops.aten.sub.Scalar,
@@ -274,21 +269,9 @@ sdnq_generic_func_inner_compiled = compile_func(sdnq_generic_func_inner)
     torch.ops.aten.linalg_vector_norm.default,
 ])
 def sdnq_generic_func(func, *args, **kwargs):
-    fake_mode = detect_fake_mode(args)
-    if fake_mode is not None:
-        with fake_mode:
-            return sdnq_generic_func_inner(func, *args, **kwargs)
-    return sdnq_generic_func_inner_compiled(func, *args, **kwargs)
-
-
-def sdnq_generic_func_inner_(func, *args, **kwargs):
-    input = args[0]
     args = [x.dequantize() if isinstance(x, SDNQTensor) else x for x in args]
-    result = func(*args, **kwargs)
-    if isinstance(input, SDNQTensor):
-        input.copy_(result)
-    return input
-sdnq_generic_func_inner_compiled_ = compile_func(sdnq_generic_func_inner_)
+    return func(*args, **kwargs)
+
 
 @register_op([
     torch.ops.aten.sub_.Tensor,
@@ -302,11 +285,12 @@ sdnq_generic_func_inner_compiled_ = compile_func(sdnq_generic_func_inner_)
     torch.ops.aten.sqrt_.default,
 ])
 def sdnq_generic_func_(func, *args, **kwargs):
-    fake_mode = detect_fake_mode(args)
-    if fake_mode is not None:
-        with fake_mode:
-            return sdnq_generic_func_inner_(func, *args, **kwargs)
-    return sdnq_generic_func_inner_compiled_(func, *args, **kwargs)
+    input = args[0]
+    args = [x.dequantize() if isinstance(x, SDNQTensor) else x for x in args]
+    result = func(*args, **kwargs)
+    if isinstance(input, SDNQTensor):
+        input.copy_(result)
+    return input
 
 
 @register_op([
@@ -382,7 +366,8 @@ def sdnq_ones_like(func, x, *args, **kwargs):
     return torch.ones(shape, *args, dtype=dtype, device=device, **kwargs)
 
 
-def sdnq_mul_inner(func, x, y):
+@register_op([torch.ops.aten.mul.Tensor, torch.ops.aten.mul.Scalar])
+def sdnq_mul(func, x, y):
     if isinstance(x, SDNQTensor):
         input, other = x, y
     else:
@@ -396,18 +381,10 @@ def sdnq_mul_inner(func, x, y):
             return dequantize_asymmetric_compiled(input.quant_data, torch.mul(input.scale, other), torch.mul(input.zero_point, other), dtype=input.return_dtype, result_shape=input.original_shape)
     else:
         return input.dequantize().mul_(other)
-sdnq_mul_inner_compiled = compile_func(sdnq_mul_inner)
-
-@register_op([torch.ops.aten.mul.Tensor, torch.ops.aten.mul.Scalar])
-def sdnq_mul(func, x, y):
-    fake_mode = detect_fake_mode((x,y))
-    if fake_mode is not None:
-        with fake_mode:
-            return sdnq_mul_inner(func, x, y)
-    return sdnq_mul_inner_compiled(func, x, y)
 
 
-def sdnq_mul_inner_(func, x, y):
+@register_op([torch.ops.aten.mul_.Tensor, torch.ops.aten.mul_.Scalar])
+def sdnq_mul_(func, x, y):
     if isinstance(x, SDNQTensor):
         input, other, sdnq_first = x, y, True
     else:
@@ -421,18 +398,10 @@ def sdnq_mul_inner_(func, x, y):
         return input
     else:
         return x.copy_(input.dequantize().mul_(other))
-sdnq_mul_inner_compiled_ = compile_func(sdnq_mul_inner_)
-
-@register_op([torch.ops.aten.mul_.Tensor, torch.ops.aten.mul_.Scalar])
-def sdnq_mul_(func, x, y):
-    fake_mode = detect_fake_mode((x,y))
-    if fake_mode is not None:
-        with fake_mode:
-            return sdnq_mul_inner_(func, x, y)
-    return sdnq_mul_inner_compiled_(func, x, y)
 
 
-def sdnq_div_inner(func, x, y):
+@register_op([torch.ops.aten.div.Tensor, torch.ops.aten.div.Scalar])
+def sdnq_div(func, x, y):
     if isinstance(x, SDNQTensor):
         input, other, sdnq_first = x, y, True
     else:
@@ -451,18 +420,10 @@ def sdnq_div_inner(func, x, y):
             return input.dequantize().div_(other)
         else:
             return other.div(input.dequantize())
-sdnq_div_inner_compiled = compile_func(sdnq_div_inner)
-
-@register_op([torch.ops.aten.div.Tensor, torch.ops.aten.div.Scalar])
-def sdnq_div(func, x, y):
-    fake_mode = detect_fake_mode((x,y))
-    if fake_mode is not None:
-        with fake_mode:
-            return sdnq_div_inner(func, x, y)
-    return sdnq_div_inner_compiled(func, x, y)
 
 
-def sdnq_div_inner_(func, x, y):
+@register_op([torch.ops.aten.div_.Tensor, torch.ops.aten.div_.Scalar])
+def sdnq_div_(func, x, y):
     if isinstance(x, SDNQTensor):
         input, other, sdnq_first = x, y, True
     else:
@@ -480,15 +441,6 @@ def sdnq_div_inner_(func, x, y):
         else:
             result = other.div_(input.dequantize())
         return x.copy_(result)
-sdnq_div_inner_compiled_ = compile_func(sdnq_div_inner_)
-
-@register_op([torch.ops.aten.div_.Tensor, torch.ops.aten.div_.Scalar])
-def sdnq_div_(func, x, y):
-    fake_mode = detect_fake_mode((x,y))
-    if fake_mode is not None:
-        with fake_mode:
-            return sdnq_div_inner_(func, x, y)
-    return sdnq_div_inner_compiled_(func, x, y)
 
 
 # FSDP ops
