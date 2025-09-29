@@ -4,7 +4,8 @@ import torch
 from sdnq.common import compile_func
 
 from ...dequantizer import dequantize_symmetric, quantize_fp8 # noqa: TID252
-from .linear_fp8_dynamic import fp8_matmul_dynamic, check_fp8_mats # noqa: TID252
+from .linear_fp8_dynamic import fp8_matmul_dynamic
+from .forward import check_mats
 
 
 def quantize_fp8_matmul_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True) -> Tuple[torch.Tensor, torch.FloatTensor]:
@@ -23,7 +24,7 @@ def fp8_matmul(input: torch.FloatTensor, weight: torch.Tensor, bias: torch.Float
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[-1]
     input, input_scale = quantize_fp8_matmul_input(input, do_input_reshape=do_input_reshape)
-    input, weight = check_fp8_mats(input, weight)
+    input, weight = check_mats(input, weight)
     if bias is not None and bias.dtype != torch.bfloat16:
         bias = bias.to(dtype=torch.bfloat16)
     return torch._scaled_mm(input, weight, scale_a=input_scale, scale_b=scale, bias=bias, out_dtype=torch.bfloat16).view(output_shape).to(return_dtype)

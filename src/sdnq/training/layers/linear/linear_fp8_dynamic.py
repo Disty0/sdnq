@@ -4,17 +4,7 @@ import torch
 from sdnq.common import compile_func
 
 from ...dequantizer import SDNQTensor, quantize_fp8 # noqa: TID252
-from .forward import quantized_linear_with_backward # noqa: TID252
-
-
-def check_fp8_mats(input: torch.Tensor, weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    input_stride = input.stride()
-    if not (input_stride[0] > input_stride[1] and input_stride[1] == 1):
-        input = input.contiguous()
-    weight_stride = weight.stride()
-    if not (weight_stride[0] == 1 and weight_stride[1] > 1):
-        weight = weight.t().contiguous().t()
-    return input, weight
+from .forward import check_mats, quantized_linear_with_backward
 
 
 def quantize_fp8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
@@ -32,7 +22,7 @@ def fp8_matmul_dynamic(input: torch.FloatTensor, weight: torch.Tensor, bias: tor
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[0] if do_input_reshape else weight.shape[-1]
     input, weight, input_scale, scale = quantize_fp8_matmul(input, weight, do_input_reshape=do_input_reshape)
-    input, weight = check_fp8_mats(input, weight)
+    input, weight = check_mats(input, weight)
     if bias is not None and bias.dtype != torch.bfloat16:
         bias = bias.to(dtype=torch.bfloat16)
     return torch._scaled_mm(input, weight, scale_a=input_scale, scale_b=scale, bias=bias, out_dtype=torch.bfloat16).view(output_shape).to(return_dtype)

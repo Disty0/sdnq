@@ -3,7 +3,17 @@ from typing import Tuple
 import torch
 from sdnq.common import compile_func
 
-from ...dequantizer import SDNQTensor
+from ...dequantizer import SDNQTensor # noqa: TID252
+
+
+def check_mats(input: torch.Tensor, weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    input_stride = input.stride()
+    if not (input_stride[0] > input_stride[1] and input_stride[1] == 1):
+        input = input.contiguous()
+    weight_stride = weight.stride()
+    if not (weight_stride[0] == 1 and weight_stride[1] > 1):
+        weight = weight.t().contiguous().t()
+    return input, weight
 
 
 def linear_backward(grad_output: torch.FloatTensor, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, do_grad_input: bool = True, do_grad_weight: bool = True, do_grad_bias: bool = True) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:

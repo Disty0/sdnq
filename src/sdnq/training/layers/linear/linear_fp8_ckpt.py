@@ -3,9 +3,9 @@ from typing import Tuple
 import torch
 from sdnq.common import compile_func
 
-from ...dequantizer import dequantize_symmetric
-from .linear_fp8 import fp8_matmul, quantize_fp8_matmul_input # noqa: TID252
-from .linear_fp8_dynamic import fp8_matmul_dynamic # noqa: TID252
+from ...dequantizer import dequantize_symmetric # noqa: TID252
+from .linear_fp8 import fp8_matmul, quantize_fp8_matmul_input
+from .linear_fp8_dynamic import fp8_matmul_dynamic
 
 
 def fp8_matmul_ckpt(input: torch.FloatTensor, weight: torch.Tensor, bias: torch.FloatTensor, scale: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True, do_transpose: bool = False) -> torch.FloatTensor:

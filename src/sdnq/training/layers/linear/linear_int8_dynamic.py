@@ -4,7 +4,7 @@ import torch
 from sdnq.common import compile_func
 
 from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8 # noqa: TID252
-from .forward import quantized_linear_with_backward # noqa: TID252
+from .forward import check_mats, quantized_linear_with_backward
 
 
 def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True) -> Tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
@@ -25,6 +25,7 @@ def int8_matmul_dynamic(input: torch.FloatTensor, weight: torch.FloatTensor, bia
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[0] if do_input_reshape else weight.shape[-1]
     input, weight, scale = quantize_int8_matmul(input, weight, do_input_reshape=do_input_reshape)
+    input, weight = check_mats(input, weight)
     if bias is not None:
         return dequantize_symmetric_with_bias(torch._int_mm(input, weight), scale, bias, return_dtype, output_shape)
     else:
