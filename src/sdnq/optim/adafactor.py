@@ -16,7 +16,7 @@ class Adafactor(SDNQOptimizer):
             group["lr"] = group.get("lr", 1e-2)
             group["betas"] = group.get("betas", -0.8)
             group["weight_decay"] = group.get("weight_decay", 0.01)
-            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 0.1))
+            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
             group["use_cautious"] = group.get("use_cautious", False)
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
             assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "use_cautious", "bf16_stochastic_round"])
@@ -69,7 +69,7 @@ class Adafactor(SDNQOptimizer):
                     update=update,
                     learning_rate=group["lr"],
                     weight_decay=group["weight_decay"],
-                    clip_threshold=group["clip_threshold"][-1],
+                    cautious_clip=group["clip_threshold"][-1],
                     use_cautious=group["use_cautious"],
                     bf16_stochastic_round=group["bf16_stochastic_round"]
                 )

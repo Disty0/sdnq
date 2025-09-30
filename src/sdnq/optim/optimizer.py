@@ -89,14 +89,14 @@ class SDNQOptimizer(torch.optim.Optimizer):
         update: torch.FloatTensor,
         learning_rate: float,
         weight_decay: float,
-        clip_threshold: float,
+        cautious_clip: float,
         use_cautious: bool,
         bf16_stochastic_round: bool
     ):
         if use_cautious:
             mask = (torch.mul(update, grad) > 0).to(dtype=torch.float32)
-            mask.div_(mask.mean().clamp_(min=clip_threshold))
-            update.mul_(mask)
+            mask.div_(mask.mean().clamp_(min=cautious_clip))
+            update = update.mul_(mask)
         if weight_decay != 0:
             param_fp32.mul_(1 - learning_rate * weight_decay)
 

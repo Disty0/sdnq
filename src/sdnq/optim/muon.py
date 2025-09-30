@@ -23,7 +23,7 @@ class Muon(SDNQOptimizer):
                 group["lr"] = group.get("lr", 1e-3)
                 group["betas"] = group.get("betas", (0.9, 0.95))
                 group["weight_decay"] = group.get("weight_decay", 0.01)
-                group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3))
+                group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
                 group["use_cautious"] = group.get("use_cautious", False)
                 group["ns_steps"] = group.get("ns_steps", 5)
                 group["nesterov"] = group.get("nesterov", True)
@@ -108,7 +108,7 @@ class Muon(SDNQOptimizer):
                         update=update,
                         learning_rate=group["lr"],
                         weight_decay=group["weight_decay"],
-                        clip_threshold=group["clip_threshold"][-1],
+                        cautious_clip=group["clip_threshold"][-1],
                         use_cautious=group["use_cautious"],
                         bf16_stochastic_round=group["bf16_stochastic_round"]
                     )
@@ -146,7 +146,7 @@ class Muon(SDNQOptimizer):
                         update=update,
                         learning_rate=group["lr"],
                         weight_decay=group["weight_decay"],
-                        clip_threshold=group["clip_threshold"][-1],
+                        cautious_clip=group["clip_threshold"][-1],
                         use_cautious=group["use_cautious"],
                         bf16_stochastic_round=group["bf16_stochastic_round"]
                     )

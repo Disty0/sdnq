@@ -69,7 +69,7 @@ class AdamW(SDNQOptimizer):
                     update=update,
                     learning_rate=group["lr"],
                     weight_decay=group["weight_decay"],
-                    clip_threshold=group["clip_threshold"][-1],
+                    cautious_clip=group["clip_threshold"][-1],
                     use_cautious=group["use_cautious"],
                     bf16_stochastic_round=group["bf16_stochastic_round"]
                 )
