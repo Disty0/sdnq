@@ -30,7 +30,7 @@ def fp8_matmul_dynamic_backward_ckpt(grad_output: torch.FloatTensor, input: torc
     return grad_input, grad_weight, grad_bias
 
 
-class FP8MatmulBackwardDynamicCKPT(torch.autograd.Function):
+class FP8MatmulDynamicBackwardCKPT(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
         if isinstance(weight, SDNQTensor):
@@ -51,9 +51,9 @@ def quantized_linear_forward_fp8_matmul_dynamic_ckpt(self, input: torch.FloatTen
             return quantized_linear_with_backward(input, self.weight, self.bias)
         else:
             return torch.nn.functional.linear(input, self.weight, self.bias)
-    return fp8_matmul_with_backward_dynamic_ckpt(input, self.weight, self.bias)
+    return fp8_matmul_dynamic_with_backward_ckpt(input, self.weight, self.bias)
 
 
-fp8_matmul_with_backward_dynamic_ckpt = FP8MatmulBackwardDynamicCKPT.apply
+fp8_matmul_dynamic_with_backward_ckpt = FP8MatmulDynamicBackwardCKPT.apply
 fp8_matmul_dynamic_ckpt_compiled = compile_func(fp8_matmul_dynamic_ckpt)
 fp8_matmul_dynamic_backward_ckpt = compile_func(fp8_matmul_dynamic_backward_ckpt)
