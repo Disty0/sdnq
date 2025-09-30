@@ -24,11 +24,11 @@ class Muon(SDNQOptimizer):
                 group["betas"] = group.get("betas", (0.9, 0.95))
                 group["weight_decay"] = group.get("weight_decay", 0.01)
                 group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
-                group["use_cautious"] = group.get("use_cautious", False)
                 group["ns_steps"] = group.get("ns_steps", 5)
                 group["nesterov"] = group.get("nesterov", True)
                 group["adaptive"] = group.get("adaptive", False)
-                group["norm_mode"] = group.get("norm_mode", "adamuon_clip")
+                group["final_norm_mode"] = group.get("final_norm_mode", "rms_clip_scaled")
+                group["use_cautious"] = group.get("use_cautious", False)
                 group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
                 group["zeropower_dtype"] = group.get("zeropower_dtype", "bfloat16")
                 group["use_quantized_matmul"] = group.get("use_quantized_matmul", False)
@@ -39,19 +39,20 @@ class Muon(SDNQOptimizer):
                 group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
                 if isinstance(group["zeropower_dtype"], str):
                     group["zeropower_dtype"] = getattr(torch, group["zeropower_dtype"])
-                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "use_cautious", "ns_steps", "nesterov", "adaptive", "norm_mode", "bf16_stochastic_round", "zeropower_dtype", "use_quantized_matmul", "quantized_matmul_dtype", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
+                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "ns_steps", "nesterov", "adaptive", "final_norm_mode", "use_cautious", "bf16_stochastic_round", "zeropower_dtype", "use_quantized_matmul", "quantized_matmul_dtype", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
             else:
                 group["lr"] = group.get("lr", 1e-4)
                 group["betas"] = group.get("betas", (0.9, 0.95))
                 group["weight_decay"] = group.get("weight_decay", 0.01)
                 group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
+                group["final_norm_mode"] = group.get("final_norm_mode", "none")
                 group["use_cautious"] = group.get("use_cautious", False)
                 group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
                 group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
                 group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
                 group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
                 group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
-                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
+                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
         self.keep_in_fp32_keys = {}
 
@@ -92,10 +93,9 @@ class Muon(SDNQOptimizer):
                         v_buffer=state["v_buffer"] if group["adaptive"] else None,
                         step=state["step"],
                         betas=group["betas"],
-                        clips=group["clip_threshold"][:-1],
+                        clip=group["clip_threshold"][0],
                         ns_steps=group["ns_steps"],
                         nesterov=group["nesterov"],
-                        norm_mode=group["norm_mode"],
                         zeropower_dtype=group["zeropower_dtype"],
                         use_quantized_matmul=group["use_quantized_matmul"],
                         quantized_matmul_dtype=group["quantized_matmul_dtype"],
@@ -108,7 +108,8 @@ class Muon(SDNQOptimizer):
                         update=update,
                         learning_rate=group["lr"],
                         weight_decay=group["weight_decay"],
-                        cautious_clip=group["clip_threshold"][-1],
+                        clips=group["clip_threshold"],
+                        final_norm_mode=group["final_norm_mode"],
                         use_cautious=group["use_cautious"],
                         bf16_stochastic_round=group["bf16_stochastic_round"]
                     )
@@ -146,7 +147,8 @@ class Muon(SDNQOptimizer):
                         update=update,
                         learning_rate=group["lr"],
                         weight_decay=group["weight_decay"],
-                        cautious_clip=group["clip_threshold"][-1],
+                        clips=group["clip_threshold"],
+                        final_norm_mode=group["final_norm_mode"],
                         use_cautious=group["use_cautious"],
                         bf16_stochastic_round=group["bf16_stochastic_round"]
                     )
@@ -171,17 +173,16 @@ def muon_update(
     v_buffer: Optional[torch.FloatTensor],
     step: int,
     betas: Tuple[float, float],
-    clips: Tuple[float, float],
+    clip: float,
     ns_steps: int = 5,
     nesterov: bool = True,
-    norm_mode: str = "muon",
     zeropower_dtype: torch.dtype = torch.bfloat16,
     use_quantized_matmul: bool = False,
     quantized_matmul_dtype: str = "int8",
 ) -> torch.FloatTensor:
     beta1, beta2 = betas
-    clip, clip2 = clips
     reshape_grad = (grad.ndim > 2)
+
     momentum_buffer.lerp_(grad_orig, 1 - beta1)
     update = grad.lerp(momentum_buffer.to(dtype=torch.float32), beta1) if nesterov else momentum_buffer.clone().to(dtype=torch.float32)
 
@@ -191,7 +192,6 @@ def muon_update(
     if reshape_grad: # for the case of conv filters
         grad_shape = grad.shape
         update = update.flatten(1, -1)
-    output_shape, input_shape = update.shape
 
     if use_quantized_matmul:
         if quantized_matmul_dtype == "int8":
@@ -210,19 +210,8 @@ def muon_update(
         v_buffer.lerp_(update.square().to(dtype=v_buffer.dtype), 1 - beta2)
         v_hat = v_buffer.to(dtype=torch.float32) / (1 - beta2 ** step)
         update = update.mul_(v_hat.rsqrt_())
+
     update = update.nan_to_num_().clamp_(-clip,clip)
-
-    if norm_mode == "muon":
-        update = update.mul_(max(1, output_shape / input_shape)**0.5)
-    elif norm_mode == "adamuon":
-        update = update.mul_(torch.div((clip * 0.2 * update.numel()**0.5), update.norm(2))).nan_to_num_().clamp_(-clip,clip)
-    elif norm_mode == "adamuon_clip":
-        update = update.mul_(torch.div((clip * 0.2 * update.numel()**0.5), update.norm(2)).clamp_(max=1))
-    elif norm_mode == "adafactor":
-        update = update.mul_(param.to(dtype=torch.float32).norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
-    elif norm_mode != "none":
-        raise NotImplementedError(f'Norm mode {norm_mode} is not implemented')
-
     return update
 
 

@@ -2,7 +2,8 @@ from typing import Tuple, Optional
 
 import torch
 
-from .optimizer import SDNQOptimizer
+from .optimizer import SDNQOptimizer, apply_norm_to_update_
+from sdnq.training import SDNQTensor
 
 
 class Adafactor(SDNQOptimizer):
@@ -14,12 +15,19 @@ class Adafactor(SDNQOptimizer):
             param_groups = params
         for group in param_groups:
             group["lr"] = group.get("lr", 1e-2)
-            group["betas"] = group.get("betas", -0.8)
+            group["betas"] = group.get("betas", (-0.8, 0.95))
             group["weight_decay"] = group.get("weight_decay", 0.01)
             group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
+            group["norm_mode"] = group.get("norm_mode", "relative")
+            group["final_norm_mode"] = group.get("final_norm_mode", "none")
+            group["use_first_moment"] = group.get("use_first_moment", False)
             group["use_cautious"] = group.get("use_cautious", False)
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
-            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "use_cautious", "bf16_stochastic_round"])
+            group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
+            group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
+            group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
+            group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
+            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "norm_mode", "final_norm_mode", "use_first_moment", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
         self.keep_in_fp32_keys = {"variance", "row_var", "col_var"}
 
@@ -47,6 +55,12 @@ class Adafactor(SDNQOptimizer):
                     else:
                         state["variance"] = torch.zeros_like(param, dtype=torch.float32)
 
+                    if group["use_first_moment"]:
+                        if group["use_quantized_buffers"]:
+                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
+                        else:
+                            state["exp_avg"] = torch.zeros_like(param)
+
                 state["step"] += 1
                 param_fp32 = param.to(dtype=torch.float32)
                 grad = param.grad.to(dtype=torch.float32)
@@ -56,9 +70,11 @@ class Adafactor(SDNQOptimizer):
                     row_var=state["row_var"] if factored else None,
                     col_var=state["col_var"] if factored else None,
                     variance=state["variance"] if not factored else None,
+                    exp_avg = state["exp_avg"] if group["use_first_moment"] else None,
                     step=state["step"],
                     betas=group["betas"],
-                    clips=group["clip_threshold"][:-1],
+                    clips=group["clip_threshold"],
+                    norm_mode=group["norm_mode"],
                 ).to(dtype=torch.float32)
 
 
@@ -69,7 +85,8 @@ class Adafactor(SDNQOptimizer):
                     update=update,
                     learning_rate=group["lr"],
                     weight_decay=group["weight_decay"],
-                    cautious_clip=group["clip_threshold"][-1],
+                    clips=group["clip_threshold"],
+                    final_norm_mode=group["final_norm_mode"],
                     use_cautious=group["use_cautious"],
                     bf16_stochastic_round=group["bf16_stochastic_round"]
                 )
@@ -83,13 +100,16 @@ def adafactor_update(
     row_var: torch.FloatTensor,
     col_var: torch.FloatTensor,
     variance: Optional[torch.FloatTensor],
+    exp_avg: Optional[torch.FloatTensor],
     step: int,
-    betas: float,
+    betas: Tuple[float, float],
     clips: Tuple[float, float],
+    norm_mode: str = "relative",
 ) -> torch.FloatTensor:
-    clip, clip2 = clips
+    clip = clips[0]
+    beta1, beta2 = betas
 
-    beta_t = step**betas
+    beta_t = step**beta1
     update = torch.square(grad)
     if variance is None:
         row_var.lerp_(update.mean(dim=-1), beta_t)
@@ -100,7 +120,22 @@ def adafactor_update(
         update = variance.rsqrt()
 
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
-    update = update.mul_(param.norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
+    update = apply_norm_to_update_(update, param, norm_mode, clips)
+
+    if exp_avg is not None:
+        if isinstance(exp_avg, SDNQTensor):
+            exp_avg_fp32 = exp_avg.dequantize(dtype=torch.float32).lerp_(update, 1 - beta2)
+            exp_avg.copy_(exp_avg_fp32)
+            update = exp_avg_fp32
+        elif exp_avg.dtype == torch.float32:
+            exp_avg = exp_avg.lerp_(update, 1 - beta2)
+            update = exp_avg.clone()
+        else:
+            exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(update, 1 - beta2)
+            exp_avg.copy_(exp_avg_fp32)
+            update = exp_avg_fp32
+        
+
     return update
 
 

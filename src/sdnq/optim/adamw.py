@@ -17,14 +17,15 @@ class AdamW(SDNQOptimizer):
             group["lr"] = group.get("lr", 1e-4)
             group["betas"] = group.get("betas", (0.9, 0.95))
             group["weight_decay"] = group.get("weight_decay", 0.01)
-            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3))
+            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
+            group["final_norm_mode"] = group.get("final_norm_mode", "none")
             group["use_cautious"] = group.get("use_cautious", False)
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
             group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
             group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
             group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
             group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
-            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
+            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
         self.keep_in_fp32_keys = {}
 
@@ -69,7 +70,8 @@ class AdamW(SDNQOptimizer):
                     update=update,
                     learning_rate=group["lr"],
                     weight_decay=group["weight_decay"],
-                    cautious_clip=group["clip_threshold"][-1],
+                    clips=group["clip_threshold"],
+                    final_norm_mode=group["final_norm_mode"],
                     use_cautious=group["use_cautious"],
                     bf16_stochastic_round=group["bf16_stochastic_round"]
                 )

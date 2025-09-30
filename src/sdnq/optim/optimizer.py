@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Tuple
 
 from collections import defaultdict
 from collections.abc import Hashable, Iterable
@@ -89,13 +89,15 @@ class SDNQOptimizer(torch.optim.Optimizer):
         update: torch.FloatTensor,
         learning_rate: float,
         weight_decay: float,
-        cautious_clip: float,
+        clips: Tuple[float],
+        final_norm_mode: str,
         use_cautious: bool,
         bf16_stochastic_round: bool
     ):
+        update = apply_norm_to_update_(update, param_fp32, final_norm_mode, clips)
         if use_cautious:
             mask = (torch.mul(update, grad) > 0).to(dtype=torch.float32)
-            mask.div_(mask.mean().clamp_(min=cautious_clip))
+            mask.div_(mask.mean().clamp_(min=clips[-1]))
             update = update.mul_(mask)
         if weight_decay != 0:
             param_fp32.mul_(1 - learning_rate * weight_decay)
@@ -105,3 +107,34 @@ class SDNQOptimizer(torch.optim.Optimizer):
             copy_stochastic_(param, param_fp32)
         else:
             param.copy_(param_fp32)
+
+
+def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, norm_mode: str, clips: Tuple[float]):
+    if isinstance(clips, float):
+        clip, clip2 = clips, 0
+    elif len(clips) == 1:
+        clip, clip2 = clips[0], 0
+    else:
+        clip, clip2 = clips[:2]
+
+    if norm_mode == "none":
+        return update
+    elif norm_mode == "rms":
+        update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2))).nan_to_num_().clamp_(-clip,clip)
+    elif norm_mode == "rms_clip":
+        update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
+    elif norm_mode in {"relative", "adafactor"}:
+        update = update.mul_(param.norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
+    elif norm_mode == {"rms_scaled", "adamuon"}:
+        return apply_norm_to_update_(update, "rms", clip * 0.2)
+    elif norm_mode == {"rms_clip_scaled", "adamuon_clip"}:
+        return apply_norm_to_update_(update, "rms_clip", clip * 0.2)
+    elif norm_mode == "muon":
+        output_shape = update.shape[0]
+        input_shape = 1
+        for shape in update.shape[1:]:
+            input_shape *= shape
+        update = update.mul_(max(1, output_shape / input_shape)**0.5)
+    else:
+        raise NotImplementedError(f'Norm mode {norm_mode} is not implemented')
+    return update

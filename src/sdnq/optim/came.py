@@ -2,7 +2,7 @@ from typing import Tuple, Optional
 
 import torch
 
-from .optimizer import SDNQOptimizer
+from .optimizer import SDNQOptimizer, apply_norm_to_update_
 from sdnq.training import SDNQTensor
 
 
@@ -17,14 +17,16 @@ class CAME(SDNQOptimizer):
             group["lr"] = group.get("lr", 1e-4)
             group["betas"] = group.get("betas", (0.9, 0.95, 0.99))
             group["weight_decay"] = group.get("weight_decay", 0.01)
-            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3))
+            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
+            group["norm_mode"] = group.get("norm_mode", "rms_clip")
+            group["final_norm_mode"] = group.get("final_norm_mode", "none")
             group["use_cautious"] = group.get("use_cautious", False)
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
             group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
             group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
             group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
             group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
-            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
+            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "norm_mode", "final_norm_mode", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
         self.keep_in_fp32_keys = {"exp_avg_sq", "exp_avg_sq_row", "exp_avg_sq_col", "exp_avg_res_row", "exp_avg_res_col"}
 
@@ -63,6 +65,7 @@ class CAME(SDNQOptimizer):
                 grad = param.grad.to(dtype=torch.float32)
                 update = came_update(
                     grad=grad,
+                    param=param_fp32,
                     exp_avg_sq_row=state["exp_avg_sq_row"] if factored else None,
                     exp_avg_sq_col=state["exp_avg_sq_col"] if factored else None,
                     exp_avg_res_row=state["exp_avg_res_row"] if factored else None,
@@ -71,7 +74,8 @@ class CAME(SDNQOptimizer):
                     exp_avg=state["exp_avg"],
                     step=state["step"],
                     betas=group["betas"],
-                    clip=group["clip_threshold"][0],
+                    clips=group["clip_threshold"],
+                    norm_mode=group["norm_mode"],
                 ).to(dtype=torch.float32)
 
                 self.update_param_(
@@ -81,7 +85,8 @@ class CAME(SDNQOptimizer):
                     update=update,
                     learning_rate=group["lr"],
                     weight_decay=group["weight_decay"],
-                    cautious_clip=group["clip_threshold"][-1],
+                    clips=group["clip_threshold"],
+                    final_norm_mode=group["final_norm_mode"],
                     use_cautious=group["use_cautious"],
                     bf16_stochastic_round=group["bf16_stochastic_round"]
                 )
@@ -91,6 +96,7 @@ class CAME(SDNQOptimizer):
 
 def came_update(
     grad: torch.FloatTensor,
+    param: torch.FloatTensor,
     exp_avg_sq_row: torch.FloatTensor,
     exp_avg_sq_col: torch.FloatTensor,
     exp_avg_res_row: torch.FloatTensor,
@@ -99,9 +105,11 @@ def came_update(
     exp_avg: torch.FloatTensor,
     step: int,
     betas: Tuple[float, float, float],
-    clip: float,
+    clips: Tuple[float],
+    norm_mode: str = "rms_clip",
 ) -> torch.FloatTensor:
     beta1, beta2, beta3 = betas
+    clip = clips[0]
 
     one_minus_beta2 = 1 - beta2
     update = torch.square(grad)
@@ -114,7 +122,7 @@ def came_update(
         update = exp_avg_sq.rsqrt()
 
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
-    update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
+    update = apply_norm_to_update_(update, param, norm_mode, clips)
 
     exp_avg.lerp_(update.to(dtype=exp_avg.dtype), 1 - beta1)
     exp_avg_fp32 = exp_avg.to(dtype=torch.float32)
