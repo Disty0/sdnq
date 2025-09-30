@@ -2,8 +2,7 @@ from typing import Tuple
 
 import torch
 
-from .optimizer_class import SDNQOptimizer
-from .stochastic import copy_stochastic_
+from .optimizer import SDNQOptimizer
 from sdnq.training import SDNQTensor
 
 
@@ -18,13 +17,14 @@ class AdamW(SDNQOptimizer):
             group["lr"] = group.get("lr", 1e-4)
             group["betas"] = group.get("betas", (0.9, 0.95))
             group["weight_decay"] = group.get("weight_decay", 0.01)
-            group["clip_threshold"] = group.get("clip_threshold", 1.0)
+            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3))
+            group["use_cautious"] = group.get("use_cautious", False)
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
             group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
             group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
             group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
             group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
-            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
+            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
         super().__init__(param_groups, dict())
         self.keep_in_fp32_keys = {}
 
@@ -36,45 +36,49 @@ class AdamW(SDNQOptimizer):
                 loss = closure()
 
         for group in self.param_groups:
-            for p in group["params"]:
-                if p.grad is None:
+            for param in group["params"]:
+                if param.grad is None:
                     continue
 
-                state = self.state[p]
+                state = self.state[param]
                 if len(state) == 0:
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
-                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
-                        state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(p, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
                     else:
-                        state["exp_avg"] = torch.zeros_like(p)
-                        state["exp_avg_sq"] = torch.zeros_like(p)
+                        state["exp_avg"] = torch.zeros_like(param)
+                        state["exp_avg_sq"] = torch.zeros_like(param)
 
                 state["step"] += 1
-                p_fp32 = p.to(dtype=torch.float32)
+                param_fp32 = param.to(dtype=torch.float32)
+                grad = param.grad.to(dtype=state["exp_avg"].dtype)
                 update = adam_update(
-                    p.grad,
-                    state["exp_avg"],
-                    state["exp_avg_sq"],
-                    state["step"],
-                    group["betas"],
-                    group["clip_threshold"],
+                    grad=grad,
+                    exp_avg=state["exp_avg"],
+                    exp_avg_sq=state["exp_avg_sq"],
+                    step=state["step"],
+                    betas=group["betas"],
+                    clip=group["clip_threshold"][0],
                 ).to(dtype=torch.float32)
 
-                if group["weight_decay"] != 0:
-                    p_fp32.mul_(1 - group["lr"] * group["weight_decay"])
-                p_fp32.add_(update, alpha=-group["lr"])
-                if group["bf16_stochastic_round"]:
-                    copy_stochastic_(p, p_fp32)
-                else:
-                    p.copy_(p_fp32)
+                self.update_param_(
+                    param=param,
+                    param_fp32=param_fp32,
+                    grad=grad,
+                    update=update,
+                    learning_rate=group["lr"],
+                    weight_decay=group["weight_decay"],
+                    clip_threshold=group["clip_threshold"][-1],
+                    use_cautious=group["use_cautious"],
+                    bf16_stochastic_round=group["bf16_stochastic_round"]
+                )
 
         return loss
 
 
 def adam_update(grad: torch.FloatTensor, exp_avg: torch.FloatTensor, exp_avg_sq: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
     beta1, beta2 = betas
-    grad = grad.to(dtype=exp_avg.dtype)
     exp_avg.lerp_(grad, 1 - beta1)
     exp_avg_sq.lerp_(grad.square(), 1 - beta2)
     exp_avg_c = exp_avg.to(dtype=torch.float32) / (1 - beta1 ** step)

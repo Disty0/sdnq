@@ -7,6 +7,7 @@ from itertools import chain
 
 import torch
 
+from .stochastic import copy_stochastic_
 from sdnq.training import SDNQTensor
 
 # torch.optim.Optimizer calls Optimizer._process_value_according_to_param_policy instead of self._process_value_according_to_param_policy
@@ -79,3 +80,28 @@ class SDNQOptimizer(torch.optim.Optimizer):
 
         for post_hook in self._optimizer_load_state_dict_post_hooks.values():
             post_hook(self)
+
+    @staticmethod
+    def update_param_(
+        param: torch.nn.Parameter,
+        param_fp32: torch.FloatTensor,
+        grad: torch.FloatTensor,
+        update: torch.FloatTensor,
+        learning_rate: float,
+        weight_decay: float,
+        clip_threshold: float,
+        use_cautious: bool,
+        bf16_stochastic_round: bool
+    ):
+        if use_cautious:
+            mask = (torch.mul(update, grad) > 0).to(dtype=torch.float32)
+            mask.div_(mask.mean().clamp_(min=clip_threshold))
+            update.mul_(mask)
+        if weight_decay != 0:
+            param_fp32.mul_(1 - learning_rate * weight_decay)
+
+        param_fp32.add_(update, alpha=-learning_rate)
+        if bf16_stochastic_round:
+            copy_stochastic_(param, param_fp32)
+        else:
+            param.copy_(param_fp32)

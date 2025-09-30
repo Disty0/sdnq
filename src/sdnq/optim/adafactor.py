@@ -2,8 +2,7 @@ from typing import Tuple, Optional
 
 import torch
 
-from .optimizer_class import SDNQOptimizer
-from .stochastic import copy_stochastic_
+from .optimizer import SDNQOptimizer
 
 
 class Adafactor(SDNQOptimizer):
@@ -17,9 +16,10 @@ class Adafactor(SDNQOptimizer):
             group["lr"] = group.get("lr", 1e-2)
             group["betas"] = group.get("betas", -0.8)
             group["weight_decay"] = group.get("weight_decay", 0.01)
-            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3))
+            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 0.1))
+            group["use_cautious"] = group.get("use_cautious", False)
             group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
-            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "bf16_stochastic_round"])
+            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "use_cautious", "bf16_stochastic_round"])
         super().__init__(param_groups, dict())
         self.keep_in_fp32_keys = {"variance", "row_var", "col_var"}
 
@@ -31,41 +31,48 @@ class Adafactor(SDNQOptimizer):
                 loss = closure()
 
         for group in self.param_groups:
-            for p in group["params"]:
-                if p.grad is None:
+            for param in group["params"]:
+                if param.grad is None:
                     continue
 
-                state = self.state[p]
-                grad_shape = p.grad.shape
+                state = self.state[param]
+                grad_shape = param.grad.shape
                 factored = len(grad_shape) >= 2
 
                 if len(state) == 0:
                     state["step"] = 0
                     if factored:
-                        state["row_var"] = torch.zeros(grad_shape[:-1], dtype=torch.float32, device=p.device)
-                        state["col_var"] = torch.zeros(grad_shape[:-2] + grad_shape[-1:], dtype=torch.float32, device=p.device)
+                        state["row_var"] = torch.zeros(grad_shape[:-1], dtype=torch.float32, device=param.device)
+                        state["col_var"] = torch.zeros(grad_shape[:-2] + grad_shape[-1:], dtype=torch.float32, device=param.device)
                     else:
-                        state["variance"] = torch.zeros_like(p, dtype=torch.float32)
+                        state["variance"] = torch.zeros_like(param, dtype=torch.float32)
 
                 state["step"] += 1
-                p_fp32 = p.to(dtype=torch.float32)
+                param_fp32 = param.to(dtype=torch.float32)
+                grad = param.grad.to(dtype=torch.float32)
                 update = adafactor_update(
-                    p_fp32, p.grad,
-                    state["row_var"] if factored else None,
-                    state["col_var"] if factored else None,
-                    state["variance"] if not factored else None,
-                    state["step"],
-                    group["betas"],
-                    group["clip_threshold"],
+                    param=param_fp32,
+                    grad=grad,
+                    row_var=state["row_var"] if factored else None,
+                    col_var=state["col_var"] if factored else None,
+                    variance=state["variance"] if not factored else None,
+                    step=state["step"],
+                    betas=group["betas"],
+                    clips=group["clip_threshold"][:-1],
                 ).to(dtype=torch.float32)
 
-                if group["weight_decay"] != 0:
-                    p_fp32.mul_(1 - group["lr"] * group["weight_decay"])
-                p_fp32.add_(update, alpha=-min(group["lr"], 1 / (state["step"]**0.5)))
-                if group["bf16_stochastic_round"]:
-                    copy_stochastic_(p, p_fp32)
-                else:
-                    p.copy_(p_fp32)
+
+                self.update_param_(
+                    param=param,
+                    param_fp32=param_fp32,
+                    grad=grad,
+                    update=update,
+                    learning_rate=group["lr"],
+                    weight_decay=group["weight_decay"],
+                    clip_threshold=group["clip_threshold"][-1],
+                    use_cautious=group["use_cautious"],
+                    bf16_stochastic_round=group["bf16_stochastic_round"]
+                )
 
         return loss
 
@@ -81,7 +88,6 @@ def adafactor_update(
     clips: Tuple[float, float],
 ) -> torch.FloatTensor:
     clip, clip2 = clips
-    grad = grad.to(dtype=torch.float32)
 
     beta_t = step**betas
     update = torch.square(grad)
@@ -94,7 +100,7 @@ def adafactor_update(
         update = variance.rsqrt()
 
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
-    update = update.mul_(param.to(dtype=torch.float32).norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
+    update = update.mul_(param.norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
     return update
 
 
