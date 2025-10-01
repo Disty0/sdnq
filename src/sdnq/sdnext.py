@@ -10,7 +10,7 @@ class Devices():
         self.device = torch.device(
             os.environ.get("SDNQ_DEVICE",
                 "xpu" if hasattr(torch,"xpu") and torch.xpu.is_available()
-                else "mps" if hasattr(torch,"mps") and torch.mps.is_available()
+                else "mps" if hasattr(torch,"mps") and hasattr(torch.mps, "is_available") and torch.mps.is_available()
                 else "cuda" if torch.cuda.is_available()
                 else "cpu"
             ).lower()
