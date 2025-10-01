@@ -13,7 +13,7 @@ def quantize_fp8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_
     else:
         weight = weight.t()
     weight, scale = quantize_fp8(weight, dim=-1)
-    weight, scale = weight.t(), scale.t()
+    weight, scale = weight.t_(), scale.t_()
     input, input_scale = quantize_fp8(input, dim=-1)
     return input, weight, input_scale, scale
 
