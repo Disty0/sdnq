@@ -70,7 +70,7 @@ class Adafactor(SDNQOptimizer):
                     row_var=state["row_var"] if factored else None,
                     col_var=state["col_var"] if factored else None,
                     variance=state["variance"] if not factored else None,
-                    exp_avg = state["exp_avg"] if group["use_first_moment"] else None,
+                    exp_avg=state["exp_avg"] if group["use_first_moment"] else None,
                     step=state["step"],
                     betas=group["betas"],
                     clips=group["clip_threshold"],
@@ -88,7 +88,7 @@ class Adafactor(SDNQOptimizer):
                     clips=group["clip_threshold"],
                     final_norm_mode=group["final_norm_mode"],
                     use_cautious=group["use_cautious"],
-                    bf16_stochastic_round=group["bf16_stochastic_round"]
+                    bf16_stochastic_round=group["bf16_stochastic_round"],
                 )
 
         return loss
@@ -134,7 +134,6 @@ def adafactor_update(
             exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(update, 1 - beta2)
             exp_avg.copy_(exp_avg_fp32)
             update = exp_avg_fp32
-        
 
     return update
 
