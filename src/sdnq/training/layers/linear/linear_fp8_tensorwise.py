@@ -15,7 +15,7 @@ def quantize_fp8_matmul_input_tensorwise(input: torch.FloatTensor, scale: Option
     scale = torch.mul(input_scale, scale) if scale is not None else input_scale
     if scale.dtype == torch.float16: # fp16 will overflow
         scale = scale.to(dtype=torch.float32)
-    return input, input_scale
+    return input, scale
 
 
 def fp8_matmul_tensorwise(input: torch.FloatTensor, weight: torch.Tensor, bias: torch.FloatTensor, scale: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True, do_transpose: bool = False) -> torch.FloatTensor:
