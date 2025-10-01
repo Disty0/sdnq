@@ -3,16 +3,16 @@ from typing import Tuple
 import torch
 from sdnq.common import compile_func
 
-from ...dequantizer import SDNQTensor # noqa: TID252
+from ...dequantizer import SDNQTensor, quantize_int8 # noqa: TID252
 from .forward import quantized_linear_with_backward
-from .linear_int8 import int8_matmul, quantize_int8_matmul_input
+from .linear_int8 import int8_matmul
 from .linear_int8_dynamic import int8_matmul_dynamic
 
 
 def int8_matmul_dynamic_ckpt(input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True) -> torch.FloatTensor:
     result = int8_matmul_dynamic(input, weight, bias)
-    new_weight, weight_scale = quantize_int8_matmul_input(weight, dim=0)
-    new_input, input_scale = quantize_int8_matmul_input(input, dim=0)
+    new_weight, weight_scale = quantize_int8(weight, dim=0)
+    new_input, input_scale = quantize_int8(input.flatten(0,-2), dim=0)
     return result, new_input, new_weight, input_scale, weight_scale
 
 

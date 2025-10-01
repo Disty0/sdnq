@@ -3,14 +3,14 @@ from typing import Tuple
 import torch
 from sdnq.common import compile_func
 
-from ...dequantizer import dequantize_symmetric # noqa: TID252
-from .linear_fp8 import fp8_matmul, quantize_fp8_matmul_input
+from ...dequantizer import dequantize_symmetric, quantize_fp8 # noqa: TID252
+from .linear_fp8 import fp8_matmul
 from .linear_fp8_dynamic import fp8_matmul_dynamic
 
 
 def fp8_matmul_ckpt(input: torch.FloatTensor, weight: torch.Tensor, bias: torch.FloatTensor, scale: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True, do_transpose: bool = False) -> torch.FloatTensor:
     result = fp8_matmul(input, weight, bias, scale, output_shape=output_shape, do_input_reshape=do_input_reshape, do_transpose=do_transpose)
-    new_input, input_scale = quantize_fp8_matmul_input(input, dim=0)
+    new_input, input_scale = quantize_fp8(input.flatten(0,-2), dim=0)
     return result, new_input, input_scale
 
 
