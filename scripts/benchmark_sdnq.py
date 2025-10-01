@@ -746,6 +746,7 @@ except Exception:
     sdnq_fp8_tw_dyn_ckpt_fp8_tflops = 0
 
 
+print("\n")
 print("===========================================")
 print("GPU:", getattr(torch, torch.device(device).type).get_device_name(device))
 print("Steps:", steps, "| MNK:", round((m*n*k)**(1/3)))
@@ -796,3 +797,4 @@ print("SDNQ FP8 TW Dynamic CKPT UINT8 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_uint8_tflop
 print("SDNQ FP8 TW Dynamic CKPT INT8 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_int8_tflops)
 print("SDNQ FP8 TW Dynamic CKPT FP8 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_fp8_tflops)
 print("===========================================")
+print("\n")
