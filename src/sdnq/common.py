@@ -4,7 +4,7 @@ import os
 from functools import partial
 import torch
 
-from .sdnext import shared
+from .sdnext import shared, devices
 
 torch_version = float(torch.__version__[:3])
 
@@ -34,7 +34,12 @@ if hasattr(torch, "float8_e5m2fnuz"):
     dtype_dict["float8_e5m2fnuz"] = {"min": -57344, "max": 57344, "num_bits": 8, "target_dtype": "fp8", "torch_dtype": torch.float8_e5m2fnuz, "storage_dtype": torch.float8_e5m2fnuz, "is_unsigned": False, "is_integer": False}
 
 use_torch_compile = shared.opts.sdnq_dequantize_compile # this setting requires a full restart of the webui to apply
-use_tensorwise_fp8_matmul = os.environ.get("SDNQ_USE_TENSORWISE_FP8_MATMUL", "1").lower() not in {"0", "false", "no"} # row-wise FP8 only exist on H100 hardware, sdnq will use software row-wise with tensorwise hardware with this setting
+
+if devices.backend == "cuda" and os.environ.get("SDNQ_USE_TENSORWISE_FP8_MATMUL", None) is None:
+     # row-wise FP8 only exist on H100 hardware, sdnq will use software row-wise with tensorwise hardware with this setting
+    use_tensorwise_fp8_matmul = torch.cuda.get_device_capability() < (9,0)
+else:
+    use_tensorwise_fp8_matmul = os.environ.get("SDNQ_USE_TENSORWISE_FP8_MATMUL", "1").lower() not in {"0", "false", "no"}
 
 linear_types = ("Linear",)
 conv_types = ("Conv1d", "Conv2d", "Conv3d")
