@@ -37,7 +37,7 @@ use_torch_compile = shared.opts.sdnq_dequantize_compile # this setting requires 
 
 if devices.backend == "cuda" and os.environ.get("SDNQ_USE_TENSORWISE_FP8_MATMUL", None) is None:
      # row-wise FP8 only exist on H100 hardware, sdnq will use software row-wise with tensorwise hardware with this setting
-    use_tensorwise_fp8_matmul = torch.cuda.get_device_capability() < (9,0)
+    use_tensorwise_fp8_matmul = torch.cuda.get_device_capability(devices.device) < (9,0)
 else:
     use_tensorwise_fp8_matmul = os.environ.get("SDNQ_USE_TENSORWISE_FP8_MATMUL", "1").lower() not in {"0", "false", "no"}
 
