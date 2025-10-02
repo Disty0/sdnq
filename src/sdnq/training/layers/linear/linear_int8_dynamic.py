@@ -5,7 +5,11 @@ from sdnq.common import compile_func
 
 from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8 # noqa: TID252
 from .forward import check_mats, quantized_linear_with_backward
-from .triton_mm import int_mm
+
+try:
+    from .triton_mm import int_mm
+except ImportError:
+    int_mm = torch._int_mm
 
 
 def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True) -> Tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:

@@ -7,6 +7,11 @@ from ...dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias,
 from .linear_int8_dynamic import int8_matmul_dynamic
 from .forward import check_mats
 
+try:
+    from .triton_mm import int_mm
+except ImportError:
+    int_mm = torch._int_mm
+
 
 def quantize_int8_matmul_input(input: torch.FloatTensor, scale: Optional[torch.FloatTensor] = None, dim: int = -1, do_input_reshape: bool = True) -> Tuple[torch.CharTensor, torch.FloatTensor]:
     if do_input_reshape:
@@ -19,6 +24,7 @@ def quantize_int8_matmul_input(input: torch.FloatTensor, scale: Optional[torch.F
 
 
 def int8_matmul(input: torch.FloatTensor, weight: torch.Tensor, bias: torch.FloatTensor, scale: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True, do_transpose: bool = False) -> torch.FloatTensor:
+    int_mm_func = int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else torch._int_mm
     return_dtype = input.dtype
     if do_transpose:
         weight = weight.t()
@@ -30,9 +36,9 @@ def int8_matmul(input: torch.FloatTensor, weight: torch.Tensor, bias: torch.Floa
     input, scale = quantize_int8_matmul_input(input, scale=scale, do_input_reshape=do_input_reshape)
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(torch._int_mm(input, weight), scale, bias, return_dtype, output_shape)
+        return dequantize_symmetric_with_bias(int_mm_func(input, weight), scale, bias, return_dtype, output_shape)
     else:
-        return dequantize_symmetric(torch._int_mm(input, weight), scale, return_dtype, output_shape)
+        return dequantize_symmetric(int_mm_func(input, weight), scale, return_dtype, output_shape)
 
 
 def int8_matmul_backward(grad_output: torch.FloatTensor, input: torch.FloatTensor, weight: torch.Tensor, scale: torch.FloatTensor, bias: torch.FloatTensor, do_grad_input: bool = True, do_grad_weight: bool = True, do_grad_bias: bool = True) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
