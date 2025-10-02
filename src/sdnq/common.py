@@ -49,7 +49,7 @@ allowed_types = linear_types + conv_types + conv_transpose_types
 if use_torch_compile:
     torch._dynamo.config.cache_size_limit = max(8192, torch._dynamo.config.cache_size_limit)
     torch._dynamo.config.accumulated_recompile_limit = max(8192, torch._dynamo.config.accumulated_recompile_limit)
-    compile_func = partial(torch.compile, fullgraph=True)
+    compile_func = partial(torch.compile, fullgraph=True, dynamic=False)
 else:
     def compile_func(fn, **kwargs): # pylint: disable=unused-argument
         return fn
