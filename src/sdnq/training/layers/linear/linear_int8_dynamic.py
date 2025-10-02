@@ -13,10 +13,18 @@ except ImportError:
 
 
 def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True) -> Tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
+    not_xpu = weight.device.type != "xpu"
     if do_input_reshape:
         input = input.flatten(0,-2)
+        if not not_xpu:
+            weight = weight.t()
+    elif not_xpu:
         weight = weight.t()
-    weight, scale = quantize_int8(weight, dim=0)
+    if not_xpu:
+        weight, scale = quantize_int8(weight, dim=-1)
+        weight, scale = weight.t_(), scale.t_()
+    else:
+        weight, scale = quantize_int8(weight, dim=0)
     input, input_scale = quantize_int8(input, dim=-1)
     scale = torch.mul(input_scale, scale)
     if scale.dtype == torch.float16: # fp16 will overflow
