@@ -43,8 +43,9 @@ from sdnq.common import use_torch_compile as triton_is_available
 
 model = apply_sdnq_to_module(
     model,
-    weights_dtype="int8",
-    group_size=-1, # -1 means disabled
+    weights_dtype="uint8",
+    quantized_matmul_dtype="int8",
+    group_size=32, # -1 means disabled
     use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
     use_quantized_matmul=triton_is_available,
     use_static_quantization=True, # quantize the model weights
