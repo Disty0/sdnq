@@ -36,8 +36,8 @@ class Devices():
             import gc
             gc.collect()
             if self.backend != "cpu":
-                getattr(torch, self.backend).synchronize()
-                getattr(torch, self.backend).empty_cache()
+                getattr(torch, torch.device(self.device).type).synchronize()
+                getattr(torch, torch.device(self.device).type).empty_cache()
 
     def has_triton(self) -> bool:
         try:
