@@ -179,9 +179,15 @@ def sdnq_quantize_layer(layer, weights_dtype="int8", torch_dtype=None, group_siz
             if not use_tensorwise_fp8_matmul and not dtype_dict[weights_dtype]["is_integer"]:
                 scale = scale.to(torch.float32)
 
+        scale = scale.to(return_device, non_blocking=non_blocking)
+        layer.scale = torch.nn.Parameter(scale, requires_grad=False)
+        if zero_point is not None:
+            zero_point = zero_point.to(return_device, non_blocking=non_blocking)
+            layer.zero_point = torch.nn.Parameter(zero_point, requires_grad=False)
+        else:
+            layer.zero_point = None
+
         layer.sdnq_dequantizer = dequantizer_dict[weights_dtype](
-            scale=scale,
-            zero_point=zero_point,
             quantized_weight_shape=layer.weight.shape,
             result_dtype=torch_dtype,
             result_shape=result_shape,
