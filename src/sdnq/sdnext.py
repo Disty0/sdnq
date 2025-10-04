@@ -20,6 +20,8 @@ class Devices():
         self.inference_context = torch.no_grad
         if self.backend == "xpu":
             self.backend = "ipex"
+        elif self.backend == "cuda" and torch.version.hip is not None:
+            self.backend = "rocm"
 
     def normalize_device(self, dev):
         if torch.device(dev).type in {"cpu", "mps", "meta"}:

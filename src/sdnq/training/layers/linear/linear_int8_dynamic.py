@@ -1,30 +1,22 @@
 from typing import Tuple
 
 import torch
-from sdnq.common import compile_func
+from sdnq.common import compile_func, int_mm_func, use_contiguous_mm
 
 from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8 # noqa: TID252
 from .forward import check_mats, quantized_linear_with_backward
 
-try:
-    from .triton_mm import int_mm
-except ImportError:
-    int_mm = torch._int_mm
-
 
 def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True) -> Tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
-    is_xpu = weight.device.type == "xpu"
     if do_input_reshape:
         input = input.flatten(0,-2)
-        if is_xpu:
+        if use_contiguous_mm:
             weight = weight.t()
-    elif not is_xpu:
+    elif not use_contiguous_mm:
         weight = weight.t()
-    if is_xpu:
-        # return contiguous
+    if use_contiguous_mm:
         weight, scale = quantize_int8(weight, dim=0)
     else:
-        # return non-contiguous
         weight, scale = quantize_int8(weight, dim=-1)
         weight, scale = weight.t_(), scale.t_()
     input, input_scale = quantize_int8(input, dim=-1)
@@ -35,7 +27,6 @@ def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do
 
 
 def int8_matmul_dynamic(input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True) -> torch.FloatTensor:
-    int_mm_func = int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else torch._int_mm
     return_dtype = input.dtype
     if output_shape is None:
         output_shape = list(input.shape)

@@ -1,14 +1,14 @@
 from typing import Tuple
 
 import torch
-from sdnq.common import compile_func
+from sdnq.common import compile_func, use_contiguous_mm
 
 from ...dequantizer import SDNQTensor # noqa: TID252
 
 
 def check_mats(input: torch.Tensor, weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     input = input.contiguous()
-    if weight.device.type == "xpu":
+    if use_contiguous_mm:
         weight = weight.contiguous()
     elif weight.is_contiguous():
         weight = weight.t().contiguous().t()
