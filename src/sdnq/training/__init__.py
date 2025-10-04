@@ -102,6 +102,7 @@ def apply_sdnq_to_module(
         module = apply_sdnq_to_module(
             module,
             weights_dtype=weights_dtype,
+            quantized_matmul_dtype=quantized_matmul_dtype,
             group_size=group_size,
             use_grad_ckpt=use_grad_ckpt,
             use_quantized_matmul=use_quantized_matmul,
