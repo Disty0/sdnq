@@ -26,7 +26,7 @@ def int8_matmul_backward_ckpt(grad_output: torch.FloatTensor, input: torch.Float
     if do_grad_input:
         grad_input = int8_matmul_dynamic(grad_output, dequantize_symmetric(weight, scale), None, output_shape=input.shape, do_input_reshape=False)
     if do_grad_weight:
-        grad_weight = int8_matmul(grad_output.t(), input, None, input_scale, output_shape=None, do_input_reshape=False)
+        grad_weight = int8_matmul(grad_output.t(), input, None, input_scale, output_shape=None, do_input_reshape=False, is_backward_pass=True)
     if do_grad_bias and bias is not None:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
