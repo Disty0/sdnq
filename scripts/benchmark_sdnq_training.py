@@ -4,6 +4,7 @@ import time
 import torch
 from tqdm import tqdm
 
+import sdnq.common
 from sdnq.training import SDNQTensor
 from sdnq.training.layers.linear.forward import quantized_linear_with_backward
 
@@ -765,6 +766,9 @@ def main(
     print("GPU:", getattr(torch, torch.device(device).type).get_device_name(device))
     print("Steps:", steps, "| MNK:", round((m*n*k)**(1/3)))
     print("M:", m, "| N:", n, "| K:", k)
+    print("Torch Compile:", sdnq.common.use_torch_compile)
+    print("Contiguous MM:", sdnq.common.use_contiguous_mm)
+    print("Triton MM:", sdnq.common.use_triton_mm)
     print("Float:", dtype)
     print("===========================================")
     print("PyTorch Float TFLOPS:", pytorch_float_tflops)
