@@ -1,7 +1,7 @@
 from typing import Tuple
 
 import torch
-from sdnq.common import compile_func, int_mm_func, use_contiguous_mm
+from sdnq.common import compile_func, int_mm_func
 
 from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8 # noqa: TID252
 from .forward import check_mats, quantized_linear_with_backward
@@ -14,15 +14,8 @@ except ImportError:
 def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True) -> Tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
-        if use_contiguous_mm:
-            weight = weight.t()
-    elif not use_contiguous_mm:
         weight = weight.t()
-    if use_contiguous_mm:
-        weight, scale = quantize_int8(weight, dim=0)
-    else:
-        weight, scale = quantize_int8(weight, dim=-1)
-        weight, scale = weight.t_(), scale.t_()
+    weight, scale = quantize_int8(weight, dim=0)
     input, input_scale = quantize_int8(input, dim=-1)
     scale = torch.mul(input_scale, scale)
     if scale.dtype == torch.float16: # fp16 will overflow
