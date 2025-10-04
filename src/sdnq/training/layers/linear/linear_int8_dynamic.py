@@ -7,7 +7,7 @@ from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetri
 from .forward import check_mats, quantized_linear_with_backward
 
 try:
-    from .triton_mm import int_mm as triton_int_mm
+    from sdnq.triton_mm import int_mm as triton_int_mm
 except ImportError:
     triton_int_mm = int_mm_func
 
