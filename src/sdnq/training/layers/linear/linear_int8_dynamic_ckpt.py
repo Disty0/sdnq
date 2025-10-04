@@ -1,7 +1,7 @@
 from typing import Tuple
 
 import torch
-from sdnq.common import compile_func
+from sdnq.common import compile_func, use_contiguous_mm
 
 from ...dequantizer import SDNQTensor, quantize_int8 # noqa: TID252
 from .forward import quantized_linear_with_backward
@@ -11,9 +11,15 @@ from .linear_int8_dynamic import int8_matmul_dynamic
 
 def int8_matmul_dynamic_ckpt(input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True) -> torch.FloatTensor:
     result = int8_matmul_dynamic(input, weight, bias)
-    new_weight, weight_scale = quantize_int8(weight, dim=0)
-    new_input, input_scale = quantize_int8(input.flatten(0,-2), dim=0)
-    return result, new_input, new_weight, input_scale, weight_scale
+    if use_contiguous_mm:
+        weight, scale = quantize_int8(weight, dim=0)
+        input, input_scale = quantize_int8(input.flatten(0,-2), dim=0)
+    else:
+        weight, scale = quantize_int8(weight.t(), dim=-1)
+        weight, scale = weight.t_(), scale.t_()
+        input, input_scale = quantize_int8(input.flatten(0,-2).t(), dim=-1)
+        input, input_scale = input.t_(), input_scale.t_()
+    return result, input, weight, input_scale, scale
 
 
 def int8_matmul_dynamic_backward_ckpt(grad_output: torch.FloatTensor, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, input_scale: torch.FloatTensor, weight_scale: torch.FloatTensor, do_grad_input: bool = True, do_grad_weight: bool = True, do_grad_bias: bool = True) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:

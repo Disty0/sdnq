@@ -6,6 +6,10 @@ from sdnq.common import compile_func, int_mm_func, use_contiguous_mm
 from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8 # noqa: TID252
 from .forward import check_mats, quantized_linear_with_backward
 
+try:
+    from .triton_mm import int_mm as triton_int_mm
+except ImportError:
+    triton_int_mm = int_mm_func
 
 def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True) -> Tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
     if do_input_reshape:
@@ -27,6 +31,7 @@ def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do
 
 
 def int8_matmul_dynamic(input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True) -> torch.FloatTensor:
+    int_mm = triton_int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
     return_dtype = input.dtype
     if output_shape is None:
         output_shape = list(input.shape)
@@ -34,9 +39,9 @@ def int8_matmul_dynamic(input: torch.FloatTensor, weight: torch.FloatTensor, bia
     input, weight, scale = quantize_int8_matmul(input, weight, do_input_reshape=do_input_reshape)
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(int_mm_func(input, weight), scale, bias, return_dtype, output_shape)
+        return dequantize_symmetric_with_bias(int_mm(input, weight), scale, bias, return_dtype, output_shape)
     else:
-        return dequantize_symmetric(int_mm_func(input, weight), scale, return_dtype, output_shape)
+        return dequantize_symmetric(int_mm(input, weight), scale, return_dtype, output_shape)
 
 
 def int8_matmul_dynamic_backward(grad_output: torch.FloatTensor, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, do_grad_input: bool = True, do_grad_weight: bool = True, do_grad_bias: bool = True) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
