@@ -41,6 +41,7 @@ def main(
         k = mnk//2
 
     x = torch.randn(m,k, device=device, dtype=dtype)
+    x.requires_grad_(False)
 
     try:
         print("PyTorch Float:")
