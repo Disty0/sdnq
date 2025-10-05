@@ -57,6 +57,7 @@ def main(
         print("PyTorch Float test failed")
         pytorch_float_tflops = 0
 
+
     if sdnq.common.use_torch_compile:
         try:
             print("SDNQ INT8:")
@@ -234,6 +235,7 @@ def main(
         sdnq_int8_uint3_tflops = 0
         sdnq_int8_uint2_tflops = 0
         sdnq_int8_uint1_tflops = 0
+
 
     try:
         print("SDNQ Float INT8:")

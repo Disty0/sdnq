@@ -23,6 +23,7 @@ from sdnq.training.layers.linear.linear_fp8_tensorwise_ckpt import fp8_matmul_te
 from sdnq.training.layers.linear.linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic_with_backward
 from sdnq.training.layers.linear.linear_fp8_tensorwise_dynamic_ckpt import fp8_matmul_tensorwise_dynamic_with_backward_ckpt
 
+
 def get_tflops(it_s: float, m: int, n: int, k: int) -> float:
     return round(it_s * ((3*2*m*k*n) + (2 * n * m)) / (10**12), 2)
 
@@ -81,7 +82,7 @@ def main(
     except Exception:
         print("Grouped FP8 creation failed")
 
-        
+
     try:
         print("PyTorch Float:")
         z = torch.nn.functional.linear(x, y, b)
@@ -137,6 +138,7 @@ def main(
     except Exception:
         print("SDNQ INT8 test failed")
         sdnq_int8_tflops = 0
+
 
     try:
         print("SDNQ FP8:")
@@ -308,6 +310,7 @@ def main(
         print("SDNQ INT8 Dynamic FP8 test failed")
         sdnq_int8_dyn_fp8_tflops = 0
 
+
     try:
         print("SDNQ FP8 Dynamic Float:")
         z = fp8_matmul_dynamic_with_backward(x, y, b)
@@ -402,6 +405,7 @@ def main(
         print("SDNQ INT8 Dynamic FP8 test failed")
         sdnq_int8_dyn_fp8_tflops = 0
 
+
     try:
         print("SDNQ FP8 TW Dynamic Float:")
         z = fp8_matmul_tensorwise_dynamic_with_backward(x, y, b)
@@ -495,6 +499,7 @@ def main(
     except Exception:
         print("SDNQ INT8 CKPT test failed")
         sdnq_int8_ckpt_tflops = 0
+
 
     try:
         print("SDNQ FP8 CKPT:")
@@ -608,6 +613,7 @@ def main(
     except Exception:
         print("SDNQ INT8 Dynamic CKPT FP8 test failed")
         sdnq_int8_dyn_ckpt_fp8_tflops = 0
+
 
     try:
         print("SDNQ FP8 Dynamic CKPT Float:")
