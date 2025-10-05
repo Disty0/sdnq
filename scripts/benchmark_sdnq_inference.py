@@ -79,7 +79,7 @@ def main(
         try:
             print("SDNQ FP8:")
             sdnq.common.use_tensorwise_fp8_matmul = False
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True)
+            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=True)
             _ = linear(x)
             sync_func()
             t0 = time.time()
@@ -98,7 +98,7 @@ def main(
         try:
             print("SDNQ FP8 TW:")
             sdnq.common.use_tensorwise_fp8_matmul = True
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True)
+            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=True)
             _ = linear(x)
             sync_func()
             t0 = time.time()
