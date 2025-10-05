@@ -1,0 +1,36 @@
+==================================================
+GPU: NVIDIA GeForce RTX 4090
+Steps: 100 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096
+Torch Compile: True
+Contiguous MM: False
+Triton MM: False
+==================================================
+PyTorch Float TFLOPS: 163.51
+==================================================
+SDNQ INT8 TFLOPS: 358.68
+SDNQ FP8 TFLOPS: 83.28
+SDNQ FP8 TW TFLOPS: 268.52
+==================================================
+SDNQ INT8 INT7 TFLOPS: 345.97
+SDNQ INT8 INT6 TFLOPS: 347.46
+SDNQ INT8 INT5 TFLOPS: 341.52
+SDNQ INT8 UINT4 TFLOPS: 347.42
+SDNQ INT8 UINT3 TFLOPS: 341.1
+SDNQ INT8 UINT2 TFLOPS: 335.53
+SDNQ INT8 UINT1 TFLOPS: 328.79
+==================================================
+SDNQ Float INT8 TFLOPS: 162.2
+SDNQ Float INT7 TFLOPS: 162.74
+SDNQ Float INT6 TFLOPS: 163.13
+SDNQ Float INT5 TFLOPS: 162.7
+SDNQ Float UINT4 TFLOPS: 162.58
+SDNQ Float UINT3 TFLOPS: 163.21
+SDNQ Float UINT2 TFLOPS: 162.74
+SDNQ Float UINT1 TFLOPS: 162.26
+==================================================
+SDNQ Float FP8 E4 TFLOPS: 163.02
+SDNQ Float FP8 E5 TFLOPS: 163.53
+SDNQ Float FP8 E4 FNUZ TFLOPS: 0
+SDNQ Float FP8 E5 FNUZ TFLOPS: 0
+==================================================

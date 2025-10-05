@@ -1,0 +1,53 @@
+==================================================
+GPU: NVIDIA GeForce RTX 4090
+Steps: 50 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096
+Torch Compile: True
+Contiguous MM: False
+Triton MM: False
+==================================================
+PyTorch Float TFLOPS: 156.64
+SDNQ Float TFLOPS: 157.88
+==================================================
+SDNQ INT8 TFLOPS: 321.3
+SDNQ FP8 TFLOPS: 79.11
+SDNQ FP8 TW TFLOPS: 232.95
+==================================================
+SDNQ Float UINT8 TFLOPS: 156.76
+SDNQ Float INT8 TFLOPS: 156.58
+SDNQ Float FP8 TFLOPS: 156.72
+==================================================
+SDNQ INT8 Dynamic Float TFLOPS: 314.96
+SDNQ INT8 Dynamic UINT8 TFLOPS: 310.76
+SDNQ INT8 Dynamic INT8 TFLOPS: 311.08
+SDNQ INT8 Dynamic FP8 TFLOPS: 311.37
+==================================================
+SDNQ FP8 Dynamic Float TFLOPS: 78.7
+SDNQ FP8 Dynamic UINT8 TFLOPS: 78.33
+SDNQ FP8 Dynamic INT8 TFLOPS: 78.37
+SDNQ FP8 Dynamic FP8 TFLOPS: 78.34
+==================================================
+SDNQ FP8 TW Dynamic Float TFLOPS: 229.63
+SDNQ FP8 TW Dynamic UINT8 TFLOPS: 227.62
+SDNQ FP8 TW Dynamic INT8 TFLOPS: 227.41
+SDNQ FP8 TW Dynamic FP8 TFLOPS: 227.64
+==================================================
+SDNQ INT8 CKPT TFLOPS: 320.21
+SDNQ FP8 CKPT TFLOPS: 78.9
+SDNQ FP8 TW CKPT TFLOPS: 232.48
+==================================================
+SDNQ INT8 Dynamic CKPT Float TFLOPS: 314.8
+SDNQ INT8 Dynamic CKPT UINT8 TFLOPS: 310.89
+SDNQ INT8 Dynamic CKPT INT8 TFLOPS: 311.18
+SDNQ INT8 Dynamic CKPT FP8 TFLOPS: 311.06
+==================================================
+SDNQ FP8 Dynamic CKPT Float TFLOPS: 78.6
+SDNQ FP8 Dynamic CKPT UINT8 TFLOPS: 78.37
+SDNQ FP8 Dynamic CKPT INT8 TFLOPS: 78.38
+SDNQ FP8 Dynamic CKPT FP8 TFLOPS: 78.37
+==================================================
+SDNQ FP8 TW Dynamic CKPT Float TFLOPS: 229.27
+SDNQ FP8 TW Dynamic CKPT UINT8 TFLOPS: 227.32
+SDNQ FP8 TW Dynamic CKPT INT8 TFLOPS: 227.33
+SDNQ FP8 TW Dynamic CKPT FP8 TFLOPS: 227.44
+==================================================

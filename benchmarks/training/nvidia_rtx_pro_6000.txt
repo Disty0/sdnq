@@ -1,0 +1,53 @@
+==================================================
+GPU: NVIDIA RTX PRO 6000 Blackwell Server Edition
+Steps: 50 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096
+Torch Compile: True
+Contiguous MM: False
+Triton MM: False
+==================================================
+PyTorch Float TFLOPS: 360.71
+SDNQ Float TFLOPS: 364.02
+==================================================
+SDNQ INT8 TFLOPS: 442.19
+SDNQ FP8 TFLOPS: 545.4
+SDNQ FP8 TW TFLOPS: 454.41
+==================================================
+SDNQ Float UINT8 TFLOPS: 360.34
+SDNQ Float INT8 TFLOPS: 360.38
+SDNQ Float FP8 TFLOPS: 360.6
+==================================================
+SDNQ INT8 Dynamic Float TFLOPS: 436.22
+SDNQ INT8 Dynamic UINT8 TFLOPS: 434.68
+SDNQ INT8 Dynamic INT8 TFLOPS: 436.76
+SDNQ INT8 Dynamic FP8 TFLOPS: 437.92
+==================================================
+SDNQ FP8 Dynamic Float TFLOPS: 537.27
+SDNQ FP8 Dynamic UINT8 TFLOPS: 526.71
+SDNQ FP8 Dynamic INT8 TFLOPS: 529.53
+SDNQ FP8 Dynamic FP8 TFLOPS: 530.09
+==================================================
+SDNQ FP8 TW Dynamic Float TFLOPS: 451.24
+SDNQ FP8 TW Dynamic UINT8 TFLOPS: 446.74
+SDNQ FP8 TW Dynamic INT8 TFLOPS: 447.45
+SDNQ FP8 TW Dynamic FP8 TFLOPS: 447.11
+==================================================
+SDNQ INT8 CKPT TFLOPS: 445.21
+SDNQ FP8 CKPT TFLOPS: 541.79
+SDNQ FP8 TW CKPT TFLOPS: 456.57
+==================================================
+SDNQ INT8 Dynamic CKPT Float TFLOPS: 439.38
+SDNQ INT8 Dynamic CKPT UINT8 TFLOPS: 437.27
+SDNQ INT8 Dynamic CKPT INT8 TFLOPS: 437.01
+SDNQ INT8 Dynamic CKPT FP8 TFLOPS: 433.86
+==================================================
+SDNQ FP8 Dynamic CKPT Float TFLOPS: 530.14
+SDNQ FP8 Dynamic CKPT UINT8 TFLOPS: 528.13
+SDNQ FP8 Dynamic CKPT INT8 TFLOPS: 527.91
+SDNQ FP8 Dynamic CKPT FP8 TFLOPS: 527.68
+==================================================
+SDNQ FP8 TW Dynamic CKPT Float TFLOPS: 452.12
+SDNQ FP8 TW Dynamic CKPT UINT8 TFLOPS: 444.3
+SDNQ FP8 TW Dynamic CKPT INT8 TFLOPS: 447.34
+SDNQ FP8 TW Dynamic CKPT FP8 TFLOPS: 446.85
+==================================================

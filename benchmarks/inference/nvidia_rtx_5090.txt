@@ -1,0 +1,36 @@
+==================================================
+GPU: NVIDIA GeForce RTX 5090
+Steps: 100 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096
+Torch Compile: True
+Contiguous MM: False
+Triton MM: False
+==================================================
+PyTorch Float TFLOPS: 231.8
+==================================================
+SDNQ INT8 TFLOPS: 471.33
+SDNQ FP8 TFLOPS: 433.21
+SDNQ FP8 TW TFLOPS: 384.06
+==================================================
+SDNQ INT8 INT7 TFLOPS: 463.18
+SDNQ INT8 INT6 TFLOPS: 463.2
+SDNQ INT8 INT5 TFLOPS: 454.52
+SDNQ INT8 UINT4 TFLOPS: 455.14
+SDNQ INT8 UINT3 TFLOPS: 450.12
+SDNQ INT8 UINT2 TFLOPS: 448.37
+SDNQ INT8 UINT1 TFLOPS: 442.7
+==================================================
+SDNQ Float INT8 TFLOPS: 228.75
+SDNQ Float INT7 TFLOPS: 227.05
+SDNQ Float INT6 TFLOPS: 228.93
+SDNQ Float INT5 TFLOPS: 229.22
+SDNQ Float UINT4 TFLOPS: 227.45
+SDNQ Float UINT3 TFLOPS: 228.22
+SDNQ Float UINT2 TFLOPS: 229.25
+SDNQ Float UINT1 TFLOPS: 228.56
+==================================================
+SDNQ Float FP8 E4 TFLOPS: 228.52
+SDNQ Float FP8 E5 TFLOPS: 229.43
+SDNQ Float FP8 E4 FNUZ TFLOPS: 0
+SDNQ Float FP8 E5 FNUZ TFLOPS: 0
+==================================================

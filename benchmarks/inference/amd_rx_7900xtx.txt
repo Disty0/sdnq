@@ -1,0 +1,36 @@
+==================================================
+GPU: AMD Radeon RX 7900 XTX
+Steps: 100 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096
+Torch Compile: True
+Contiguous MM: False
+Triton MM: False
+==================================================
+PyTorch Float TFLOPS: 86.11
+==================================================
+SDNQ INT8 TFLOPS: 100.46
+SDNQ FP8 TFLOPS: 0
+SDNQ FP8 TW TFLOPS: 0
+==================================================
+SDNQ INT8 INT7 TFLOPS: 89.27
+SDNQ INT8 INT6 TFLOPS: 98.12
+SDNQ INT8 INT5 TFLOPS: 98.11
+SDNQ INT8 UINT4 TFLOPS: 98.01
+SDNQ INT8 UINT3 TFLOPS: 97.72
+SDNQ INT8 UINT2 TFLOPS: 97.97
+SDNQ INT8 UINT1 TFLOPS: 97.18
+==================================================
+SDNQ Float INT8 TFLOPS: 84.45
+SDNQ Float INT7 TFLOPS: 84.41
+SDNQ Float INT6 TFLOPS: 84.61
+SDNQ Float INT5 TFLOPS: 84.64
+SDNQ Float UINT4 TFLOPS: 84.19
+SDNQ Float UINT3 TFLOPS: 84.6
+SDNQ Float UINT2 TFLOPS: 84.1
+SDNQ Float UINT1 TFLOPS: 84.6
+==================================================
+SDNQ Float FP8 E4 TFLOPS: 0
+SDNQ Float FP8 E5 TFLOPS: 84.16
+SDNQ Float FP8 E4 FNUZ TFLOPS: 0
+SDNQ Float FP8 E5 FNUZ TFLOPS: 0
+==================================================

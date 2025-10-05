@@ -1,0 +1,36 @@
+==================================================
+GPU: NVIDIA RTX PRO 6000 Blackwell Server Edition
+Steps: 1000 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096
+Torch Compile: True
+Contiguous MM: False
+Triton MM: False
+==================================================
+PyTorch Float TFLOPS: 389.59
+==================================================
+SDNQ INT8 TFLOPS: 498.78
+SDNQ FP8 TFLOPS: 659.18
+SDNQ FP8 TW TFLOPS: 569.01
+==================================================
+SDNQ INT8 INT7 TFLOPS: 488.48
+SDNQ INT8 INT6 TFLOPS: 486.26
+SDNQ INT8 INT5 TFLOPS: 479.03
+SDNQ INT8 UINT4 TFLOPS: 482.05
+SDNQ INT8 UINT3 TFLOPS: 476.39
+SDNQ INT8 UINT2 TFLOPS: 470.34
+SDNQ INT8 UINT1 TFLOPS: 457.99
+==================================================
+SDNQ Float INT8 TFLOPS: 377.67
+SDNQ Float INT7 TFLOPS: 373.87
+SDNQ Float INT6 TFLOPS: 374.54
+SDNQ Float INT5 TFLOPS: 374.79
+SDNQ Float UINT4 TFLOPS: 374.66
+SDNQ Float UINT3 TFLOPS: 371.91
+SDNQ Float UINT2 TFLOPS: 374.57
+SDNQ Float UINT1 TFLOPS: 374.22
+==================================================
+SDNQ Float FP8 E4 TFLOPS: 372.78
+SDNQ Float FP8 E5 TFLOPS: 375.04
+SDNQ Float FP8 E4 FNUZ TFLOPS: 0
+SDNQ Float FP8 E5 FNUZ TFLOPS: 0
+==================================================
