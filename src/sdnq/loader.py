@@ -42,7 +42,7 @@ def enable_quantized_mamtul(model):
     has_children = list(model.children())
     if not has_children:
         return model
-    for param_name, module in model.named_children():
+    for module in model.children():
         if hasattr(module, "sdnq_dequantizer"):
             if not module.sdnq_dequantizer.use_quantized_matmul:
                 if module.sdnq_dequantizer.weights_dtype in {"int8", "float8_e4m3fn"} and module.sdnq_dequantizer.result_shape != module.weight.shape:
