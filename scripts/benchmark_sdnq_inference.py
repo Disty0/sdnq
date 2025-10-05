@@ -4,8 +4,8 @@ import time
 import torch
 from tqdm import tqdm
 
-import sdnq
 import sdnq.common
+import sdnq.quantizer
 from sdnq import sdnq_quantize_layer
 
 
@@ -81,7 +81,7 @@ def main(
         try:
             print("SDNQ FP8:")
             sdnq.common.use_tensorwise_fp8_matmul = False
-            sdnq.use_tensorwise_fp8_matmul = False
+            sdnq.quantizer.use_tensorwise_fp8_matmul = False
             linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=True)
             _ = linear(x)
             sync_func()
@@ -95,14 +95,14 @@ def main(
             print("SDNQ FP8 test failed")
             sdnq_fp8_tflops = 0
         sdnq.common.use_tensorwise_fp8_matmul = backup_tw_fp8
-        sdnq.use_tensorwise_fp8_matmul = backup_tw_fp8
+        sdnq.quantizer.use_tensorwise_fp8_matmul = backup_tw_fp8
 
 
         backup_tw_fp8 = sdnq.common.use_tensorwise_fp8_matmul
         try:
             print("SDNQ FP8 TW:")
             sdnq.common.use_tensorwise_fp8_matmul = True
-            sdnq.use_tensorwise_fp8_matmul = True
+            sdnq.quantizer.use_tensorwise_fp8_matmul = True
             linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=True)
             _ = linear(x)
             sync_func()
@@ -116,7 +116,7 @@ def main(
             print("SDNQ FP8 TW test failed")
             sdnq_fp8_tw_tflops = 0
         sdnq.common.use_tensorwise_fp8_matmul = backup_tw_fp8
-        sdnq.use_tensorwise_fp8_matmul = backup_tw_fp8
+        sdnq.quantizer.use_tensorwise_fp8_matmul = backup_tw_fp8
 
 
         try:
