@@ -17,6 +17,8 @@ from sdnq.common import use_torch_compile as triton_is_available
 sdnq_config = SDNQConfig(
     weights_dtype="int8",
     group_size=0,
+    svd_rank=128,
+    use_svd=False,
     quant_conv=False,
     use_quantized_matmul=triton_is_available,
     use_quantized_matmul_conv=False,
