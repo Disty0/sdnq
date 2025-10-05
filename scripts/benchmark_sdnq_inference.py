@@ -29,7 +29,7 @@ def main(
     sync_func = getattr(torch, torch.device(device).type).synchronize
 
     if dtype is None:
-        dtype = torch.bfloat16
+        dtype = torch.bfloat16 if not sdnq.common.is_rdna2 else torch.float16
     elif isinstance(dtype, str):
         dtype = getattr(torch, dtype)
 
