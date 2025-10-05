@@ -225,16 +225,6 @@ def main(
             sdnq_int8_uint1_tflops = 0
     else:
         print("Torch Compile is disabled, skipping quantized matmul tests.")
-        sdnq_int8_tflops = 0
-        sdnq_fp8_tflops = 0
-        sdnq_fp8_tw_tflops = 0
-        sdnq_int8_int7_tflops = 0
-        sdnq_int8_int6_tflops = 0
-        sdnq_int8_int5_tflops = 0
-        sdnq_int8_uint4_tflops = 0
-        sdnq_int8_uint3_tflops = 0
-        sdnq_int8_uint2_tflops = 0
-        sdnq_int8_uint1_tflops = 0
 
 
     try:
@@ -439,17 +429,19 @@ def main(
     print("Triton MM:", sdnq.common.use_triton_mm)
     print("==================================================")
     print("PyTorch Float TFLOPS:", pytorch_float_tflops)
-    print("SDNQ INT8 TFLOPS:", sdnq_int8_tflops)
-    print("SDNQ FP8 TFLOPS:", sdnq_fp8_tflops)
-    print("SDNQ FP8 TW TFLOPS:", sdnq_fp8_tw_tflops)
-    print("==================================================")
-    print("SDNQ INT8 INT7 TFLOPS:", sdnq_int8_int7_tflops)
-    print("SDNQ INT8 INT6 TFLOPS:", sdnq_int8_int6_tflops)
-    print("SDNQ INT8 INT5 TFLOPS:", sdnq_int8_int5_tflops)
-    print("SDNQ INT8 UINT4 TFLOPS:", sdnq_int8_uint4_tflops)
-    print("SDNQ INT8 UINT3 TFLOPS:", sdnq_int8_uint3_tflops)
-    print("SDNQ INT8 UINT2 TFLOPS:", sdnq_int8_uint2_tflops)
-    print("SDNQ INT8 UINT1 TFLOPS:", sdnq_int8_uint1_tflops)
+    if sdnq.common.use_torch_compile:
+        print("==================================================")
+        print("SDNQ INT8 TFLOPS:", sdnq_int8_tflops)
+        print("SDNQ FP8 TFLOPS:", sdnq_fp8_tflops)
+        print("SDNQ FP8 TW TFLOPS:", sdnq_fp8_tw_tflops)
+        print("==================================================")
+        print("SDNQ INT8 INT7 TFLOPS:", sdnq_int8_int7_tflops)
+        print("SDNQ INT8 INT6 TFLOPS:", sdnq_int8_int6_tflops)
+        print("SDNQ INT8 INT5 TFLOPS:", sdnq_int8_int5_tflops)
+        print("SDNQ INT8 UINT4 TFLOPS:", sdnq_int8_uint4_tflops)
+        print("SDNQ INT8 UINT3 TFLOPS:", sdnq_int8_uint3_tflops)
+        print("SDNQ INT8 UINT2 TFLOPS:", sdnq_int8_uint2_tflops)
+        print("SDNQ INT8 UINT1 TFLOPS:", sdnq_int8_uint1_tflops)
     print("==================================================")
     print("SDNQ Float INT8 TFLOPS:", sdnq_float_int8_tflops)
     print("SDNQ Float INT7 TFLOPS:", sdnq_float_int7_tflops)
