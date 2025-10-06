@@ -4,7 +4,7 @@ from typing import Tuple, Optional
 
 import torch
 
-from .common import dtype_dict, compile_func, use_tensorwise_fp8_matmul
+from .common import dtype_dict, compile_func, use_contiguous_mm, use_tensorwise_fp8_matmul
 from .packed_int import pack_int_symetric, unpack_int_symetric, pack_int_asymetric, unpack_int_asymetric
 
 
@@ -15,7 +15,10 @@ def dequantize_asymmetric(weight: torch.ByteTensor, scale: torch.FloatTensor, ze
     if svd_up is not None:
         if skip_quantized_matmul:
             svd_up, svd_down = svd_up.t(), svd_down.t()
-        result = torch.addmm(result, svd_up, svd_down)
+        if result.ndim > 2 and weight.ndim > 2: # convs
+            result = result.add_(torch.mm(svd_up, svd_down).unflatten(-1, (*result.shape[1:],)))
+        else:
+            result = result.addmm_(svd_up, svd_down)
     if dtype is not None:
         result = result.to(dtype=dtype)
     return result
@@ -30,7 +33,10 @@ def dequantize_symmetric(weight: torch.CharTensor, scale: torch.FloatTensor, dty
     if svd_up is not None:
         if skip_quantized_matmul:
             svd_up, svd_down = svd_up.t(), svd_down.t()
-        result = torch.addmm(result, svd_up, svd_down)
+        if result.ndim > 2 and weight.ndim > 2: # convs
+            result = result.add_(torch.mm(svd_up, svd_down).unflatten(-1, (*result.shape[1:],)))
+        else:
+            result = result.addmm_(svd_up, svd_down)
     if dtype is not None:
         result = result.to(dtype=dtype)
     return result
@@ -54,23 +60,28 @@ def quantize_int8(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.CharTe
     return input, scale
 
 
-def quantize_fp8(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.Tensor, torch.FloatTensor]:
-    scale = torch.amax(input.abs(), dim=dim, keepdims=True).div_(448)
-    input = torch.div(input, scale).nan_to_num_().clamp_(-448, 448).to(dtype=torch.float8_e4m3fn)
+def quantize_fp8(input: torch.FloatTensor, dim: int = -1, is_e5: bool = False) -> Tuple[torch.Tensor, torch.FloatTensor]:
+    max_range = 57344 if is_e5 else 448
+    fp8_dtype = torch.float8_e5m2 if is_e5 else torch.float8_e4m3fn
+    scale = torch.amax(input.abs(), dim=dim, keepdims=True).div_(max_range)
+    input = torch.div(input, scale).nan_to_num_().clamp_(-max_range, max_range).to(dtype=fp8_dtype)
     return input, scale
 
 
 def re_quantize_int8(weight: torch.FloatTensor) -> Tuple[torch.CharTensor, torch.FloatTensor]:
     if weight.ndim > 2: # convs
         weight = weight.flatten(1,-1)
-    weight, scale = quantize_int8(weight.t(), dim=0)
+    weight = weight.t()
+    if use_contiguous_mm:
+        weight = weight.contiguous()
+    weight, scale = quantize_int8(weight, dim=0)
     return weight, scale
 
 
-def re_quantize_fp8(weight: torch.FloatTensor) -> Tuple[torch.CharTensor, torch.FloatTensor]:
+def re_quantize_fp8(weight: torch.FloatTensor, is_e5: bool = False) -> Tuple[torch.CharTensor, torch.FloatTensor]:
     if weight.ndim > 2: # convs
         weight = weight.flatten(1,-1)
-    weight, scale = quantize_fp8(weight.t(), dim=0)
+    weight, scale = quantize_fp8(weight.t(), dim=0, is_e5=is_e5)
     if not use_tensorwise_fp8_matmul:
         scale = scale.to(dtype=torch.float32)
     return weight, scale
