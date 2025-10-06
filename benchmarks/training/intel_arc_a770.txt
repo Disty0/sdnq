@@ -6,21 +6,21 @@ Torch Compile: True
 Contiguous MM: True
 Triton MM: False
 ==================================================
-PyTorch Float TFLOPS: 77.59
-SDNQ Float TFLOPS: 77.7
+PyTorch Float TFLOPS: 81.09
+SDNQ Float TFLOPS: 81.47
 ==================================================
-SDNQ INT8 TFLOPS: 94.16
+SDNQ INT8 TFLOPS: 96.73
 SDNQ FP8 TFLOPS: 0
 SDNQ FP8 TW TFLOPS: 0
 ==================================================
-SDNQ Float UINT8 TFLOPS: 77.8
-SDNQ Float INT8 TFLOPS: 77.27
-SDNQ Float FP8 TFLOPS: 77.03
+SDNQ Float UINT8 TFLOPS: 80.69
+SDNQ Float INT8 TFLOPS: 80.97
+SDNQ Float FP8 TFLOPS: 81.17
 ==================================================
-SDNQ INT8 Dynamic Float TFLOPS: 91.71
-SDNQ INT8 Dynamic UINT8 TFLOPS: 92.11
-SDNQ INT8 Dynamic INT8 TFLOPS: 91.02
-SDNQ INT8 Dynamic FP8 TFLOPS: 90.61
+SDNQ INT8 Dynamic Float TFLOPS: 96.28
+SDNQ INT8 Dynamic UINT8 TFLOPS: 95.43
+SDNQ INT8 Dynamic INT8 TFLOPS: 95.12
+SDNQ INT8 Dynamic FP8 TFLOPS: 94.38
 ==================================================
 SDNQ FP8 Dynamic Float TFLOPS: 0
 SDNQ FP8 Dynamic UINT8 TFLOPS: 0
@@ -32,14 +32,14 @@ SDNQ FP8 TW Dynamic UINT8 TFLOPS: 0
 SDNQ FP8 TW Dynamic INT8 TFLOPS: 0
 SDNQ FP8 TW Dynamic FP8 TFLOPS: 0
 ==================================================
-SDNQ INT8 CKPT TFLOPS: 93.14
+SDNQ INT8 CKPT TFLOPS: 97.14
 SDNQ FP8 CKPT TFLOPS: 0
 SDNQ FP8 TW CKPT TFLOPS: 0
 ==================================================
-SDNQ INT8 Dynamic CKPT Float TFLOPS: 94.37
-SDNQ INT8 Dynamic CKPT UINT8 TFLOPS: 92.47
-SDNQ INT8 Dynamic CKPT INT8 TFLOPS: 92.32
-SDNQ INT8 Dynamic CKPT FP8 TFLOPS: 92.56
+SDNQ INT8 Dynamic CKPT Float TFLOPS: 95.78
+SDNQ INT8 Dynamic CKPT UINT8 TFLOPS: 96.77
+SDNQ INT8 Dynamic CKPT INT8 TFLOPS: 96.13
+SDNQ INT8 Dynamic CKPT FP8 TFLOPS: 96.39
 ==================================================
 SDNQ FP8 Dynamic CKPT Float TFLOPS: 0
 SDNQ FP8 Dynamic CKPT UINT8 TFLOPS: 0
