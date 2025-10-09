@@ -6,6 +6,7 @@ from enum import Enum
 
 import re
 import torch
+from transformers.quantizers import HfQuantizer
 from diffusers.quantizers.base import DiffusersQuantizer
 from diffusers.quantizers.quantization_config import QuantizationConfigMixin
 from diffusers.utils import get_module_from_name
@@ -59,7 +60,7 @@ def apply_svdquant(weight: torch.FloatTensor, rank: int = 32) -> Tuple[torch.Flo
     svd_down = svd_down.t_()
     weight = weight.sub_(torch.mm(svd_up, svd_down))
     if reshape_weight:
-        weight = weight.unflatten(-1, (*weight_shape[1:],))
+        weight = weight.unflatten(-1, (*weight_shape[1:],)) # pylint: disable=possibly-used-before-assignment
     return weight, svd_up, svd_down
 
 
@@ -74,7 +75,7 @@ def sdnq_quantize_layer(layer, weights_dtype="int8", torch_dtype=None, group_siz
         result_shape = None
         original_shape = layer.weight.shape
         if torch_dtype is None:
-            torch_dtype = devices.dtype
+            torch_dtype = layer.weight.dtype
 
         if layer_class_name in conv_types:
             if not quant_conv:
@@ -320,7 +321,92 @@ def apply_sdnq_to_module(model, weights_dtype="int8", torch_dtype=None, group_si
     return model
 
 
-class SDNQQuantizer(DiffusersQuantizer):
+def add_module_skip_keys(model, modules_to_not_convert: List[str] = None, modules_dtype_dict: Dict[str, List[str]] = None):
+    if modules_to_not_convert is None:
+        modules_to_not_convert = []
+    if modules_dtype_dict is None:
+        modules_dtype_dict = {}
+    if getattr(model, "_keep_in_fp32_modules", None) is not None:
+        modules_to_not_convert.extend(model._keep_in_fp32_modules) # pylint: disable=protected-access
+    if getattr(model, "_skip_layerwise_casting_patterns", None) is not None:
+        modules_to_not_convert.extend(model._skip_layerwise_casting_patterns) # pylint: disable=protected-access
+    if model.__class__.__name__ == "ChromaTransformer2DModel":
+        modules_to_not_convert.append("distilled_guidance_layer")
+    elif model.__class__.__name__ == "QwenImageTransformer2DModel":
+        modules_to_not_convert.extend(["transformer_blocks.0.img_mod.1.weight", "time_text_embed", "img_in", "txt_in", "proj_out", "norm_out", "pos_embed"])
+        if "minimum_6bit" not in modules_dtype_dict.keys():
+            modules_dtype_dict["minimum_6bit"] = ["img_mod"]
+        else:
+            modules_dtype_dict["minimum_6bit"].append("img_mod")
+    return model, modules_to_not_convert, modules_dtype_dict
+
+
+def sdnq_post_load_quant(
+    model,
+    weights_dtype="int8",
+    torch_dtype: torch.dtype = None,
+    group_size: int = 0,
+    svd_rank: int = 32,
+    use_svd: bool = False,
+    quant_conv: bool = False,
+    use_quantized_matmul: bool = False,
+    use_quantized_matmul_conv: bool = False,
+    dequantize_fp32: bool = False,
+    non_blocking: bool = False,
+    add_skip_keys:bool = True,
+    quantization_device: torch.device = None,
+    return_device: torch.device = None,
+    modules_to_not_convert: List[str] = None,
+    modules_dtype_dict: Dict[str, List[str]] = None,
+    op=None,
+):
+    if add_skip_keys:
+        model, modules_to_not_convert, modules_dtype_dict = add_module_skip_keys(model, modules_to_not_convert, modules_dtype_dict)
+
+    model.eval()
+    model = apply_sdnq_to_module(
+        model,
+        weights_dtype=weights_dtype,
+        torch_dtype=torch_dtype,
+        group_size=group_size,
+        svd_rank=svd_rank,
+        use_svd=use_svd,
+        quant_conv=quant_conv,
+        use_quantized_matmul=use_quantized_matmul,
+        use_quantized_matmul_conv=use_quantized_matmul_conv,
+        dequantize_fp32=dequantize_fp32,
+        non_blocking=non_blocking,
+        quantization_device=quantization_device,
+        return_device=return_device,
+        modules_to_not_convert=modules_to_not_convert,
+        modules_dtype_dict=modules_dtype_dict.copy(),
+        op=op,
+    )
+
+    model.quantization_config = SDNQConfig(
+        weights_dtype=weights_dtype,
+        group_size=group_size,
+        svd_rank=svd_rank,
+        use_svd=use_svd,
+        quant_conv=quant_conv,
+        use_quantized_matmul=use_quantized_matmul,
+        use_quantized_matmul_conv=use_quantized_matmul_conv,
+        dequantize_fp32=dequantize_fp32,
+        non_blocking=non_blocking,
+        quantization_device=quantization_device,
+        return_device=return_device,
+        modules_to_not_convert=modules_to_not_convert,
+        modules_dtype_dict=modules_dtype_dict.copy(),
+    )
+
+    if hasattr(model, "config"):
+        model.config.quantization_config = model.quantization_config
+    model.quantization_method = QuantizationMethod.SDNQ
+
+    return model
+
+
+class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
     r"""
     Diffusers Quantizer for SDNQ
     """
@@ -383,6 +469,8 @@ class SDNQQuantizer(DiffusersQuantizer):
         *args, **kwargs, # pylint: disable=unused-argument
     ):
         weights_dtype = self.quantization_config.weights_dtype
+        torch_dtype = param_value.dtype if self.torch_dtype is None else self.torch_dtype
+
         if len(self.quantization_config.modules_dtype_dict.keys()) > 0:
             split_param_name = param_name.split(".")
             for key, value in self.quantization_config.modules_dtype_dict.items():
@@ -423,7 +511,7 @@ class SDNQQuantizer(DiffusersQuantizer):
         layer = sdnq_quantize_layer(
             layer,
             weights_dtype=weights_dtype,
-            torch_dtype=self.torch_dtype,
+            torch_dtype=torch_dtype,
             group_size=self.quantization_config.group_size,
             svd_rank=self.quantization_config.svd_rank,
             use_svd=self.quantization_config.use_svd,
@@ -445,8 +533,6 @@ class SDNQQuantizer(DiffusersQuantizer):
         return dtype_dict[self.quantization_config.weights_dtype]["target_dtype"]
 
     def update_torch_dtype(self, torch_dtype: torch.dtype = None) -> torch.dtype:
-        if torch_dtype is None:
-            torch_dtype = devices.dtype
         self.torch_dtype = torch_dtype
         return torch_dtype
 
@@ -457,15 +543,17 @@ class SDNQQuantizer(DiffusersQuantizer):
         keep_in_fp32_modules: List[str] = None,
         **kwargs, # pylint: disable=unused-argument
     ):
-        if keep_in_fp32_modules is not None:
-            self.modules_to_not_convert.extend(keep_in_fp32_modules)
-        elif getattr(model, "_keep_in_fp32_modules", None) is not None:
-            self.modules_to_not_convert.extend(model._keep_in_fp32_modules) # pylint: disable=protected-access
-        if getattr(model, "_skip_layerwise_casting_patterns", None) is not None:
-            self.modules_to_not_convert.extend(model._skip_layerwise_casting_patterns) # pylint: disable=protected-access
+        if self.quantization_config.add_skip_keys:
+            if keep_in_fp32_modules is not None:
+                self.modules_to_not_convert.extend(keep_in_fp32_modules)
+            model, self.modules_to_not_convert, self.quantization_config.modules_dtype_dict = add_module_skip_keys(
+                model, self.modules_to_not_convert, self.quantization_config.modules_dtype_dict
+            )
         self.modules_to_not_convert.extend(self.quantization_config.modules_to_not_convert)
         self.quantization_config.modules_to_not_convert = self.modules_to_not_convert
-        model.config.quantization_config = self.quantization_config
+        if hasattr(model, "config"):
+            model.config.quantization_config = self.quantization_config
+        model.quantization_config = self.quantization_config
 
     def _process_model_after_weight_loading(self, model, **kwargs): # pylint: disable=unused-argument
         if shared.opts.diffusers_offload_mode != "none":
@@ -530,13 +618,15 @@ class SDNQQuantizer(DiffusersQuantizer):
         """
         return dtype
 
+    def is_serializable(self, *args, **kwargs) -> bool:  # pylint: disable=unused-argument, invalid-overridden-method
+        """
+        needed for transformers compatibilty, returns True
+        """
+        return True
+
     @property
     def is_trainable(self):
         return False
-
-    @property
-    def is_serializable(self):
-        return True
 
     @property
     def is_compileable(self):
@@ -570,6 +660,8 @@ class SDNQConfig(QuantizationConfigMixin):
             Enabling this option will use FP32 on the dequantization step.
         non_blocking (`bool`, *optional*, defaults to `False`):
             Enabling this option will use non blocking ops when moving layers between the quantization device and the return device.
+        add_skip_keys (`bool`, *optional*, defaults to `True`):
+            Disabling this option won't add model specific modules_to_not_convert and modules_dtype_dict keys.
         quantization_device (`torch.device`, *optional*, defaults to `None`):
             Used to set which device will be used for the quantization calculation on model load.
         return_device (`torch.device`, *optional*, defaults to `None`):
@@ -592,6 +684,7 @@ class SDNQConfig(QuantizationConfigMixin):
         use_quantized_matmul_conv: bool = False,
         dequantize_fp32: bool = False,
         non_blocking: bool = False,
+        add_skip_keys: bool = True,
         quantization_device: Optional[torch.device] = None,
         return_device: Optional[torch.device] = None,
         modules_to_not_convert: Optional[List[str]] = None,
@@ -608,6 +701,7 @@ class SDNQConfig(QuantizationConfigMixin):
         self.use_quantized_matmul_conv = use_quantized_matmul_conv
         self.dequantize_fp32 = dequantize_fp32
         self.non_blocking = non_blocking
+        self.add_skip_keys = add_skip_keys
         self.quantization_device = quantization_device
         self.return_device = return_device
         self.modules_to_not_convert = modules_to_not_convert
@@ -630,6 +724,12 @@ class SDNQConfig(QuantizationConfigMixin):
 
         if self.modules_dtype_dict is None:
             self.modules_dtype_dict = {}
+
+    def to_dict(self):
+        dct = self.__dict__.copy() # make serializable
+        dct["quantization_device"] = str(dct["quantization_device"]) if dct["quantization_device"] is not None else None
+        dct["return_device"] = str(dct["return_device"]) if dct["return_device"] is not None else None
+        return dct
 
 
 import diffusers.quantizers.auto # noqa: E402,RUF100 # pylint: disable=wrong-import-order
