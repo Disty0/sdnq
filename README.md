@@ -48,6 +48,8 @@ model = apply_sdnq_to_module(
     weights_dtype="uint8",
     quantized_matmul_dtype="int8",
     group_size=32, # -1 means disabled
+    svd_rank=32,
+    use_svd=False,
     use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
     use_quantized_matmul=triton_is_available,
     use_static_quantization=True, # quantize the model weights
@@ -66,6 +68,8 @@ optimizer = AdamW(
     use_quantized_buffers=True,
     quantized_buffers_dtype="uint8",
     quantized_buffers_group_size=32,
+    quantized_buffers_svd_rank=32,
+    use_svd_quantization=False,
     use_stochastic_quantization=True,
 )
 ```
