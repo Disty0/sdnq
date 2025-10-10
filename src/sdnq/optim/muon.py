@@ -11,6 +11,16 @@ from sdnq.training.layers.linear.linear_fp8_dynamic import fp8_matmul_dynamic
 
 
 class Muon(SDNQOptimizer):
+    _extra_group_keys = [
+        {"use_muon", "ns_steps", "nesterov", "adaptive", "zeropower_dtype", "use_quantized_matmul", "quantized_matmul_dtype"},
+        {"use_muon"},
+    ]
+    _keep_in_fp32_keys = {}
+    _group_keys = [
+        set.union(SDNQOptimizer._base_group_keys, _extra_group_keys[0]),
+        set.union(SDNQOptimizer._base_group_keys, _extra_group_keys[1]),
+    ]
+
     def __init__(self, params, **kwargs):
         if isinstance(params, torch.nn.Parameter) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             kwargs["params"] = params
@@ -21,40 +31,21 @@ class Muon(SDNQOptimizer):
             assert "use_muon" in group
             if group["use_muon"]:
                 group["lr"] = group.get("lr", 1e-3)
-                group["betas"] = group.get("betas", (0.9, 0.95))
-                group["weight_decay"] = group.get("weight_decay", 0.01)
-                group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
                 group["ns_steps"] = group.get("ns_steps", 5)
                 group["nesterov"] = group.get("nesterov", True)
                 group["adaptive"] = group.get("adaptive", False)
                 group["final_norm_mode"] = group.get("final_norm_mode", "rms_clip_scaled")
-                group["use_cautious"] = group.get("use_cautious", False)
-                group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
                 group["zeropower_dtype"] = group.get("zeropower_dtype", "bfloat16")
                 group["use_quantized_matmul"] = group.get("use_quantized_matmul", False)
                 group["quantized_matmul_dtype"] = group.get("quantized_matmul_dtype", "int8")
-                group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
-                group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
-                group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
-                group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
                 if isinstance(group["zeropower_dtype"], str):
                     group["zeropower_dtype"] = getattr(torch, group["zeropower_dtype"])
-                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "ns_steps", "nesterov", "adaptive", "final_norm_mode", "use_cautious", "bf16_stochastic_round", "zeropower_dtype", "use_quantized_matmul", "quantized_matmul_dtype", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
+                group = self.apply_group_defaults(group)
+                assert set(group.keys()) == self.group_keys[0]
             else:
-                group["lr"] = group.get("lr", 1e-4)
-                group["betas"] = group.get("betas", (0.9, 0.95))
-                group["weight_decay"] = group.get("weight_decay", 0.01)
-                group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
-                group["final_norm_mode"] = group.get("final_norm_mode", "none")
-                group["use_cautious"] = group.get("use_cautious", False)
-                group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
-                group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
-                group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
-                group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
-                group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
-                assert set(group.keys()) == set(["params", "lr", "use_muon", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
+                group = self.apply_group_defaults(group)
+                assert set(group.keys()) == self.group_keys[1]
         super().__init__(param_groups, dict())
-        self.keep_in_fp32_keys = {}
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -73,9 +64,9 @@ class Muon(SDNQOptimizer):
                     if len(state) == 0:
                         state["step"] = 0
                         if group["use_quantized_buffers"]:
-                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
+                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
                             if group["adaptive"]:
-                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
+                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
                         else:
                             state["momentum_buffer"] = torch.zeros_like(param)
                             if group["adaptive"]:
@@ -122,8 +113,8 @@ class Muon(SDNQOptimizer):
                     if len(state) == 0:
                         state["step"] = 0
                         if group["use_quantized_buffers"]:
-                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
-                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
+                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
+                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
                         else:
                             state["exp_avg"] = torch.zeros_like(param)
                             state["exp_avg_sq"] = torch.zeros_like(param)
@@ -241,9 +232,9 @@ def zeropower_via_newtonschulz5_int8_matmul(G: torch.FloatTensor, steps: int = 5
 
     X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
     for _ in range(steps):
-        A = int8_matmul_dynamic(X, X, None, do_input_reshape=True)
-        B = int8_matmul_dynamic((A*c), A, (A*b), do_input_reshape=False)
-        X = int8_matmul_dynamic(B, X, (X*a), do_input_reshape=False)
+        A = int8_matmul_dynamic(X, X, do_input_reshape=True)
+        B = int8_matmul_dynamic((A*c), A, bias=(A*b), do_input_reshape=False)
+        X = int8_matmul_dynamic(B, X, bias=(X*a), do_input_reshape=False)
 
     if G.shape[0] > G.shape[1]:
         X = X.t()
@@ -258,9 +249,9 @@ def zeropower_via_newtonschulz5_fp8_matmul(G: torch.FloatTensor, steps: int = 5,
 
     X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
     for _ in range(steps):
-        A = fp8_matmul_dynamic(X, X, None, do_input_reshape=True)
-        B = fp8_matmul_dynamic((A*c), A, None, do_input_reshape=False).add_(A, alpha=b)
-        X = fp8_matmul_dynamic(B, X, None, do_input_reshape=False).add_(X, alpha=a)
+        A = fp8_matmul_dynamic(X, X, do_input_reshape=True)
+        B = fp8_matmul_dynamic((A*c), A, do_input_reshape=False).add_(A, alpha=b)
+        X = fp8_matmul_dynamic(B, X, do_input_reshape=False).add_(X, alpha=a)
 
     if G.shape[0] > G.shape[1]:
         X = X.t()

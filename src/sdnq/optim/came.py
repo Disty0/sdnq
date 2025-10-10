@@ -7,6 +7,10 @@ from sdnq.training import SDNQTensor
 
 
 class CAME(SDNQOptimizer):
+    _extra_group_keys = {"norm_mode"}
+    _keep_in_fp32_keys = {"exp_avg_sq", "exp_avg_sq_row", "exp_avg_sq_col", "exp_avg_res_row", "exp_avg_res_col"}
+    _group_keys = set.union(SDNQOptimizer._base_group_keys, _extra_group_keys)
+
     def __init__(self, params, **kwargs):
         if isinstance(params, torch.nn.Parameter) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             kwargs["params"] = params
@@ -14,21 +18,11 @@ class CAME(SDNQOptimizer):
         else:
             param_groups = params
         for group in param_groups:
-            group["lr"] = group.get("lr", 1e-4)
             group["betas"] = group.get("betas", (0.9, 0.95, 0.99))
-            group["weight_decay"] = group.get("weight_decay", 0.01)
-            group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
             group["norm_mode"] = group.get("norm_mode", "rms_clip")
-            group["final_norm_mode"] = group.get("final_norm_mode", "none")
-            group["use_cautious"] = group.get("use_cautious", False)
-            group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
-            group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
-            group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
-            group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
-            group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
-            assert set(group.keys()) == set(["params", "lr", "betas", "weight_decay", "clip_threshold", "norm_mode", "final_norm_mode", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "use_stochastic_quantization"])
+            group = self.apply_group_defaults(group)
+            assert set(group.keys()) == self.group_keys
         super().__init__(param_groups, dict())
-        self.keep_in_fp32_keys = {"exp_avg_sq", "exp_avg_sq_row", "exp_avg_sq_col", "exp_avg_res_row", "exp_avg_res_col"}
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -48,7 +42,7 @@ class CAME(SDNQOptimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
-                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
                     else:
                         state["exp_avg"] = torch.zeros_like(param)
 

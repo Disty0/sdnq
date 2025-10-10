@@ -12,6 +12,8 @@ def apply_sdnq_to_module(
     weights_dtype: str = "uint8",
     quantized_matmul_dtype: str = "int8",
     group_size: int = 32,
+    svd_rank: int = 32,
+    use_svd: bool = False,
     use_grad_ckpt: bool = True,
     use_quantized_matmul: bool = True,
     use_static_quantization: bool = True,
@@ -97,13 +99,15 @@ def apply_sdnq_to_module(
                     module.forward = quantized_forward
                     module.forward = module.forward.__get__(module, module.__class__)
                     if use_static_quantization:
-                        module.weight = torch.nn.Parameter(SDNQTensor.from_float(module.weight, qtype=weights_dtype, group_size=group_size, sr=use_stochastic_quantization), requires_grad=module.weight.requires_grad)
+                        module.weight = torch.nn.Parameter(SDNQTensor.from_float(module.weight, qtype=weights_dtype, group_size=group_size, svd_rank=svd_rank, use_svd=use_svd, sr=use_stochastic_quantization), requires_grad=module.weight.requires_grad)
 
         module = apply_sdnq_to_module(
             module,
             weights_dtype=weights_dtype,
             quantized_matmul_dtype=quantized_matmul_dtype,
             group_size=group_size,
+            svd_rank=svd_rank,
+            use_svd=use_svd,
             use_grad_ckpt=use_grad_ckpt,
             use_quantized_matmul=use_quantized_matmul,
             use_static_quantization=use_static_quantization,

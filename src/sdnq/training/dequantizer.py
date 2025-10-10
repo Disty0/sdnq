@@ -8,33 +8,46 @@ from sdnq.common import compile_func
 
 
 @torch.no_grad()
-def dequantize_asymmetric(weight: torch.ByteTensor, scale: torch.FloatTensor, zero_point: torch.FloatTensor, dtype: Optional[torch.dtype] = None, result_shape: Optional[torch.Size] = None) -> torch.FloatTensor:
+def dequantize_asymmetric(weight: torch.ByteTensor, scale: torch.FloatTensor, zero_point: torch.FloatTensor, dtype: Optional[torch.dtype] = None, result_shape: Optional[torch.Size] = None, svd_up: Optional[torch.FloatTensor] = None, svd_down: Optional[torch.FloatTensor] = None) -> torch.FloatTensor:
     result = torch.addcmul(zero_point, weight.to(dtype=scale.dtype), scale)
-    if dtype is not None:
-        result = result.to(dtype=dtype)
     if result_shape is not None:
         result = result.view(result_shape)
+    if svd_up is not None:
+        result = result.addmm_(svd_up, svd_down)
+    if dtype is not None:
+        result = result.to(dtype=dtype)
     return result
 
 
 @torch.no_grad()
-def dequantize_symmetric(weight: torch.CharTensor, scale: torch.FloatTensor, dtype: Optional[torch.dtype] = None, result_shape: Optional[torch.Size] = None) -> torch.FloatTensor:
+def dequantize_symmetric(weight: torch.CharTensor, scale: torch.FloatTensor, dtype: Optional[torch.dtype] = None, result_shape: Optional[torch.Size] = None, svd_up: Optional[torch.FloatTensor] = None, svd_down: Optional[torch.FloatTensor] = None) -> torch.FloatTensor:
     result = weight.to(dtype=scale.dtype).mul_(scale)
-    if dtype is not None:
-        result = result.to(dtype=dtype)
     if result_shape is not None:
         result = result.view(result_shape)
+    if svd_up is not None:
+        result = result.addmm_(svd_up, svd_down)
+    if dtype is not None:
+        result = result.to(dtype=dtype)
     return result
 
 
 @torch.no_grad()
 def dequantize_symmetric_with_bias(weight: torch.CharTensor, scale: torch.FloatTensor, bias: torch.FloatTensor, dtype: Optional[torch.dtype] = None, result_shape: Optional[torch.Size] = None) -> torch.FloatTensor:
     result = torch.addcmul(bias, weight.to(dtype=scale.dtype), scale)
-    if dtype is not None:
-        result = result.to(dtype=dtype)
     if result_shape is not None:
         result = result.view(result_shape)
+    if dtype is not None:
+        result = result.to(dtype=dtype)
     return result
+
+
+@torch.no_grad()
+def apply_svdquant(weight: torch.FloatTensor, rank: int = 32) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    weight = weight.to(dtype=torch.float32)
+    U, S, svd_down = torch.svd_lowrank(weight, q=rank)
+    svd_up = torch.mul(U, S.unsqueeze(0))
+    svd_down = svd_down.t_()
+    return weight.sub(torch.mm(svd_up, svd_down)), svd_up, svd_down
 
 
 @torch.no_grad()
@@ -91,7 +104,7 @@ def quantize_fp8_sr(input: torch.FloatTensor, dim: int = -1) -> Tuple[torch.Tens
 
 class SDNQTensor(torch.Tensor):
     @staticmethod
-    def __new__(cls, quant_data: torch.Tensor, scale: torch.FloatTensor, zero_point: torch.FloatTensor, original_shape: torch.Size, dtype: torch.dtype, qtype: str, group_size: int, sr: bool):
+    def __new__(cls, quant_data: torch.Tensor, scale: torch.FloatTensor, zero_point: torch.FloatTensor, svd_up: torch.FloatTensor, svd_down: torch.FloatTensor, original_shape: torch.Size, dtype: torch.dtype, qtype: str, group_size: int, svd_rank: int, sr: bool):
         using_group_size = bool(original_shape is not None)
         stride = quant_data.stride()
         if using_group_size:
@@ -105,52 +118,72 @@ class SDNQTensor(torch.Tensor):
             device=quant_data.device,
         )
 
-    def __init__(self, quant_data: torch.Tensor, scale: torch.FloatTensor, zero_point: torch.FloatTensor, original_shape: torch.Size, dtype: torch.dtype, qtype: str, group_size: int, sr: bool):
+    def __init__(self, quant_data: torch.Tensor, scale: torch.FloatTensor, zero_point: torch.FloatTensor, svd_up: torch.FloatTensor, svd_down: torch.FloatTensor, original_shape: torch.Size, dtype: torch.dtype, qtype: str, group_size: int, svd_rank: int, sr: bool):
         self.quant_data = quant_data
         self.scale = scale
         self.zero_point = zero_point
+        self.svd_up = svd_up
+        self.svd_down = svd_down
         self.original_shape = original_shape
         self.return_dtype = dtype
         self.qtype = qtype
         self.group_size = group_size
+        self.svd_rank = svd_rank
         self.sr = sr
 
-    def dequantize(self, dtype=None):
+    def dequantize(self, dtype: torch.dtype = None, non_svd: bool = False):
         if dtype is None:
             dtype = self.return_dtype
-        fake_mode = detect_fake_mode((self.quant_data, self.scale, self.zero_point))
+        if non_svd:
+            svd_up, svd_down = None, None
+        else:
+            svd_up, svd_down = self.svd_up, self.svd_down
+        fake_mode = detect_fake_mode((self.quant_data, self.scale, self.zero_point, svd_up, svd_down))
         if self.zero_point is None:
             if fake_mode is not None:
                 with fake_mode:
-                    return dequantize_symmetric(self.quant_data, self.scale, dtype=dtype, result_shape=self.original_shape)
-            return dequantize_symmetric_compiled(self.quant_data, self.scale, dtype=dtype, result_shape=self.original_shape)
+                    return dequantize_symmetric(self.quant_data, self.scale, dtype=dtype, result_shape=self.original_shape, svd_up=svd_up, svd_down=svd_down)
+            return dequantize_symmetric_compiled(self.quant_data, self.scale, dtype=dtype, result_shape=self.original_shape, svd_up=svd_up, svd_down=svd_down)
         else:
             if fake_mode is not None:
                 with fake_mode:
-                    return dequantize_asymmetric(self.quant_data, self.scale, self.zero_point, dtype=dtype, result_shape=self.original_shape)
-            return dequantize_asymmetric_compiled(self.quant_data, self.scale, self.zero_point, dtype=dtype, result_shape=self.original_shape)
+                    return dequantize_asymmetric(self.quant_data, self.scale, self.zero_point, dtype=dtype, result_shape=self.original_shape, svd_up=svd_up, svd_down=svd_down)
+            return dequantize_asymmetric_compiled(self.quant_data, self.scale, self.zero_point, dtype=dtype, result_shape=self.original_shape, svd_up=svd_up, svd_down=svd_down)
     
     def __tensor_flatten__(self) -> Tuple[List[str], Any]:
-        if self.zero_point is None:
-            return ("quant_data", "scale"), (self.original_shape, self.return_dtype, self.qtype, self.group_size, self.sr)
-        else:
-            return ("quant_data", "scale", "zero_point"), (self.original_shape, self.return_dtype, self.qtype, self.group_size, self.sr)
+        tensor_list = ["quant_data", "scale"]
+        metadata_list = (self.original_shape, self.return_dtype, self.qtype, self.group_size, self.sr)
+        if self.zero_point is not None:
+            tensor_list.append("zero_point")
+        if self.svd_up is not None:
+            tensor_list.append("svd_up")
+            tensor_list.append("svd_down")
+        return tensor_list, metadata_list
 
     @classmethod
     def __tensor_unflatten__(cls, tensor_data_dict, extra_metadata, outer_size=None, outer_stride=None):
-        original_shape, dtype, qtype, group_size, sr = extra_metadata
-        return SDNQTensor(tensor_data_dict["quant_data"], tensor_data_dict["scale"], tensor_data_dict.get("zero_point", None), original_shape, dtype, qtype, group_size, sr)
+        original_shape, dtype, qtype, group_size, svd_rank, sr = extra_metadata
+        return SDNQTensor(tensor_data_dict["quant_data"], tensor_data_dict["scale"], tensor_data_dict.get("zero_point", None), tensor_data_dict.get("svd_up", None), tensor_data_dict.get("svd_down", None), original_shape, dtype, qtype, group_size, svd_rank, sr)
 
     def __repr__(self):
-        return f'SDNQTensor(quant_data={repr(self.quant_data)}, scale={repr(self.scale)}, zero_point={repr(self.zero_point)}, original_shape={repr(self.original_shape)}, dtype={repr(self.return_dtype)}, qtype={repr(self.qtype)}, group_size={repr(self.group_size)}, sr={repr(self.sr)})'
+        return f'SDNQTensor(quant_data={repr(self.quant_data)}, scale={repr(self.scale)}, zero_point={repr(self.zero_point)}, svd_up={repr(self.svd_up)}, svd_down={repr(self.svd_down)}, original_shape={repr(self.original_shape)}, dtype={repr(self.return_dtype)}, qtype={repr(self.qtype)}, group_size={repr(self.group_size)}, sr={repr(self.sr)})'
 
     @staticmethod
-    def from_float(float_tensor: torch.FloatTensor, qtype: str = "int8", group_size: int = -1, sr: bool = False):
+    def from_float(float_tensor: torch.FloatTensor, qtype: str = "int8", group_size: int = -1, svd_rank: int = 32, use_svd: bool = False, sr: bool = False):
         float_tensor = float_tensor.detach()
         fake_mode = detect_fake_mode(float_tensor)
-        zero_point = None
+        result_dtype = float_tensor.dtype
+        zero_point, svd_up, svd_down = None, None, None
         original_shape = None
         num_of_groups = 1
+
+        if use_svd:
+            if fake_mode is not None:
+                with fake_mode:
+                    float_tensor, svd_up, svd_down = apply_svdquant(float_tensor, rank=svd_rank)
+            else:
+                float_tensor, svd_up, svd_down = apply_svdquant_compiled(float_tensor, rank=svd_rank)
+            fake_mode = detect_fake_mode(float_tensor)
 
         if group_size > 0:
             original_shape = float_tensor.shape
@@ -215,7 +248,7 @@ class SDNQTensor(torch.Tensor):
                     quant_data, scale = quantize_fp8_compiled(float_tensor)
         else:
             raise NotImplementedError(f'Quantization type {qtype} is not implemented')
-        return SDNQTensor(quant_data, scale, zero_point, original_shape, float_tensor.dtype, qtype, group_size, sr)
+        return SDNQTensor(quant_data, scale, zero_point, svd_up, svd_down, original_shape, result_dtype, qtype, group_size, svd_rank, sr)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):
@@ -227,19 +260,27 @@ class SDNQTensor(torch.Tensor):
 
     def fsdp_pre_all_gather(self, mesh, outer_size=None, outer_stride=None, module=None, mp_policy=None):
         dtype = mp_policy.param_dtype if mp_policy is not None else self.return_dtype
-        if self.zero_point is None:
-            return (self.quant_data, self.scale), (self.original_shape, dtype, self.qtype, self.group_size, self.sr)
-        else:
-            return (self.quant_data, self.scale, self.zero_point), (self.original_shape, dtype, self.qtype, self.group_size, self.sr)
+        tensor_list = [self.quant_data, self.scale]
+        metadata_list = (self.original_shape, dtype, self.qtype, self.group_size, self.svd_rank, self.sr)
+        if self.zero_point is not None:
+            tensor_list.append(self.zero_point)
+        if self.svd_up is not None:
+            tensor_list.append(self.svd_up)
+            tensor_list.append(self.svd_down)
+        return tensor_list, metadata_list
 
     def fsdp_post_all_gather(self, all_gather_outputs: Tuple[torch.Tensor, ...], metadata: Any, param_dtype: torch.dtype, *, out: Optional[torch.Tensor] = None):
+        original_shape, dtype, qtype, group_size, svd_rank, sr = metadata
+        zero_point, svd_up, svd_down = None, None, None
         if len(all_gather_outputs) == 2:
             quant_data, scale = all_gather_outputs
-            zero_point = None
-        else:
+        elif len(all_gather_outputs) == 3:
             quant_data, scale, zero_point = all_gather_outputs
-        original_shape, dtype, qtype, group_size, sr = metadata
-        return SDNQTensor(quant_data, scale, zero_point, original_shape, dtype, qtype, group_size, sr), all_gather_outputs
+        elif len(all_gather_outputs) == 4:
+            quant_data, scale, svd_up, svd_down = all_gather_outputs
+        else:
+            quant_data, scale, zero_point, svd_up, svd_down = all_gather_outputs
+        return SDNQTensor(quant_data, scale, zero_point, svd_up, svd_down, original_shape, dtype, qtype, group_size, svd_rank, sr), all_gather_outputs
 
 
 op_implementations_dict = {}
@@ -304,10 +345,13 @@ def sdnq_view_ops(func, *args, **kwargs):
         func(args[0].quant_data, *args[1:], **kwargs),
         func(args[0].scale, *args[1:], **kwargs),
         func(args[0].zero_point, *args[1:], **kwargs) if args[0].zero_point is not None else None,
+        func(args[0].svd_up, *args[1:], **kwargs) if args[0].svd_up is not None else None,
+        func(args[0].svd_down, *args[1:], **kwargs) if args[0].svd_down is not None else None,
         args[0].original_shape,
         args[0].return_dtype,
         args[0].qtype,
         args[0].group_size,
+        args[0].svd_rank,
         args[0].sr,
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
@@ -320,10 +364,13 @@ def sdnq_to(func, *args, **kwargs):
         func(args[0].quant_data, *args[1:], **kwargs),
         func(args[0].scale, *args[1:], **kwargs),
         func(args[0].zero_point, *args[1:], **kwargs) if args[0].zero_point is not None else None,
+        func(args[0].svd_up, *args[1:], **kwargs) if args[0].svd_up is not None else None,
+        func(args[0].svd_down, *args[1:], **kwargs) if args[0].svd_down is not None else None,
         args[0].original_shape,
         dtype if dtype is not None else args[0].return_dtype,
         args[0].qtype,
         args[0].group_size,
+        args[0].svd_rank,
         args[0].sr,
     )
     if dtype is not None:
@@ -335,11 +382,14 @@ def sdnq_to(func, *args, **kwargs):
 def sdnq_copy_(func, x, y, *args, **kwargs):
     if isinstance(x, SDNQTensor):
         if not isinstance(y, SDNQTensor):
-            y = SDNQTensor.from_float(y, qtype=x.qtype, group_size=x.group_size, sr=x.sr)
+            y = SDNQTensor.from_float(y, qtype=x.qtype, group_size=x.group_size, svd_rank=x.svd_rank, use_svd=x.svd_up is not None, sr=x.sr)
         x.quant_data.copy_(y.quant_data, *args, **kwargs)
         x.scale.copy_(y.scale, *args, **kwargs)
         if x.zero_point is not None:
             x.zero_point.copy_(y.zero_point, *args, **kwargs)
+        if x.svd_up is not None:
+            x.svd_up.copy_(y.svd_up, *args, **kwargs)
+            x.svd_down.copy_(y.svd_down, *args, **kwargs)
         x.original_shape = y.original_shape
     else:
         x.copy_(y.dequantize(), *args, **kwargs)
@@ -371,10 +421,13 @@ def sdnq_mul(func, x, y):
     if isinstance(other, SDNQTensor):
         other = other.dequantize()
     if func == torch.ops.aten.mul.Scalar or isinstance(other, (int,float)) or other.shape == input.scale.shape or other.numel() == 1:
+        svd_up, svd_down = None, None
+        if input.svd_up is not None:
+            svd_up, svd_down = torch.mul(input.svd_up, other), input.svd_down
         if input.zero_point is None:
-            return dequantize_symmetric_compiled(input.quant_data, torch.mul(input.scale, other), dtype=input.return_dtype, result_shape=input.original_shape)
+            return dequantize_symmetric_compiled(input.quant_data, torch.mul(input.scale, other), dtype=input.return_dtype, result_shape=input.original_shape, svd_up=svd_up, svd_down=svd_down)
         else:
-            return dequantize_asymmetric_compiled(input.quant_data, torch.mul(input.scale, other), torch.mul(input.zero_point, other), dtype=input.return_dtype, result_shape=input.original_shape)
+            return dequantize_asymmetric_compiled(input.quant_data, torch.mul(input.scale, other), torch.mul(input.zero_point, other), dtype=input.return_dtype, result_shape=input.original_shape, svd_up=svd_up, svd_down=svd_down)
     else:
         return input.dequantize().mul_(other)
 
@@ -391,6 +444,8 @@ def sdnq_mul_(func, x, y):
         input.scale.mul_(other)
         if input.zero_point is not None:
             input.zero_point.mul_(other)
+        if input.svd_up is not None:
+            input.svd_up.mul_(other)
         return input
     else:
         return x.copy_(input.dequantize().mul_(other))
@@ -406,11 +461,15 @@ def sdnq_div(func, x, y):
         other = other.dequantize()
     if func == torch.ops.aten.div.Scalar or isinstance(other, (int,float)) or other.shape == input.scale.shape or other.numel() == 1:
         scale = torch.div(input.scale, other) if sdnq_first else torch.div(other, input.scale)
+        svd_up, svd_down = None, None
+        if input.svd_up is not None:
+            svd_down = input.svd_down
+            svd_up = torch.div(input.svd_up, other) if sdnq_first else torch.div(other, input.svd_up)
         if input.zero_point is None:
-            return dequantize_symmetric_compiled(input.quant_data, scale, dtype=input.return_dtype, result_shape=input.original_shape)
+            return dequantize_symmetric_compiled(input.quant_data, scale, dtype=input.return_dtype, result_shape=input.original_shape, svd_up=svd_up, svd_down=svd_down)
         else:
             zero_point = torch.div(input.zero_point, other) if sdnq_first else torch.div(other, input.zero_point)
-            return dequantize_asymmetric_compiled(input.quant_data, scale, zero_point, dtype=input.return_dtype, result_shape=input.original_shape)
+            return dequantize_asymmetric_compiled(input.quant_data, scale, zero_point, dtype=input.return_dtype, result_shape=input.original_shape, svd_up=svd_up, svd_down=svd_down)
     else:
         if sdnq_first:
             return input.dequantize().div_(other)
@@ -430,6 +489,8 @@ def sdnq_div_(func, x, y):
         input.scale.div_(other)
         if input.zero_point is not None:
             input.zero_point.div_(other)
+        if input.svd_up is not None:
+            input.svd_up.div_(other)
         return input
     else:
         if sdnq_first:
@@ -450,14 +511,19 @@ def sdnq_split(func, weight, size, dim=0, **kwargs):
         zero_point_list = func(weight.zero_point, size, dim=dim, **kwargs)
     else:
         zero_point_list = [None for _ in range(len(quant_data_list))]
-    original_shape, dtype, qtype, sr = weight.original_shape, weight.return_dtype, weight.qtype, weight.sr
-    out = [SDNQTensor(quant_data, scale, zero_point, original_shape, dtype, qtype, sr) for quant_data, scale, zero_point in zip(quant_data_list, scale_list, zero_point_list)]
+    if weight.svd_up is not None:
+        svd_up_list = func(weight.svd_up, size, dim=dim, **kwargs)
+        svd_down_list = func(weight.svd_down, size, dim=1 if dim == 0 else dim, **kwargs)
+    else:
+        svd_up_list = svd_down_list = [None for _ in range(len(quant_data_list))]
+    original_shape, dtype, qtype, group_size, svd_rank, sr = weight.original_shape, weight.return_dtype, weight.qtype, weight.group_size, weight.svd_rank, weight.sr
+    out = [SDNQTensor(quant_data, scale, zero_point, svd_up, svd_down, original_shape, dtype, qtype, group_size, svd_rank, sr) for quant_data, scale, zero_point, svd_up, svd_down in zip(quant_data_list, scale_list, zero_point_list, svd_up_list, svd_down_list)]
     return out
 
 
 @register_op([torch.ops.aten.view.default, torch.ops.aten.as_strided.default])
 def sdnq_view(func, *args, **kwargs):
-    out = SDNQTensor(args[0].quant_data, args[0].scale, args[0].zero_point, args[0].original_shape, args[0].return_dtype, args[0].qtype, args[0].sr)
+    out = SDNQTensor(args[0].quant_data, args[0].scale, args[0].zero_point, args[0].svd_up, args[0].svd_down, args[0].original_shape, args[0].return_dtype, args[0].qtype, args[0].group_size, args[0].svd_rank, args[0].sr)
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
@@ -465,6 +531,7 @@ torch.serialization.add_safe_globals([SDNQTensor])
 
 dequantize_asymmetric_compiled = compile_func(dequantize_asymmetric)
 dequantize_symmetric_compiled = compile_func(dequantize_symmetric)
+apply_svdquant_compiled = compile_func(apply_svdquant)
 quantize_int8_sr_compiled = compile_func(quantize_int8_sr)
 quantize_int8_compiled = compile_func(quantize_int8)
 quantize_uint8_sr_compiled = compile_func(quantize_uint8_sr)

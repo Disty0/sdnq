@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Union
 
 import torch
 from sdnq.common import compile_func, use_contiguous_mm
@@ -15,7 +15,15 @@ def check_mats(input: torch.Tensor, weight: torch.Tensor) -> Tuple[torch.Tensor,
     return input, weight
 
 
-def linear_backward(grad_output: torch.FloatTensor, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, do_grad_input: bool = True, do_grad_weight: bool = True, do_grad_bias: bool = True) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+def linear_backward(
+    grad_output: torch.FloatTensor,
+    input: torch.FloatTensor,
+    weight: torch.FloatTensor,
+    bias: torch.FloatTensor = None,
+    do_grad_input: bool = True,
+    do_grad_weight: bool = True,
+    do_grad_bias: bool = True,
+) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
@@ -29,7 +37,7 @@ def linear_backward(grad_output: torch.FloatTensor, input: torch.FloatTensor, we
 
 class QuantizedLinearBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(ctx, input: torch.FloatTensor, weight: Union[torch.FloatTensor, SDNQTensor], bias: torch.FloatTensor = None) -> torch.FloatTensor:
         if isinstance(weight, SDNQTensor):
             weight = weight.dequantize()
         ctx.save_for_backward(input, weight, bias)
@@ -38,7 +46,7 @@ class QuantizedLinearBackward(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, bias = ctx.saved_tensors
-        return linear_backward(grad_output, input, weight, bias, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
+        return linear_backward(grad_output, input, weight, bias=bias, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
 
 
 def quantized_linear_forward(self, input: torch.FloatTensor) -> torch.FloatTensor:

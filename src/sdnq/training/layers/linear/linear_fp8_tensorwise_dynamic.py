@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Union
 
 import torch
 from sdnq.common import compile_func
@@ -21,11 +21,31 @@ def quantize_fp8_matmul_tensorwise(input: torch.FloatTensor, weight: torch.Float
     return input, weight, scale
 
 
-def fp8_matmul_tensorwise_dynamic(input: torch.FloatTensor, weight: torch.Tensor, bias: torch.FloatTensor, output_shape: torch.Size = None, do_input_reshape: bool = True) -> torch.FloatTensor:
+def fp8_matmul_tensorwise_dynamic(
+    input: torch.FloatTensor,
+    weight: torch.Tensor,
+    bias: torch.FloatTensor = None,
+    svd_up: torch.FloatTensor = None,
+    svd_down: torch.FloatTensor = None,
+    output_shape: torch.Size = None,
+    do_input_reshape: bool = True,
+) -> torch.FloatTensor:
     return_dtype = input.dtype
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[0] if do_input_reshape else weight.shape[-1]
+    if svd_up is not None:
+        input = input.flatten(0,-2).to(dtype=torch.float32)
+        if do_transpose:
+            if bias is not None:
+                bias = torch.addmm(bias, torch.mm(input, svd_down.t()), svd_up.t())
+            else:
+                bias = torch.mm(torch.mm(input, svd_down.t()), svd_up.t())
+        else:
+            if bias is not None:
+                bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
+            else:
+                bias = torch.mm(torch.mm(input, svd_up), svd_down)
     dummy_input_scale = torch.ones(1, device=input.device, dtype=torch.float32)
     input, weight, scale = quantize_fp8_matmul_tensorwise(input, weight, do_input_reshape=do_input_reshape)
     input, weight = check_mats(input, weight)
@@ -35,13 +55,23 @@ def fp8_matmul_tensorwise_dynamic(input: torch.FloatTensor, weight: torch.Tensor
         return dequantize_symmetric(torch._scaled_mm(input, weight, scale_a=dummy_input_scale, scale_b=dummy_input_scale, bias=None, out_dtype=scale.dtype), scale, return_dtype, output_shape)
 
 
-def fp8_matmul_tensorwise_dynamic_backward(grad_output: torch.FloatTensor, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor, do_grad_input: bool = True, do_grad_weight: bool = True, do_grad_bias: bool = True) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+def fp8_matmul_tensorwise_dynamic_backward(
+    grad_output: torch.FloatTensor,
+    input: torch.FloatTensor,
+    weight: torch.FloatTensor,
+    bias: torch.FloatTensor = None,
+    svd_up: torch.FloatTensor = None,
+    svd_down: torch.FloatTensor = None,
+    do_grad_input: bool = True,
+    do_grad_weight: bool = True,
+    do_grad_bias: bool = True,
+) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = fp8_matmul_tensorwise_dynamic(grad_output, weight, None, output_shape=input.shape, do_input_reshape=False)
+        grad_input = fp8_matmul_tensorwise_dynamic(grad_output, weight, svd_up=svd_up, svd_down=svd_down, output_shape=input.shape, do_input_reshape=False)
     if do_grad_weight:
-        grad_weight = fp8_matmul_tensorwise_dynamic(grad_output.t(), input.flatten(0,-2), None, output_shape=None, do_input_reshape=False)
+        grad_weight = fp8_matmul_tensorwise_dynamic(grad_output.t(), input.flatten(0,-2), output_shape=None, do_input_reshape=False)
     if do_grad_bias and bias is not None:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
@@ -49,16 +79,18 @@ def fp8_matmul_tensorwise_dynamic_backward(grad_output: torch.FloatTensor, input
 
 class FP8MatmulTensorWiseDynamicBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor, bias: torch.FloatTensor) -> torch.FloatTensor:
+    def forward(ctx, input: torch.FloatTensor, weight: Union[torch.FloatTensor, SDNQTensor], bias: torch.FloatTensor = None) -> torch.FloatTensor:
+        svd_up, svd_down = None, None
         if isinstance(weight, SDNQTensor):
-            weight = weight.dequantize()
-        ctx.save_for_backward(input, weight, bias)
-        return fp8_matmul_tensorwise_dynamic_compiled(input, weight, bias)
+            svd_up, svd_down = weight.svd_up, weight.svd_down
+            weight = weight.dequantize(non_svd=True)
+        ctx.save_for_backward(input, weight, bias, svd_up, svd_down)
+        return fp8_matmul_tensorwise_dynamic_compiled(input, weight, bias=bias, svd_up=svd_up, svd_down=svd_down)
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
-        input, weight, bias = ctx.saved_tensors
-        return fp8_matmul_tensorwise_dynamic_backward(grad_output, input, weight, bias, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
+        input, weight, bias, svd_up, svd_down = ctx.saved_tensors
+        return fp8_matmul_tensorwise_dynamic_backward(grad_output, input, weight, bias=bias, svd_up=svd_up, svd_down=svd_down, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
 
 
 def quantized_linear_forward_fp8_matmul_tensorwise_dynamic(self, input: torch.FloatTensor) -> torch.FloatTensor:
