@@ -37,7 +37,8 @@ def fp8_matmul_tensorwise(
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[-1]
     if svd_up is not None:
-        input = input.flatten(0,-2).to(dtype=torch.float32)
+        input = input.flatten(0,-2)
+        svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
         if do_transpose:
             if bias is not None:
                 bias = torch.addmm(bias, torch.mm(input, svd_down.t()), svd_up.t())
