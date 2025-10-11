@@ -38,8 +38,11 @@ class Devices():
             import gc
             gc.collect()
             if self.backend != "cpu":
-                getattr(torch, torch.device(self.device).type).synchronize()
-                getattr(torch, torch.device(self.device).type).empty_cache()
+                try:
+                    getattr(torch, torch.device(self.device).type).synchronize()
+                    getattr(torch, torch.device(self.device).type).empty_cache()
+                except Exception:
+                    pass
 
     def has_triton(self) -> bool:
         try:
@@ -52,7 +55,10 @@ class Devices():
 class SharedOpts():
     def __init__(self, backend):
         self.diffusers_offload_mode = os.environ.get("SDNQ_OFFLOAD_MODE", "none").lower()
-        self.sdnq_dequantize_compile = devices.has_triton() and os.environ.get("SDNQ_USE_TORCH_COMPILE", "1").lower() not in {"0", "false", "no"}
+        if os.environ.get("SDNQ_USE_TORCH_COMPILE", None) is None:
+            self.sdnq_dequantize_compile = devices.has_triton()
+        else:
+            self.sdnq_dequantize_compile = bool(os.environ.get("SDNQ_USE_TORCH_COMPILE", "1").lower() not in {"0", "false", "no"})
 
 
 class Shared():
