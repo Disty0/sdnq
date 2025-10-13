@@ -49,7 +49,7 @@ def quantize_weight(weight: torch.FloatTensor, reduction_axes: Union[int, List[i
     return quantized_weight, scale, zero_point
 
 
-def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, niter: int = 2) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, niter: int = 8) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     reshape_weight = False
     if weight.ndim > 2: # convs
         reshape_weight = True
@@ -136,7 +136,7 @@ def add_module_skip_keys(model, modules_to_not_convert: List[str] = None, module
 
 
 @devices.inference_context()
-def sdnq_quantize_layer(layer, weights_dtype="int8", torch_dtype=None, group_size=0, svd_rank=32, svd_steps=2, use_svd=False, quant_conv=False, use_quantized_matmul=False, use_quantized_matmul_conv=False, dequantize_fp32=False, non_blocking=False, quantization_device=None, return_device=None, param_name=None): # pylint: disable=unused-argument
+def sdnq_quantize_layer(layer, weights_dtype="int8", torch_dtype=None, group_size=0, svd_rank=32, svd_steps=8, use_svd=False, quant_conv=False, use_quantized_matmul=False, use_quantized_matmul_conv=False, dequantize_fp32=False, non_blocking=False, quantization_device=None, return_device=None, param_name=None): # pylint: disable=unused-argument
     layer_class_name = layer.__class__.__name__
     if layer_class_name in allowed_types:
         num_of_groups = 1
@@ -308,7 +308,7 @@ def sdnq_quantize_layer(layer, weights_dtype="int8", torch_dtype=None, group_siz
     return layer
 
 
-def apply_sdnq_to_module(model, weights_dtype="int8", torch_dtype=None, group_size=0, svd_rank=32, svd_steps=2, use_svd=False, quant_conv=False, use_quantized_matmul=False, use_quantized_matmul_conv=False, dequantize_fp32=False, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert: List[str] = None, modules_dtype_dict: Dict[str, List[str]] = None, full_param_name="", op=None): # pylint: disable=unused-argument
+def apply_sdnq_to_module(model, weights_dtype="int8", torch_dtype=None, group_size=0, svd_rank=32, svd_steps=8, use_svd=False, quant_conv=False, use_quantized_matmul=False, use_quantized_matmul_conv=False, dequantize_fp32=False, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert: List[str] = None, modules_dtype_dict: Dict[str, List[str]] = None, full_param_name="", op=None): # pylint: disable=unused-argument
     has_children = list(model.children())
     if not has_children:
         return model
@@ -379,7 +379,7 @@ def sdnq_post_load_quant(
     torch_dtype: torch.dtype = None,
     group_size: int = 0,
     svd_rank: int = 32,
-    svd_steps: int = 2,
+    svd_steps: int = 8,
     use_svd: bool = False,
     quant_conv: bool = False,
     use_quantized_matmul: bool = False,
@@ -645,7 +645,7 @@ class SDNQConfig(QuantizationConfigMixin):
             group_size = 0 will automatically select a group size based on weights_dtype.
         svd_rank (`int`, *optional*, defaults to `32`):
             The rank size used for the SVDQuant algorithm.
-        svd_steps (`int`, *optional*, defaults to `2`):
+        svd_steps (`int`, *optional*, defaults to `8`):
             The number of iterations to use in svd lowrank estimation.
         use_svd (`bool`, *optional*, defaults to `False`):
             Enabling this option will use SVDQuant algorithm on top of SDNQ quantization.
@@ -677,7 +677,7 @@ class SDNQConfig(QuantizationConfigMixin):
         weights_dtype: str = "int8",
         group_size: int = 0,
         svd_rank: int = 32,
-        svd_steps: int = 2,
+        svd_steps: int = 8,
         use_svd: bool = False,
         quant_conv: bool = False,
         use_quantized_matmul: bool = False,
