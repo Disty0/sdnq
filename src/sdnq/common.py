@@ -84,7 +84,7 @@ else:
 
 module_skip_keys_dict = {
     "FluxTransformer2DModel": [
-        [".time_text_embed", ".context_embedder", ".x_embedder", ".proj_out", ".norm_out", "pos_embed"],
+        ["single_transformer_blocks.0.norm.linear.weight", ".time_text_embed", ".context_embedder", ".x_embedder", ".proj_out", ".norm_out", "pos_embed"],
         {}
     ],
     "ChromaTransformer2DModel": [
