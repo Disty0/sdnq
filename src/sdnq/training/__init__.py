@@ -1,9 +1,27 @@
 from typing import List
 
+import re
 import torch
 from sdnq.common import use_tensorwise_fp8_matmul
 
 from .dequantizer import SDNQTensor
+
+
+def check_param_name_in(param_name: str, param_list: List[str]) -> bool:
+    split_param_name = param_name.split(".")
+    for param in param_list:
+        if param.startswith("."):
+            if param_name.startswith(param[1:]):
+                return True
+            else:
+                continue
+        if (
+            param_name == param
+            or param in split_param_name
+            or ("*" in param and re.match(param.replace(".*", "\\.*").replace("*", ".*"), param_name))
+        ):
+            return True
+    return False
 
 
 @torch.no_grad()
@@ -19,6 +37,7 @@ def apply_sdnq_to_module(
     use_static_quantization: bool = True,
     use_stochastic_quantization: bool = True,
     modules_to_not_convert: List[str] = None,
+    full_param_name: str = "",
 ):
     if modules_to_not_convert is None:
         modules_to_not_convert = []
@@ -31,11 +50,13 @@ def apply_sdnq_to_module(
     if not has_children:
         return model
 
-    for module_param_name, module in model.named_children():
-        if module_param_name in modules_to_not_convert:
-            continue
-
+    for param_name, module in model.named_children():
+        if full_param_name:
+            param_name = full_param_name + "." + param_name
         if module.__class__.__name__ == "Linear" and hasattr(module, "weight") and module.weight is not None:
+            param_name = param_name + ".weight"
+            if check_param_name_in(param_name, modules_to_not_convert):
+                continue
             output_channel_size, channel_size = module.weight.shape
             if channel_size >= 32 and output_channel_size >= 32:
                 if quantized_matmul_dtype == "int8":
@@ -113,5 +134,6 @@ def apply_sdnq_to_module(
             use_static_quantization=use_static_quantization,
             use_stochastic_quantization=use_stochastic_quantization,
             modules_to_not_convert=modules_to_not_convert,
+            full_param_name=param_name,
         )
     return model
