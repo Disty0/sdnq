@@ -42,9 +42,9 @@ def int8_matmul_dynamic_backward_ckpt(
     input_shape[-1] = input.shape[-1]
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = int8_matmul(grad_output, weight, weight_scale, svd_up=svd_up, svd_down=svd_down, output_shape=input_shape, do_input_reshape=False, is_backward_pass=True)
+        grad_input = int8_matmul(grad_output, weight, weight_scale, svd_up=svd_up, svd_down=svd_down, output_shape=input_shape, do_input_reshape=False, is_backward_pass=True, use_sr=True)
     if do_grad_weight:
-        grad_weight = int8_matmul(grad_output.t(), input, input_scale, output_shape=None, do_input_reshape=False, is_backward_pass=True)
+        grad_weight = int8_matmul(grad_output.t(), input, input_scale, output_shape=None, do_input_reshape=False, is_backward_pass=True, use_sr=True)
     if do_grad_bias and bias is not None:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias

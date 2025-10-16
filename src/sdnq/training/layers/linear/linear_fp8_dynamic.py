@@ -3,18 +3,21 @@ from typing import Tuple, Union
 import torch
 from sdnq.common import compile_func
 
-from ...dequantizer import SDNQTensor, quantize_fp8 # noqa: TID252
+from ...dequantizer import SDNQTensor, quantize_fp8, quantize_fp8_sr # noqa: TID252
 from .forward import check_mats, quantized_linear_with_backward
 
 
-def quantize_fp8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True) -> Tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
+def quantize_fp8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True, use_sr: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     else:
         weight = weight.t()
     weight, scale = quantize_fp8(weight, dim=-1)
     weight, scale = weight.t_(), scale.t_()
-    input, input_scale = quantize_fp8(input, dim=-1)
+    if use_sr:
+        input, input_scale = quantize_fp8_sr(input, dim=-1)
+    else:
+        input, input_scale = quantize_fp8(input, dim=-1)
     return input, weight, input_scale, scale
 
 
@@ -26,6 +29,7 @@ def fp8_matmul_dynamic(
     svd_down: torch.FloatTensor = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
+    use_sr: bool = False,
 ) -> torch.FloatTensor:
     return_dtype = input.dtype
     if output_shape is None:
@@ -38,7 +42,7 @@ def fp8_matmul_dynamic(
             svd_bias = torch.mm(torch.mm(input, svd_down.t()), svd_up.t())
         else:
             svd_bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, weight, input_scale, scale = quantize_fp8_matmul(input, weight, do_input_reshape=do_input_reshape)
+    input, weight, input_scale, scale = quantize_fp8_matmul(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight)
     if bias is not None and bias.dtype != torch.bfloat16:
         bias = bias.to(dtype=torch.bfloat16)
@@ -62,9 +66,9 @@ def fp8_matmul_dynamic_backward(
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = fp8_matmul_dynamic(grad_output, weight, svd_up=svd_up, svd_down=svd_down, output_shape=input.shape, do_input_reshape=False)
+        grad_input = fp8_matmul_dynamic(grad_output, weight, svd_up=svd_up, svd_down=svd_down, output_shape=input.shape, do_input_reshape=False, use_sr=True)
     if do_grad_weight:
-        grad_weight = fp8_matmul_dynamic(grad_output.t(), input.flatten(0,-2), output_shape=None, do_input_reshape=False)
+        grad_weight = fp8_matmul_dynamic(grad_output.t(), input.flatten(0,-2), output_shape=None, do_input_reshape=False, use_sr=True)
     if do_grad_bias and bias is not None:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
