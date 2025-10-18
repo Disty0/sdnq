@@ -149,7 +149,7 @@ class SDNQTensor(torch.Tensor):
                 with fake_mode:
                     return dequantize_asymmetric(self.quant_data, self.scale, self.zero_point, dtype=dtype, result_shape=self.original_shape, svd_up=svd_up, svd_down=svd_down)
             return dequantize_asymmetric_compiled(self.quant_data, self.scale, self.zero_point, dtype=dtype, result_shape=self.original_shape, svd_up=svd_up, svd_down=svd_down)
-    
+
     def __tensor_flatten__(self) -> Tuple[List[str], Any]:
         tensor_list = ["quant_data", "scale"]
         metadata_list = (self.original_shape, self.return_dtype, self.qtype, self.group_size, self.sr)
