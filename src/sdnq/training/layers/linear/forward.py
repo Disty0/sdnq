@@ -7,7 +7,8 @@ from ...dequantizer import SDNQTensor # noqa: TID252
 
 
 def check_mats(input: torch.Tensor, weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    input = input.contiguous()
+    if input is not None:
+        input = input.contiguous()
     if use_contiguous_mm:
         weight = weight.contiguous()
     elif weight.is_contiguous():

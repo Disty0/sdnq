@@ -4,6 +4,7 @@ import torch
 from sdnq.common import compile_func
 
 from ...dequantizer import SDNQTensor, dequantize_symmetric, quantize_int8 # noqa: TID252
+from .forward import quantized_linear_with_backward
 from .linear_int8 import int8_matmul
 from .linear_int8_dynamic import int8_matmul_dynamic
 

@@ -47,11 +47,17 @@ def int8_matmul_dynamic(
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
         if do_input_reshape:
-            if bias is not None:
-                bias = torch.addmm(bias, torch.mm(input, svd_down.t()), svd_up.t())
+            if use_contiguous_mm:
+                svd_up, svd_down = svd_up.t().contiguous(), svd_down.t().contiguous()
             else:
-                bias = torch.mm(torch.mm(input, svd_down.t()), svd_up.t())
+                svd_up, svd_down = svd_up.contiguous().t(), svd_down.contiguous().t()
+            if bias is not None:
+                bias = torch.addmm(bias, torch.mm(input, svd_down), svd_up)
+            else:
+                bias = torch.mm(torch.mm(input, svd_down), svd_up)
         else:
+            _, svd_up = check_mats(None, svd_up)
+            _, svd_down = check_mats(None, svd_down)
             if bias is not None:
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:

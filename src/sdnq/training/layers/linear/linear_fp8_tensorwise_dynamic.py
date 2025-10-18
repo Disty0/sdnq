@@ -1,7 +1,7 @@
 from typing import Tuple, Union
 
 import torch
-from sdnq.common import compile_func
+from sdnq.common import compile_func, use_contiguous_mm
 
 from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetric_with_bias, quantize_fp8, quantize_fp8_sr # noqa: TID252
 from .forward import check_mats, quantized_linear_with_backward
@@ -41,12 +41,18 @@ def fp8_matmul_tensorwise_dynamic(
     if svd_up is not None:
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
-        if do_transpose:
-            if bias is not None:
-                bias = torch.addmm(bias, torch.mm(input, svd_down.t()), svd_up.t())
+        if do_input_reshape:
+            if use_contiguous_mm:
+                svd_up, svd_down = svd_up.t().contiguous(), svd_down.t().contiguous()
             else:
-                bias = torch.mm(torch.mm(input, svd_down.t()), svd_up.t())
+                svd_up, svd_down = svd_up.contiguous().t(), svd_down.contiguous().t()
+            if bias is not None:
+                bias = torch.addmm(bias, torch.mm(input, svd_down), svd_up)
+            else:
+                bias = torch.mm(torch.mm(input, svd_down), svd_up)
         else:
+            _, svd_up = check_mats(None, svd_up)
+            _, svd_down = check_mats(None, svd_down)
             if bias is not None:
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:

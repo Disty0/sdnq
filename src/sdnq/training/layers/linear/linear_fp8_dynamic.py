@@ -1,7 +1,7 @@
 from typing import Tuple, Union
 
 import torch
-from sdnq.common import compile_func
+from sdnq.common import compile_func, use_contiguous_mm
 
 from ...dequantizer import SDNQTensor, quantize_fp8, quantize_fp8_sr # noqa: TID252
 from .forward import check_mats, quantized_linear_with_backward
@@ -38,9 +38,15 @@ def fp8_matmul_dynamic(
     if svd_up is not None:
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
-        if do_transpose:
-            svd_bias = torch.mm(torch.mm(input, svd_down.t()), svd_up.t())
+        if do_input_reshape:
+            if use_contiguous_mm:
+                svd_up, svd_down = svd_up.t().contiguous(), svd_down.t().contiguous()
+            else:
+                svd_up, svd_down = svd_up.contiguous().t(), svd_down.contiguous().t()
+            svd_bias = torch.mm(torch.mm(input, svd_down), svd_up)
         else:
+            _, svd_up = check_mats(None, svd_up)
+            _, svd_down = check_mats(None, svd_down)
             svd_bias = torch.mm(torch.mm(input, svd_up), svd_down)
     input, weight, input_scale, scale = quantize_fp8_matmul(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight)

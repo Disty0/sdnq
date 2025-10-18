@@ -1,12 +1,11 @@
 from typing import Tuple, Optional
 
 import torch
-from sdnq.common import compile_func, int_mm_func
+from sdnq.common import compile_func, int_mm_func, use_contiguous_mm
 
 from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8, quantize_int8_sr # noqa: TID252
 from .linear_int8_dynamic import int8_matmul_dynamic
-from .forward import check_mats
-
+from .forward import check_mats, quantized_linear_with_backward
 try:
     from sdnq.triton_mm import int_mm as triton_int_mm
 except ImportError:
@@ -55,11 +54,17 @@ def int8_matmul(
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
         if do_transpose:
-            if bias is not None:
-                bias = torch.addmm(bias, torch.mm(input, svd_down.t()), svd_up.t())
+            if use_contiguous_mm:
+                svd_up, svd_down = svd_up.t().contiguous(), svd_down.t().contiguous()
             else:
-                bias = torch.mm(torch.mm(input, svd_down.t()), svd_up.t())
+                svd_up, svd_down = svd_up.contiguous().t(), svd_down.contiguous().t()
+            if bias is not None:
+                bias = torch.addmm(bias, torch.mm(input, svd_down), svd_up)
+            else:
+                bias = torch.mm(torch.mm(input, svd_down), svd_up)
         else:
+            _, svd_up = check_mats(None, svd_up)
+            _, svd_down = check_mats(None, svd_down)
             if bias is not None:
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
