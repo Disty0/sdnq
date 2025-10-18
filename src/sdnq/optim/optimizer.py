@@ -44,6 +44,9 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
 
 class SDNQOptimizer(torch.optim.Optimizer):
     _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "use_stochastic_quantization"}
+    _extra_group_keys = {}
+    _keep_in_fp32_keys = {}
+    _group_keys = set.union(SDNQOptimizer._base_group_keys, _extra_group_keys)
 
     @staticmethod
     def apply_group_defaults(group: dict) -> dict:
@@ -93,7 +96,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         assert param_groups is not None
         if key == "step":
             return value
-        elif isinstance(value, SDNQTensor) or key in self.keep_in_fp32_keys:
+        elif isinstance(value, SDNQTensor) or key in self._keep_in_fp32_keys:
             return value.to(device=param.device, dtype=torch.float32)
         else:
             return value.to(device=param.device, dtype=param.dtype)
