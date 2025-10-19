@@ -1,4 +1,4 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Iterator
 
 import torch
 
@@ -22,9 +22,21 @@ class Muon(SDNQOptimizer):
     ]
 
     def __init__(self, params, **kwargs):
-        if isinstance(params, torch.nn.Parameter) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
-            kwargs["params"] = params
-            param_groups = [kwargs,]
+        if isinstance(params, (torch.nn.Parameter, Iterator)) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
+            muon_group = {"use_muon": True, "params": []}
+            adamw_group = {"use_muon": False, "params": []}
+            for key, value in kwargs:
+                if key in {"use_muon", "params"}:
+                    continue
+                muon_group[key] = value
+                if key not in self._extra_group_keys[0]:
+                    adamw_group[key] = value
+            for param in params:
+                if param.ndim == 1:
+                    adamw_group["params"].append(param)
+                else:
+                    muon_group["params"].append(param)
+            param_groups = [muon_group, adamw_group]
         else:
             param_groups = params
         for group in param_groups:
@@ -41,10 +53,10 @@ class Muon(SDNQOptimizer):
                 if isinstance(group["zeropower_dtype"], str):
                     group["zeropower_dtype"] = getattr(torch, group["zeropower_dtype"])
                 group = self.apply_group_defaults(group)
-                assert set(group.keys()) == self.group_keys[0]
+                assert set(group.keys()) == self._group_keys[0]
             else:
                 group = self.apply_group_defaults(group)
-                assert set(group.keys()) == self.group_keys[1]
+                assert set(group.keys()) == self._group_keys[1]
         super().__init__(param_groups, dict())
 
     @torch.no_grad()

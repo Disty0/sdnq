@@ -1,4 +1,4 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Iterator
 
 import torch
 
@@ -12,7 +12,7 @@ class CAME(SDNQOptimizer):
     _group_keys = set.union(SDNQOptimizer._base_group_keys, _extra_group_keys)
 
     def __init__(self, params, **kwargs):
-        if isinstance(params, torch.nn.Parameter) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
+        if isinstance(params, (torch.nn.Parameter, Iterator)) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             kwargs["params"] = params
             param_groups = [kwargs,]
         else:
@@ -21,7 +21,7 @@ class CAME(SDNQOptimizer):
             group["betas"] = group.get("betas", (0.9, 0.95, 0.99))
             group["norm_mode"] = group.get("norm_mode", "rms_clip")
             group = self.apply_group_defaults(group)
-            assert set(group.keys()) == self.group_keys
+            assert set(group.keys()) == self._group_keys
         super().__init__(param_groups, dict())
 
     @torch.no_grad()

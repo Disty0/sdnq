@@ -1,4 +1,4 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Iterator
 
 import torch
 
@@ -12,7 +12,7 @@ class Adafactor(SDNQOptimizer):
     _group_keys = set.union(SDNQOptimizer._base_group_keys, _extra_group_keys)
 
     def __init__(self, params, **kwargs):
-        if isinstance(params, torch.nn.Parameter) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
+        if isinstance(params, (torch.nn.Parameter, Iterator)) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             kwargs["params"] = params
             param_groups = [kwargs,]
         else:
