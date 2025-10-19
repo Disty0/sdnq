@@ -32,10 +32,14 @@ class Muon(SDNQOptimizer):
                 if key not in self._extra_group_keys[0]:
                     adamw_group[key] = value
             for param in params:
-                if param.ndim == 1:
+                if param.ndim <= 1:
                     adamw_group["params"].append(param)
                 else:
                     muon_group["params"].append(param)
+            if "lr_muon" in kwargs.keys():
+                muon_group["lr"] = kwargs["lr_muon"]
+            if "lr_adamw" in kwargs.keys():
+                adamw_group["lr"] = kwargs["lr_adamw"]
             param_groups = [muon_group, adamw_group]
         else:
             param_groups = params
