@@ -25,21 +25,26 @@ class Muon(SDNQOptimizer):
         if isinstance(params, (torch.nn.Parameter, Iterator)) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             muon_group = {"use_muon": True, "params": []}
             adamw_group = {"use_muon": False, "params": []}
+            keys_to_pop = []
             for key, value in kwargs.items():
-                if key in {"use_muon", "params"}:
-                    continue
-                muon_group[key] = value
-                if key not in self._extra_group_keys[0]:
+                if key.startswith("muon_"):
+                    muon_group[key.removeprefix("muon_")] = value
+                    keys_to_pop.append(key)
+                elif key.startswith("adamw_"):
+                    adamw_group[key.removeprefix("adamw_")] = value
+                    keys_to_pop.append(key)
+            for key in keys_to_pop:
+                kwargs.pop(key, None)
+            for key, value in kwargs.items():
+                if key not in muon_group.keys():
+                    muon_group[key] = value
+                if key not in adamw_group.keys() and key not in self._extra_group_keys[0]:
                     adamw_group[key] = value
             for param in params:
                 if param.ndim <= 1:
                     adamw_group["params"].append(param)
                 else:
                     muon_group["params"].append(param)
-            if "lr_muon" in kwargs.keys():
-                muon_group["lr"] = kwargs["lr_muon"]
-            if "lr_adamw" in kwargs.keys():
-                adamw_group["lr"] = kwargs["lr_adamw"]
             param_groups = [muon_group, adamw_group]
         else:
             param_groups = params
