@@ -25,7 +25,7 @@ class Muon(SDNQOptimizer):
         if isinstance(params, (torch.nn.Parameter, Iterator)) or (isinstance(params, list) and isinstance(params[0], torch.nn.Parameter)):
             muon_group = {"use_muon": True, "params": []}
             adamw_group = {"use_muon": False, "params": []}
-            for key, value in kwargs:
+            for key, value in kwargs.items():
                 if key in {"use_muon", "params"}:
                     continue
                 muon_group[key] = value
