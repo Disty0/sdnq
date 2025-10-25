@@ -2,9 +2,18 @@
 
 For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
-Install command:
+Install command:  
 ```sh
 pip install git+https://github.com/Disty0/sdnq
+```
+
+
+Pre-quantized models can be found here: https://huggingface.co/collections/Disty0/sdnq  
+Example code to load pre-quantized models:  
+
+```py
+from sdnq import SDNQConfig # import sdnq to register it into diffusers and transformers
+model = AutoModel.from_pretrained(model_path)
 ```
 
 
@@ -32,6 +41,22 @@ sdnq_config = SDNQConfig(
 )
 
 model = AutoModel.from_pretrained(model_path, quantization_config=sdnq_config)
+```
+
+
+Example code for saving a quantized model:  
+
+```py
+from sdnq.loader import save_sdnq_model
+# set is_pipeline to True if you want to save the entire diffusers pipeline instead of a single model.
+save_sdnq_model(pipe, "path_to_save_the_quantized_model", is_pipeline=False)
+```
+
+
+Example code for enabling or disabling quantized matmul with a pre-quantized model:  
+```py
+from sdnq.loader import apply_options_to_model
+quantized_model = apply_options_to_model(quantized_model, use_quantized_matmul=True)
 ```
 
 
