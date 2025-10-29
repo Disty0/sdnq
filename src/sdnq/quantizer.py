@@ -6,12 +6,12 @@ from enum import Enum
 
 import re
 import torch
-from transformers.quantizers import HfQuantizer
 
+from transformers.quantizers import HfQuantizer
 from diffusers.quantizers.base import DiffusersQuantizer
 from diffusers.quantizers.quantization_config import QuantizationConfigMixin
-from diffusers.utils import get_module_from_name
 
+from diffusers.utils import get_module_from_name
 from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
 
@@ -523,20 +523,18 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
         *args, **kwargs, # pylint: disable=unused-argument
     ):
         if not self.check_if_quantized_param(model, param_value, param_name, return_true=False):
-            torch_dtype = param_value.dtype if self.torch_dtype is None else self.torch_dtype
-            with devices.inference_context():
-                if param_value.dtype == torch_dtype and devices.same_device(param_value.device, target_device):
-                    param_value = param_value.clone()
-                else:
-                    param_value = param_value.to(target_device, dtype=torch_dtype)
-            module, tensor_name = get_module_from_name(model, param_name)
-            set_module_tensor_to_device(model, param_name, target_device, param_value, torch_dtype)
+            # safetensors is unable to release the cpu memory without this
+            if devices.same_device(param_value.device, target_device):
+                param_value = param_value.clone()
+            else:
+                param_value = param_value.to(target_device)
+            set_module_tensor_to_device(model, param_name, target_device, param_value, param_value.dtype)
             return
 
         if self.pre_quantized:
             layer, tensor_name = get_module_from_name(model, param_name)
             if param_value is not None:
-                return_dtype = param_value.dtype if tensor_name == "weight" else torch.float32 if self.quantization_config.dequantize_fp32 else self.torch_dtype if self.torch_dtype is not None else param_value.dtype
+                return_dtype = param_value.dtype if tensor_name == "weight" else torch.float32 if self.quantization_config.dequantize_fp32 else kwargs.get("dtype", param_value.dtype if self.torch_dtype is None else self.torch_dtype)
                 if param_value.dtype == return_dtype and devices.same_device(param_value.device, target_device):
                     param_value = param_value.clone()
                 else:
@@ -545,7 +543,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             setattr(layer, tensor_name, param_value)
             return
 
-        torch_dtype = param_value.dtype if self.torch_dtype is None else self.torch_dtype
+        torch_dtype = kwargs.get("dtype", param_value.dtype if self.torch_dtype is None else self.torch_dtype)
         weights_dtype = get_minimum_dtype(self.quantization_config.weights_dtype, param_name, self.quantization_config.modules_dtype_dict)
 
         if self.quantization_config.return_device is not None:
