@@ -83,7 +83,6 @@ else:
 
 
 common_skip_keys = (
-    ".lm_head",
     ".patch_embedding",
     ".time_embed",
     ".time_text_embed",
@@ -102,6 +101,7 @@ common_skip_keys = (
     ".vid_out",
     ".final_layer",
     "pos_embed",
+    "lm_head",
 )
 
 module_skip_keys_dict = {
@@ -121,16 +121,20 @@ module_skip_keys_dict = {
         ["scale_shift_table", ".rope", ".patch_embedding", ".condition_embedder", ".proj_out", ".norm_out", "pos_embed"],
         {}
     ],
-    "Gemma3nForCausalLM": [
-        [".lm_head", "correction_coefs", "prediction_coefs", "embedding_projection"],
-        {}
-    ],
     "HunyuanImage3ForCausalMM": [
         [".lm_head", ".patch_embed", ".time_embed", ".time_embed_2", ".final_layer", ".model.wte", ".model.ln_f", ".timestep_emb", ".vae", ".vision_aligner", ".vision_model.head", ".vision_model.post_layernorm", ".vision_model.embeddings"],
         {}
     ],
     "Emu3ForCausalLM": [
         [".lm_head", ".vq_model", ".tokenizer"],
+        {}
+    ],
+    "Gemma3nForCausalLM": [
+        [".lm_head", "correction_coefs", "prediction_coefs", "embedding_projection"],
+        {}
+    ],
+    "MoondreamModel": [
+        ["lm_head", "region", "wte", "post_ln", "proj_mlp", "patch_emb", "pos_emb"],
         {}
     ],
     "NaDiT": [
@@ -141,4 +145,5 @@ module_skip_keys_dict = {
 
 module_skip_keys_dict["ChronoEditTransformer3DModel"] = module_skip_keys_dict["WanTransformer3DModel"]
 module_skip_keys_dict["Gemma3nForConditionalGeneration"] = module_skip_keys_dict["Gemma3nForCausalLM"]
+module_skip_keys_dict["HfMoondream"] = module_skip_keys_dict["MoondreamModel"]
 module_skip_keys_dict["NaDiTUpscaler"] = module_skip_keys_dict["NaDiT"]
