@@ -29,7 +29,7 @@ class Adafactor(SDNQOptimizer):
     @torch.no_grad()
     def step(self, closure=None):
         grad_scale = getattr(self, "grad_scale", None)
-        found_inf = getattr(self, "found_inf", None)
+        found_inf = getattr(self, "found_inf", 0)
 
         loss = None
         if closure is not None:
