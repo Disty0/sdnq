@@ -28,6 +28,9 @@ class Adafactor(SDNQOptimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
+        grad_scale = getattr(self, "grad_scale", None)
+        found_inf = getattr(self, "found_inf", None)
+
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -35,7 +38,7 @@ class Adafactor(SDNQOptimizer):
 
         for group in self.param_groups:
             for param in group["params"]:
-                if param.grad is None:
+                if param.grad is None or found_inf > 0:
                     continue
 
                 state = self.state[param]
@@ -59,6 +62,9 @@ class Adafactor(SDNQOptimizer):
                 state["step"] += 1
                 param_fp32 = param.to(dtype=torch.float32)
                 grad = param.grad.to(dtype=torch.float32)
+                if grad_scale is not None:
+                    grad.div_(grad_scale.to(dtype=torch.float32))
+
                 update = adafactor_update(
                     param=param_fp32,
                     grad=grad,
@@ -122,13 +128,13 @@ def adafactor_update(
             exp_avg_fp32 = exp_avg.dequantize(dtype=torch.float32).lerp_(update, 1 - beta2)
             exp_avg.copy_(exp_avg_fp32)
             update = exp_avg_fp32
-        elif exp_avg.dtype == torch.float32:
-            exp_avg = exp_avg.lerp_(update, 1 - beta2)
-            update = exp_avg.clone()
-        else:
+        elif exp_avg.dtype != torch.float32:
             exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(update, 1 - beta2)
             exp_avg.copy_(exp_avg_fp32)
-            update = exp_avg_fp32
+            update = exp_avg_fp32.clone()
+        else:
+            exp_avg = exp_avg.lerp_(update, 1 - beta2)
+            update = exp_avg.clone()
 
     return update
 

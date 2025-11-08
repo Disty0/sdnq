@@ -25,6 +25,9 @@ class Lion(SDNQOptimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
+        grad_scale = getattr(self, "grad_scale", None)
+        found_inf = getattr(self, "found_inf", None)
+
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -32,7 +35,7 @@ class Lion(SDNQOptimizer):
 
         for group in self.param_groups:
             for param in group["params"]:
-                if param.grad is None:
+                if param.grad is None or found_inf > 0:
                     continue
 
                 state = self.state[param]
@@ -45,7 +48,10 @@ class Lion(SDNQOptimizer):
 
                 state["step"] += 1
                 param_fp32 = param.to(dtype=torch.float32)
-                grad = param.grad.to(dtype=state["exp_avg"].dtype)
+                grad = param.grad.to(dtype=torch.float32)
+                if grad_scale is not None:
+                    grad.div_(grad_scale.to(dtype=torch.float32))
+
                 update = lion_update(
                     grad=grad,
                     exp_avg=state["exp_avg"],
@@ -70,6 +76,9 @@ class Lion(SDNQOptimizer):
 
 def lion_update(grad: torch.FloatTensor, exp_avg: torch.FloatTensor, betas: Tuple[float, float]) -> torch.FloatTensor:
     beta1, beta2 = betas
-    update = exp_avg.lerp(grad, 1 - beta1).sign_()
-    exp_avg.lerp_(grad, 1 - beta2)
+    update = exp_avg.to(dtype=torch.float32).lerp(grad, 1 - beta1).sign_()
+    if exp_avg.dtype != torch.float32:
+        exp_avg.copy_(exp_avg.to(dtype=torch.float32).lerp_(grad, 1 - beta2))
+    else:
+        exp_avg.lerp_(grad, 1 - beta2)
     return update

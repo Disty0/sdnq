@@ -26,13 +26,16 @@ class CAME(SDNQOptimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
+        grad_scale = getattr(self, "grad_scale", None)
+        found_inf = getattr(self, "found_inf", None)
+
         loss = None
         if closure is not None:
             loss = closure()
 
         for group in self.param_groups:
             for param in group["params"]:
-                if param.grad is None:
+                if param.grad is None or found_inf > 0:
                     continue
 
                 state = self.state[param]
@@ -57,6 +60,9 @@ class CAME(SDNQOptimizer):
                 state["step"] += 1
                 param_fp32 = param.to(dtype=torch.float32)
                 grad = param.grad.to(dtype=torch.float32)
+                if grad_scale is not None:
+                    grad.div_(grad_scale.to(dtype=torch.float32))
+
                 update = came_update(
                     grad=grad,
                     param=param_fp32,
@@ -118,8 +124,13 @@ def came_update(
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
     update = apply_norm_to_update_(update, param, norm_mode, clips)
 
-    exp_avg.lerp_(update.to(dtype=exp_avg.dtype), 1 - beta1)
-    exp_avg_fp32 = exp_avg.to(dtype=torch.float32)
+    if exp_avg.dtype != torch.float32:
+        exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(update, 1 - beta1)
+        exp_avg.copy_(exp_avg_fp32)
+    else:
+        exp_avg.lerp_(update, 1 - beta1)
+        exp_avg_fp32 = exp_avg
+
     if exp_avg_sq is None:
         res = torch.sub(update, exp_avg_fp32).square_()
         one_minus_beta3 = 1 - beta3

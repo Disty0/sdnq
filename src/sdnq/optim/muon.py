@@ -70,6 +70,9 @@ class Muon(SDNQOptimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
+        grad_scale = getattr(self, "grad_scale", None)
+        found_inf = getattr(self, "found_inf", None)
+
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -78,7 +81,7 @@ class Muon(SDNQOptimizer):
         for group in self.param_groups:
             if group["use_muon"]:
                 for param in group["params"]:
-                    if param.grad is None:
+                    if param.grad is None or found_inf > 0:
                         continue
 
                     state = self.state[param]
@@ -96,11 +99,12 @@ class Muon(SDNQOptimizer):
                     state["step"] += 1
                     param_fp32 = param.to(dtype=torch.float32)
                     grad = param.grad.to(dtype=torch.float32)
-                    grad_orig = param.grad if state["momentum_buffer"].dtype != torch.float32 else grad
+                    if grad_scale is not None:
+                        grad.div_(grad_scale.to(dtype=torch.float32))
+
                     update = muon_update(
                         param=param_fp32,
                         grad=grad,
-                        grad_orig=grad_orig,
                         momentum_buffer=state["momentum_buffer"],
                         v_buffer=state["v_buffer"] if group["adaptive"] else None,
                         step=state["step"],
@@ -127,7 +131,7 @@ class Muon(SDNQOptimizer):
                     )
             else:
                 for param in group["params"]:
-                    if param.grad is None:
+                    if param.grad is None or found_inf > 0:
                         continue
 
                     state = self.state[param]
@@ -142,7 +146,10 @@ class Muon(SDNQOptimizer):
 
                     state["step"] += 1
                     param_fp32 = param.to(dtype=torch.float32)
-                    grad = param.grad.to(dtype=state["exp_avg"].dtype)
+                    grad = param.grad.to(dtype=torch.float32)
+                    if grad_scale is not None:
+                        grad.div_(grad_scale.to(dtype=torch.float32))
+
                     update = adam_update(
                         grad=grad,
                         exp_avg=state["exp_avg"],
@@ -170,17 +177,24 @@ class Muon(SDNQOptimizer):
 
 def adam_update(grad: torch.FloatTensor, exp_avg: torch.FloatTensor, exp_avg_sq: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
     beta1, beta2 = betas
-    exp_avg.lerp_(grad, 1 - beta1)
-    exp_avg_sq.lerp_(grad.square(), 1 - beta2)
-    exp_avg_c = exp_avg.to(dtype=torch.float32) / (1 - beta1 ** step)
-    exp_avg_sq_c = exp_avg_sq.to(dtype=torch.float32) / (1 - beta2 ** step)
+    if exp_avg.dtype != torch.float32:
+        exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(grad, 1 - beta1)
+        exp_avg_sq_fp32 = exp_avg_sq.to(dtype=torch.float32).lerp_(grad.square(), 1 - beta2)
+        exp_avg.copy_(exp_avg_fp32)
+        exp_avg_sq.copy_(exp_avg_sq_fp32)
+    else:
+        exp_avg.lerp_(grad, 1 - beta1)
+        exp_avg_sq.lerp_(grad.square(), 1 - beta2)
+        exp_avg_fp32 = exp_avg
+        exp_avg_sq_fp32 = exp_avg_sq
+    exp_avg_c = exp_avg_fp32 / (1 - beta1 ** step)
+    exp_avg_sq_c = exp_avg_sq_fp32 / (1 - beta2 ** step)
     return exp_avg_c.mul_(exp_avg_sq_c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)
 
 
 def muon_update(
     param: torch.FloatTensor,
     grad: torch.FloatTensor,
-    grad_orig: torch.FloatTensor,
     momentum_buffer: torch.FloatTensor,
     v_buffer: Optional[torch.FloatTensor],
     step: int,
@@ -195,8 +209,13 @@ def muon_update(
     beta1, beta2 = betas
     reshape_grad = (grad.ndim > 2)
 
-    momentum_buffer.lerp_(grad_orig, 1 - beta1)
-    update = grad.lerp(momentum_buffer.to(dtype=torch.float32), beta1) if nesterov else momentum_buffer.clone().to(dtype=torch.float32)
+    if momentum_buffer.dtype != torch.float32:
+        momentum_buffer_fp32 = momentum_buffer.to(dtype=torch.float32).lerp_(grad, 1 - beta1)
+        momentum_buffer.copy_(momentum_buffer_fp32)
+    else:
+        momentum_buffer.lerp_(grad, 1 - beta1)
+        momentum_buffer_fp32 = momentum_buffer
+    update = grad.lerp(momentum_buffer_fp32, beta1) if nesterov else momentum_buffer_fp32.clone()
 
     if v_buffer is not None:
         update = update.sign_()
@@ -219,8 +238,13 @@ def muon_update(
         update = update.unflatten(-1, grad_shape[1:])
 
     if v_buffer is not None:
-        v_buffer.lerp_(update.square().to(dtype=v_buffer.dtype), 1 - beta2)
-        v_hat = v_buffer.to(dtype=torch.float32) / (1 - beta2 ** step)
+        if v_buffer.dtype != torch.float32:
+            v_buffer_fp32 = v_buffer.to(dtype=torch.float32).lerp_(update.square(), 1 - beta2)
+            v_buffer.copy_(v_buffer_fp32)
+        else:
+            v_buffer.lerp_(update.square(), 1 - beta2)
+            v_buffer_fp32 = v_buffer
+        v_hat = v_buffer_fp32 / (1 - beta2 ** step)
         update = update.mul_(v_hat.rsqrt_())
 
     update = update.nan_to_num_().clamp_(-clip,clip)

@@ -24,6 +24,9 @@ class AdamW(SDNQOptimizer):
 
     @torch.no_grad()
     def step(self, closure=None):
+        grad_scale = getattr(self, "grad_scale", None)
+        found_inf = getattr(self, "found_inf", None)
+
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -31,7 +34,7 @@ class AdamW(SDNQOptimizer):
 
         for group in self.param_groups:
             for param in group["params"]:
-                if param.grad is None:
+                if param.grad is None or found_inf > 0:
                     continue
 
                 state = self.state[param]
@@ -46,7 +49,10 @@ class AdamW(SDNQOptimizer):
 
                 state["step"] += 1
                 param_fp32 = param.to(dtype=torch.float32)
-                grad = param.grad.to(dtype=state["exp_avg"].dtype)
+                grad = param.grad.to(dtype=torch.float32)
+                if grad_scale is not None:
+                    grad.div_(grad_scale.to(dtype=torch.float32))
+
                 update = adam_update(
                     grad=grad,
                     exp_avg=state["exp_avg"],
@@ -74,8 +80,16 @@ class AdamW(SDNQOptimizer):
 
 def adam_update(grad: torch.FloatTensor, exp_avg: torch.FloatTensor, exp_avg_sq: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
     beta1, beta2 = betas
-    exp_avg.lerp_(grad, 1 - beta1)
-    exp_avg_sq.lerp_(grad.square(), 1 - beta2)
-    exp_avg_c = exp_avg.to(dtype=torch.float32) / (1 - beta1 ** step)
-    exp_avg_sq_c = exp_avg_sq.to(dtype=torch.float32) / (1 - beta2 ** step)
+    if exp_avg.dtype != torch.float32:
+        exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(grad, 1 - beta1)
+        exp_avg_sq_fp32 = exp_avg_sq.to(dtype=torch.float32).lerp_(grad.square(), 1 - beta2)
+        exp_avg.copy_(exp_avg_fp32)
+        exp_avg_sq.copy_(exp_avg_sq_fp32)
+    else:
+        exp_avg.lerp_(grad, 1 - beta1)
+        exp_avg_sq.lerp_(grad.square(), 1 - beta2)
+        exp_avg_fp32 = exp_avg
+        exp_avg_sq_fp32 = exp_avg_sq
+    exp_avg_c = exp_avg_fp32 / (1 - beta1 ** step)
+    exp_avg_sq_c = exp_avg_sq_fp32 / (1 - beta2 ** step)
     return exp_avg_c.mul_(exp_avg_sq_c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)

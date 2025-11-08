@@ -47,6 +47,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
     _extra_group_keys = {}
     _keep_in_fp32_keys = {}
     _group_keys = set.union(_base_group_keys, _extra_group_keys)
+    _step_supports_amp_scaling = True
 
     @staticmethod
     def apply_group_defaults(group: dict) -> dict:
