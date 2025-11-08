@@ -43,7 +43,7 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
-    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_cautious", "bf16_stochastic_round", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "use_stochastic_quantization"}
+    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_cautious", "use_stochastic_rounding", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "use_stochastic_quantization"}
     _extra_group_keys = {}
     _keep_in_fp32_keys = {}
     _group_keys = set.union(_base_group_keys, _extra_group_keys)
@@ -57,7 +57,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
         group["final_norm_mode"] = group.get("final_norm_mode", "none")
         group["use_cautious"] = group.get("use_cautious", False)
-        group["bf16_stochastic_round"] = group.get("bf16_stochastic_round", False)
+        group["use_stochastic_rounding"] = group.get("use_stochastic_rounding", False)
         group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
         group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
         group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
@@ -77,7 +77,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         clips: Tuple[float],
         final_norm_mode: str,
         use_cautious: bool,
-        bf16_stochastic_round: bool
+        use_stochastic_rounding: bool
     ):
         update = apply_norm_to_update_(update, param_fp32, final_norm_mode, clips)
         if use_cautious:
@@ -88,7 +88,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
             param_fp32.mul_(1 - learning_rate * weight_decay)
 
         param_fp32.add_(update, alpha=-learning_rate)
-        if bf16_stochastic_round:
+        if use_stochastic_rounding:
             copy_stochastic_(param, param_fp32)
         else:
             param.copy_(param_fp32)

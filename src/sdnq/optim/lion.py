@@ -68,7 +68,7 @@ class Lion(SDNQOptimizer):
                     clips=group["clip_threshold"],
                     final_norm_mode=group["final_norm_mode"],
                     use_cautious=group["use_cautious"],
-                    bf16_stochastic_round=group["bf16_stochastic_round"],
+                    use_stochastic_rounding=group["use_stochastic_rounding"],
                 )
 
         return loss
