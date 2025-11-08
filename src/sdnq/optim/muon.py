@@ -194,7 +194,7 @@ def adam_update(
         if use_stochastic_buffers and not isinstance(exp_avg, SDNQTensor):
             copy_stochastic_(exp_avg, exp_avg_fp32)
             copy_stochastic_(exp_avg_sq, exp_avg_sq_fp32)
-        else:    
+        else:
             exp_avg.copy_(exp_avg_fp32)
             exp_avg_sq.copy_(exp_avg_sq_fp32)
     else:
