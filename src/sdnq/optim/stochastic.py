@@ -16,7 +16,7 @@ def copy_stochastic_(target: Tensor, source: Tensor):
     if source.dtype != torch.float32:
         source = source.to(dtype=torch.float32)
 
-    # mantissa_mask = 1 << (fp32_mantissa_bits - target_mantissa_bits)
+    # mantissa_difference = 1 << (fp32_mantissa_bits - target_mantissa_bits)
     mantissa_difference = 8192 if target.dtype == torch.float16 else 65536
 
     # create a random integer for the missin part of the mantissa

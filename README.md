@@ -93,10 +93,10 @@ optimizer = AdamW(
     use_stochastic_rounding=True,
     use_stochastic_buffers=True,
     use_quantized_buffers=True,
+    use_svd_quantization=False,
     quantized_buffers_dtype="uint8",
     quantized_buffers_group_size=32,
     quantized_buffers_svd_rank=32,
-    use_svd_quantization=False,
 )
 ```
 
