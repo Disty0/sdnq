@@ -3,6 +3,7 @@ from typing import Tuple, Iterator
 import torch
 
 from .optimizer import SDNQOptimizer
+from .stochastic import copy_stochastic_
 from sdnq.training import SDNQTensor
 
 
@@ -42,7 +43,7 @@ class Lion(SDNQOptimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
-                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_buffers"])
                     else:
                         state["exp_avg"] = torch.zeros_like(param)
 
@@ -56,6 +57,7 @@ class Lion(SDNQOptimizer):
                     grad=grad,
                     exp_avg=state["exp_avg"],
                     betas=group["betas"],
+                    use_stochastic_buffers=group["use_stochastic_buffers"],
                 ).to(dtype=torch.float32)
 
                 self.update_param_(
@@ -74,11 +76,20 @@ class Lion(SDNQOptimizer):
         return loss
 
 
-def lion_update(grad: torch.FloatTensor, exp_avg: torch.FloatTensor, betas: Tuple[float, float]) -> torch.FloatTensor:
+def lion_update(
+    grad: torch.FloatTensor,
+    exp_avg: torch.FloatTensor,
+    betas: Tuple[float, float],
+    use_stochastic_buffers: bool = False,
+) -> torch.FloatTensor:
     beta1, beta2 = betas
     update = exp_avg.to(dtype=torch.float32).lerp(grad, 1 - beta1).sign_()
     if exp_avg.dtype != torch.float32:
-        exp_avg.copy_(exp_avg.to(dtype=torch.float32).lerp_(grad, 1 - beta2))
+        exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(grad, 1 - beta2)
+        if use_stochastic_buffers and not isinstance(exp_avg, SDNQTensor):
+            copy_stochastic_(exp_avg, exp_avg_fp32)
+        else:
+            exp_avg.copy_(exp_avg_fp32)
     else:
         exp_avg.lerp_(grad, 1 - beta2)
     return update

@@ -90,13 +90,13 @@ Example code for quantized optimizer states:
 from sdnq.optim import Adafactor, AdamW, CAME, Lion, Muon
 optimizer = AdamW(
     parameters,
-    use_stochastic_rounding=False, # for BF16 or FP16 weights. Do not enable this with static quantized weights
+    use_stochastic_rounding=True,
+    use_stochastic_buffers=True,
     use_quantized_buffers=True,
     quantized_buffers_dtype="uint8",
     quantized_buffers_group_size=32,
     quantized_buffers_svd_rank=32,
     use_svd_quantization=False,
-    use_stochastic_quantization=True,
 )
 ```
 

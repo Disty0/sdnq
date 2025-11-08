@@ -43,7 +43,7 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
-    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_cautious", "use_stochastic_rounding", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "use_stochastic_quantization"}
+    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_cautious", "use_stochastic_rounding", "use_stochastic_buffers", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization"}
     _extra_group_keys = {}
     _keep_in_fp32_keys = {}
     _group_keys = set.union(_base_group_keys, _extra_group_keys)
@@ -57,13 +57,13 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
         group["final_norm_mode"] = group.get("final_norm_mode", "none")
         group["use_cautious"] = group.get("use_cautious", False)
-        group["use_stochastic_rounding"] = group.get("use_stochastic_rounding", False)
+        group["use_stochastic_rounding"] = group.get("use_stochastic_rounding", True)
+        group["use_stochastic_buffers"] = group.get("use_stochastic_buffers", True)
         group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
         group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
         group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
         group["quantized_buffers_svd_rank"] = group.get("quantized_buffers_svd_rank", 32)
         group["use_svd_quantization"] = group.get("use_svd_quantization", False)
-        group["use_stochastic_quantization"] = group.get("use_stochastic_quantization", True)
         return group
 
     @staticmethod
@@ -88,7 +88,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
             param_fp32.mul_(1 - learning_rate * weight_decay)
 
         param_fp32.add_(update, alpha=-learning_rate)
-        if use_stochastic_rounding:
+        if use_stochastic_rounding and param.dtype != torch.float32 and not isinstance(param, SDNQTensor):
             copy_stochastic_(param, param_fp32)
         else:
             param.copy_(param_fp32)

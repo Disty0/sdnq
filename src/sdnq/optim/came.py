@@ -3,6 +3,7 @@ from typing import Tuple, Optional, Iterator
 import torch
 
 from .optimizer import SDNQOptimizer, apply_norm_to_update_
+from .stochastic import copy_stochastic_
 from sdnq.training import SDNQTensor
 
 
@@ -45,7 +46,7 @@ class CAME(SDNQOptimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     if group["use_quantized_buffers"]:
-                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
+                        state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_buffers"])
                     else:
                         state["exp_avg"] = torch.zeros_like(param)
 
@@ -76,6 +77,7 @@ class CAME(SDNQOptimizer):
                     betas=group["betas"],
                     clips=group["clip_threshold"],
                     norm_mode=group["norm_mode"],
+                    use_stochastic_buffers=group["use_stochastic_buffers"],
                 ).to(dtype=torch.float32)
 
                 self.update_param_(
@@ -107,6 +109,7 @@ def came_update(
     betas: Tuple[float, float, float],
     clips: Tuple[float],
     norm_mode: str = "rms_clip",
+    use_stochastic_buffers: bool = False,
 ) -> torch.FloatTensor:
     beta1, beta2, beta3 = betas
     clip = clips[0]
@@ -126,7 +129,10 @@ def came_update(
 
     if exp_avg.dtype != torch.float32:
         exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(update, 1 - beta1)
-        exp_avg.copy_(exp_avg_fp32)
+        if use_stochastic_buffers and not isinstance(exp_avg, SDNQTensor):
+            copy_stochastic_(exp_avg, exp_avg_fp32)
+        else:
+            exp_avg.copy_(exp_avg_fp32)
     else:
         exp_avg.lerp_(update, 1 - beta1)
         exp_avg_fp32 = exp_avg

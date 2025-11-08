@@ -3,6 +3,7 @@ from typing import Tuple, Optional, Iterator
 import torch
 
 from .optimizer import SDNQOptimizer
+from .stochastic import copy_stochastic_
 from sdnq.training import SDNQTensor
 
 from sdnq.common import compile_func
@@ -88,9 +89,9 @@ class Muon(SDNQOptimizer):
                     if len(state) == 0:
                         state["step"] = 0
                         if group["use_quantized_buffers"]:
-                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
+                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_buffers"])
                             if group["adaptive"]:
-                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
+                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_buffers"])
                         else:
                             state["momentum_buffer"] = torch.zeros_like(param)
                             if group["adaptive"]:
@@ -115,6 +116,7 @@ class Muon(SDNQOptimizer):
                         zeropower_dtype=group["zeropower_dtype"],
                         use_quantized_matmul=group["use_quantized_matmul"],
                         quantized_matmul_dtype=group["quantized_matmul_dtype"],
+                        use_stochastic_buffers=group["use_stochastic_buffers"],
                     ).to(dtype=torch.float32)
 
                     self.update_param_(
@@ -138,8 +140,8 @@ class Muon(SDNQOptimizer):
                     if len(state) == 0:
                         state["step"] = 0
                         if group["use_quantized_buffers"]:
-                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
-                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_quantization"])
+                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_buffers"])
+                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), qtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], sr=group["use_stochastic_buffers"])
                         else:
                             state["exp_avg"] = torch.zeros_like(param)
                             state["exp_avg_sq"] = torch.zeros_like(param)
@@ -157,6 +159,7 @@ class Muon(SDNQOptimizer):
                         step=state["step"],
                         betas=group["betas"],
                         clip=group["clip_threshold"][0],
+                        use_stochastic_buffers=group["use_stochastic_buffers"],
                     ).to(dtype=torch.float32)
 
                     self.update_param_(
@@ -175,13 +178,25 @@ class Muon(SDNQOptimizer):
         return loss
 
 
-def adam_update(grad: torch.FloatTensor, exp_avg: torch.FloatTensor, exp_avg_sq: torch.FloatTensor, step: int, betas: Tuple[float, float], clip: float) -> torch.FloatTensor:
+def adam_update(
+    grad: torch.FloatTensor,
+    exp_avg: torch.FloatTensor,
+    exp_avg_sq: torch.FloatTensor,
+    step: int,
+    betas: Tuple[float, float],
+    clip: float,
+    use_stochastic_buffers: bool = False,
+) -> torch.FloatTensor:
     beta1, beta2 = betas
     if exp_avg.dtype != torch.float32:
         exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(grad, 1 - beta1)
         exp_avg_sq_fp32 = exp_avg_sq.to(dtype=torch.float32).lerp_(grad.square(), 1 - beta2)
-        exp_avg.copy_(exp_avg_fp32)
-        exp_avg_sq.copy_(exp_avg_sq_fp32)
+        if use_stochastic_buffers and not isinstance(exp_avg, SDNQTensor):
+            copy_stochastic_(exp_avg, exp_avg_fp32)
+            copy_stochastic_(exp_avg_sq, exp_avg_sq_fp32)
+        else:    
+            exp_avg.copy_(exp_avg_fp32)
+            exp_avg_sq.copy_(exp_avg_sq_fp32)
     else:
         exp_avg.lerp_(grad, 1 - beta1)
         exp_avg_sq.lerp_(grad.square(), 1 - beta2)
@@ -205,13 +220,17 @@ def muon_update(
     zeropower_dtype: torch.dtype = torch.bfloat16,
     use_quantized_matmul: bool = False,
     quantized_matmul_dtype: str = "int8",
+    use_stochastic_buffers: bool = False,
 ) -> torch.FloatTensor:
     beta1, beta2 = betas
     reshape_grad = (grad.ndim > 2)
 
     if momentum_buffer.dtype != torch.float32:
         momentum_buffer_fp32 = momentum_buffer.to(dtype=torch.float32).lerp_(grad, 1 - beta1)
-        momentum_buffer.copy_(momentum_buffer_fp32)
+        if use_stochastic_buffers and not isinstance(momentum_buffer, SDNQTensor):
+            copy_stochastic_(momentum_buffer, momentum_buffer_fp32)
+        else:
+            momentum_buffer.copy_(momentum_buffer_fp32)
     else:
         momentum_buffer.lerp_(grad, 1 - beta1)
         momentum_buffer_fp32 = momentum_buffer
@@ -240,7 +259,10 @@ def muon_update(
     if v_buffer is not None:
         if v_buffer.dtype != torch.float32:
             v_buffer_fp32 = v_buffer.to(dtype=torch.float32).lerp_(update.square(), 1 - beta2)
-            v_buffer.copy_(v_buffer_fp32)
+            if use_stochastic_buffers and not isinstance(v_buffer, SDNQTensor):
+                copy_stochastic_(v_buffer, v_buffer_fp32)
+            else:
+                v_buffer.copy_(v_buffer_fp32)
         else:
             v_buffer.lerp_(update.square(), 1 - beta2)
             v_buffer_fp32 = v_buffer
