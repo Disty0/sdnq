@@ -19,7 +19,7 @@ def copy_stochastic_(target: Tensor, source: Tensor):
     # mantissa_difference = 1 << (fp32_mantissa_bits - target_mantissa_bits)
     mantissa_difference = 8192 if target.dtype == torch.float16 else 65536
 
-    # create a random integer for the missin part of the mantissa
+    # create a random integer for the lower part of the mantissa
     result = torch.randint_like(source, dtype=torch.int32, low=0, high=mantissa_difference)
 
     # add the random number to the lower part of the mantissa
