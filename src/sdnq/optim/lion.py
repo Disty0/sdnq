@@ -27,7 +27,6 @@ class Lion(SDNQOptimizer):
     @torch.no_grad()
     def step(self, closure=None):
         grad_scale = getattr(self, "grad_scale", None)
-        found_inf = getattr(self, "found_inf", 0)
 
         loss = None
         if closure is not None:
@@ -36,7 +35,7 @@ class Lion(SDNQOptimizer):
 
         for group in self.param_groups:
             for param in group["params"]:
-                if param.grad is None or found_inf > 0:
+                if param.grad is None:
                     continue
 
                 state = self.state[param]
