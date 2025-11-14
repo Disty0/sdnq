@@ -191,7 +191,6 @@ def sdnq_post_load_quant(
         use_static_quantization=use_static_quantization,
         use_stochastic_quantization=use_stochastic_quantization,
         non_blocking=non_blocking,
-        add_skip_keys=add_skip_keys,
         quantization_device=quantization_device,
         return_device=return_device,
         modules_to_not_convert=modules_to_not_convert,
