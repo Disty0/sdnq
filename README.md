@@ -34,6 +34,7 @@ sdnq_config = SDNQConfig(
     use_quantized_matmul_conv=False,
     dequantize_fp32=False,
     non_blocking=False,
+    add_skip_keys=True,
     quantization_device="cuda",
     return_device="cuda",
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
@@ -66,10 +67,10 @@ Note:
  - Safetensors serialization is not supported with static quantized training.  
 
 ```py
-from sdnq.training import apply_sdnq_to_module
+from sdnq.training import sdnq_post_load_quant
 from sdnq.common import use_torch_compile as triton_is_available
 
-model = apply_sdnq_to_module(
+model = sdnq_post_load_quant(
     model,
     weights_dtype="uint8",
     quantized_matmul_dtype="int8",
@@ -80,7 +81,12 @@ model = apply_sdnq_to_module(
     use_quantized_matmul=triton_is_available,
     use_static_quantization=True, # quantize the model weights
     use_stochastic_quantization=True,
+    non_blocking=False,
+    add_skip_keys=True,
+    quantization_device="cuda",
+    return_device="cuda",
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
+    modules_dtype_dict={"int8": ["lm_head"]},
 )
 ```
 
