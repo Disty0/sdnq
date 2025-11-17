@@ -213,7 +213,7 @@ def sdnq_copy_(func, x, y, *args, **kwargs):
                 svd_steps=x.sdnq_dequantizer.svd_steps,
                 use_svd=x.svd_up is not None,
                 use_stochastic_rounding=x.sdnq_dequantizer.use_stochastic_rounding,
-                dequantize_fp32=x.sdnq_dequantizer.dequantize_fp32,
+                dequantize_fp32=x.scale.dtype == torch.float32,
             )
         x.weight.copy_(y.weight, *args, **kwargs)
         x.scale.copy_(y.scale, *args, **kwargs)
