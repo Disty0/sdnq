@@ -4,7 +4,7 @@ from typing import List, Tuple, Optional
 
 import torch
 
-from sdnext import devices
+from .sdnext import devices
 from .common import dtype_dict, compile_func, use_contiguous_mm, use_tensorwise_fp8_matmul
 from .packed_int import unpack_int_symetric, unpack_int_asymetric
 
@@ -179,11 +179,12 @@ def dequantize_sdnq_model(model: torch.nn.Module):
     has_children = list(model.children())
     if not has_children:
         return model
-    for module in model.children():
+    for module_name, module in model.named_children():
         if hasattr(module, "sdnq_dequantizer"):
             module.weight.data = dequantize_layer_weight(module, inplace=True)
+            setattr(model, module_name, module)
         else:
-            module = dequantize_sdnq_model(module)
+            setattr(model, module_name, dequantize_sdnq_model(module))
     return model
 
 
