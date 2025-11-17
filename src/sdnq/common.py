@@ -3,7 +3,7 @@
 import os
 import torch
 
-from sdnext import shared, devices
+from .sdnext import shared, devices
 
 
 dtype_dict = {
