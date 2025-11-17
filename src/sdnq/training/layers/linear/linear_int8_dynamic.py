@@ -3,8 +3,9 @@ from typing import Tuple, Union
 import torch
 from sdnq.common import compile_func, int_mm_func, use_contiguous_mm
 
-from ...dequantizer import SDNQTensor, dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8, quantize_int8_sr # noqa: TID252
+from sdnq.dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8, quantize_int8_sr
 from .forward import check_mats, quantized_linear_with_backward
+from ...tensor import SDNQTensor # noqa: TID252
 
 try:
     from sdnq.triton_mm import int_mm as triton_int_mm
@@ -17,11 +18,11 @@ def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do
         weight = weight.t()
         if use_contiguous_mm:
             weight = weight.contiguous()
-    weight, scale = quantize_int8(weight, dim=0)
+    weight, scale = quantize_int8(weight.to(dtype=torch.float32), dim=0)
     if use_sr:
-        input, input_scale = quantize_int8_sr(input, dim=-1)
+        input, input_scale = quantize_int8_sr(input.to(dtype=torch.float32), dim=-1)
     else:
-        input, input_scale = quantize_int8(input, dim=-1)
+        input, input_scale = quantize_int8(input.to(dtype=torch.float32), dim=-1)
     scale = torch.mul(input_scale, scale)
     if scale.dtype == torch.float16: # fp16 will overflow
         scale = scale.to(dtype=torch.float32)
@@ -65,9 +66,9 @@ def int8_matmul_dynamic(
     input, weight, scale = quantize_int8_matmul(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(int_mm(input, weight), scale, bias, return_dtype, output_shape)
+        return dequantize_symmetric_with_bias(int_mm(input, weight), scale, bias, dtype=return_dtype, result_shape=output_shape)
     else:
-        return dequantize_symmetric(int_mm(input, weight), scale, return_dtype, output_shape)
+        return dequantize_symmetric(int_mm(input, weight), scale, dtype=return_dtype, result_shape=output_shape)
 
 
 def int8_matmul_dynamic_backward(

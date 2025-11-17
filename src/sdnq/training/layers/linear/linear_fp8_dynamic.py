@@ -3,8 +3,9 @@ from typing import Tuple, Union
 import torch
 from sdnq.common import compile_func, use_contiguous_mm
 
-from ...dequantizer import SDNQTensor, quantize_fp8, quantize_fp8_sr # noqa: TID252
+from sdnq.dequantizer import quantize_fp8, quantize_fp8_sr
 from .forward import check_mats, quantized_linear_with_backward
+from ...tensor import SDNQTensor # noqa: TID252
 
 
 def quantize_fp8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True, use_sr: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
@@ -12,12 +13,12 @@ def quantize_fp8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_
         input = input.flatten(0,-2)
     else:
         weight = weight.t()
-    weight, scale = quantize_fp8(weight, dim=-1)
+    weight, scale = quantize_fp8(weight.to(dtype=torch.float32), dim=-1)
     weight, scale = weight.t_(), scale.t_()
     if use_sr:
-        input, input_scale = quantize_fp8_sr(input, dim=-1)
+        input, input_scale = quantize_fp8_sr(input.to(dtype=torch.float32), dim=-1)
     else:
-        input, input_scale = quantize_fp8(input, dim=-1)
+        input, input_scale = quantize_fp8(input.to(dtype=torch.float32), dim=-1)
     return input, weight, input_scale, scale
 
 

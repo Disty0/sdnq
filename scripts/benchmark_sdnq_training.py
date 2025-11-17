@@ -63,21 +63,21 @@ def main(
     y.requires_grad_(True)
     b.requires_grad_(True)
 
-    yq = SDNQTensor.from_float(y, qtype="int8", group_size=-1)
-    yqg = SDNQTensor.from_float(y, qtype="int8", group_size=32)
-    yqgu = SDNQTensor.from_float(y, qtype="uint8", group_size=32)
+    yq = SDNQTensor.from_float(y, weights_dtype="int8", group_size=-1)
+    yqg = SDNQTensor.from_float(y, weights_dtype="int8", group_size=32)
+    yqgu = SDNQTensor.from_float(y, weights_dtype="uint8", group_size=32)
 
     yq.requires_grad_(True)
     yqg.requires_grad_(True)
     yqgu.requires_grad_(True)
 
     try:
-        yqf = SDNQTensor.from_float(y, qtype="fp8", group_size=-1)
+        yqf = SDNQTensor.from_float(y, weights_dtype="fp8", group_size=-1)
         yqf.requires_grad_(True)
     except Exception:
         print("FP8 creation failed")
     try:
-        yqgf = SDNQTensor.from_float(y, qtype="fp8", group_size=32)
+        yqgf = SDNQTensor.from_float(y, weights_dtype="fp8", group_size=32)
         yqgf.requires_grad_(True)
     except Exception:
         print("Grouped FP8 creation failed")

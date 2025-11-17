@@ -3,7 +3,7 @@ from typing import Tuple, Union
 import torch
 from sdnq.common import compile_func, use_contiguous_mm
 
-from ...dequantizer import SDNQTensor # noqa: TID252
+from ...tensor import SDNQTensor # noqa: TID252
 
 
 def check_mats(input: torch.Tensor, weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

@@ -3,10 +3,11 @@ from typing import Tuple, Union
 import torch
 from sdnq.common import compile_func
 
-from ...dequantizer import SDNQTensor, quantize_fp8 # noqa: TID252
+from sdnq.dequantizer import quantize_fp8
 from .forward import quantized_linear_with_backward
 from .linear_fp8 import fp8_matmul
 from .linear_fp8_dynamic import fp8_matmul_dynamic
+from ...tensor import SDNQTensor # noqa: TID252
 
 
 def fp8_matmul_dynamic_ckpt(

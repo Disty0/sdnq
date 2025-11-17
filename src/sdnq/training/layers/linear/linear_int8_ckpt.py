@@ -3,10 +3,11 @@ from typing import Tuple
 import torch
 from sdnq.common import compile_func
 
-from ...dequantizer import SDNQTensor, dequantize_symmetric, quantize_int8 # noqa: TID252
+from sdnq.dequantizer import dequantize_symmetric, quantize_int8
 from .forward import quantized_linear_with_backward
 from .linear_int8 import int8_matmul
 from .linear_int8_dynamic import int8_matmul_dynamic
+from ...tensor import SDNQTensor # noqa: TID252
 
 
 def int8_matmul_ckpt(
@@ -54,14 +55,14 @@ def int8_matmul_backward_ckpt(
 class INT8MatmulBackwardCKPT(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor = None) -> torch.FloatTensor:
-        result, new_input, input_scale = int8_matmul_ckpt_compiled(input, weight.quant_data, weight.scale, bias=bias, svd_up=weight.svd_up, svd_down=weight.svd_down, do_transpose=True)
+        result, new_input, input_scale = int8_matmul_ckpt_compiled(input, weight.weight, weight.scale, bias=bias, svd_up=weight.svd_up, svd_down=weight.svd_down, do_transpose=True)
         ctx.save_for_backward(new_input, weight, input_scale, bias)
         return result
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, input_scale, bias = ctx.saved_tensors
-        return int8_matmul_backward_ckpt(grad_output, input, weight.quant_data, weight.scale, input_scale, bias=bias, svd_up=weight.svd_up, svd_down=weight.svd_down, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
+        return int8_matmul_backward_ckpt(grad_output, input, weight.weight, weight.scale, input_scale, bias=bias, svd_up=weight.svd_up, svd_down=weight.svd_down, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
 
 
 def quantized_linear_forward_int8_matmul_ckpt(self, input: torch.FloatTensor) -> torch.FloatTensor:

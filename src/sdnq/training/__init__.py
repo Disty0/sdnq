@@ -6,7 +6,7 @@ import torch
 from sdnq.quantizer import check_param_name_in, get_minimum_dtype, add_module_skip_keys
 from sdnq.common import use_tensorwise_fp8_matmul
 
-from .dequantizer import SDNQTensor
+from .tensor import SDNQTensor
 
 
 class QuantizationMethod(str, Enum):
@@ -14,24 +14,7 @@ class QuantizationMethod(str, Enum):
 
 
 @torch.no_grad()
-def apply_sdnq_to_module(
-    model: torch.nn.Module,
-    weights_dtype: str = "uint8",
-    quantized_matmul_dtype: str = "int8",
-    group_size: int = 32,
-    svd_rank: int = 32,
-    use_svd: bool = False,
-    use_grad_ckpt: bool = True,
-    use_quantized_matmul: bool = True,
-    use_static_quantization: bool = True,
-    use_stochastic_quantization: bool = True,
-    non_blocking: bool = False,
-    quantization_device: Optional[torch.device] = None,
-    return_device: Optional[torch.device] = None,
-    modules_to_not_convert: List[str] = None,
-    modules_dtype_dict: Dict[str, List[str]] = None,
-    full_param_name: str = "",
-):
+def apply_sdnq_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", group_size=32, svd_rank=32, use_svd=False, use_grad_ckpt=True, use_quantized_matmul=True, use_static_quantization=True, use_stochastic_rounding=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, full_param_name=""):
     if modules_to_not_convert is None:
         modules_to_not_convert = []
     if modules_dtype_dict is None:
@@ -122,11 +105,12 @@ def apply_sdnq_to_module(
                         module.weight = torch.nn.Parameter(
                             SDNQTensor.from_float(
                                 module.weight.to(quantization_device, non_blocking=non_blocking),
-                                qtype=get_minimum_dtype(weights_dtype, param_name, modules_dtype_dict),
+                                layer_class_name="Linear",
+                                weights_dtype=get_minimum_dtype(weights_dtype, param_name, modules_dtype_dict),
                                 group_size=group_size,
                                 svd_rank=svd_rank,
                                 use_svd=use_svd,
-                                sr=use_stochastic_quantization
+                                use_stochastic_rounding=use_stochastic_rounding,
                             ).to(return_device, non_blocking=non_blocking),
                             requires_grad=module.weight.requires_grad,
                         )
@@ -141,7 +125,7 @@ def apply_sdnq_to_module(
             use_grad_ckpt=use_grad_ckpt,
             use_quantized_matmul=use_quantized_matmul,
             use_static_quantization=use_static_quantization,
-            use_stochastic_quantization=use_stochastic_quantization,
+            use_stochastic_rounding=use_stochastic_rounding,
             quantization_device=quantization_device,
             return_device=return_device,
             modules_to_not_convert=modules_to_not_convert,
@@ -161,7 +145,7 @@ def sdnq_post_load_quant(
     use_grad_ckpt: bool = True,
     use_quantized_matmul: bool = True,
     use_static_quantization: bool = True,
-    use_stochastic_quantization: bool = True,
+    use_stochastic_rounding: bool = True,
     non_blocking: bool = False,
     add_skip_keys:bool = True,
     quantization_device: Optional[torch.device] = None,
@@ -189,7 +173,7 @@ def sdnq_post_load_quant(
         use_grad_ckpt=use_grad_ckpt,
         use_quantized_matmul=use_quantized_matmul,
         use_static_quantization=use_static_quantization,
-        use_stochastic_quantization=use_stochastic_quantization,
+        use_stochastic_rounding=use_stochastic_rounding,
         non_blocking=non_blocking,
         quantization_device=quantization_device,
         return_device=return_device,
@@ -205,7 +189,7 @@ def sdnq_post_load_quant(
         "use_grad_ckpt": use_grad_ckpt,
         "use_quantized_matmul": use_quantized_matmul,
         "use_static_quantization": use_static_quantization,
-        "use_stochastic_quantization": use_stochastic_quantization,
+        "use_stochastic_rounding": use_stochastic_rounding,
         "modules_to_not_convert": modules_to_not_convert,
         "modules_dtype_dict": modules_dtype_dict,
     }
