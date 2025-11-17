@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Tuple, Optional
 
+import copy
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
@@ -183,16 +184,20 @@ def sdnq_view_ops(func, *args, **kwargs):
 
 @register_op([torch.ops.aten._to_copy.default])
 def sdnq_to(func, *args, **kwargs):
+    cast_dtype = None
     dtype = kwargs.pop("dtype", None)
+    sdnq_dequantizer = copy.deepcopy(args[0].sdnq_dequantizer)
     if dtype is not None:
-        args[0].sdnq_dequantizer.result_dtype = dtype
+        sdnq_dequantizer.result_dtype = dtype
+        if args[0].scale.dtype != torch.float32:
+            cast_dtype = dtype
     out = SDNQTensor(
         func(args[0].weight, *args[1:], **kwargs),
-        func(args[0].scale, *args[1:], **kwargs),
-        func(args[0].zero_point, *args[1:], **kwargs) if args[0].zero_point is not None else None,
-        func(args[0].svd_up, *args[1:], **kwargs) if args[0].svd_up is not None else None,
-        func(args[0].svd_down, *args[1:], **kwargs) if args[0].svd_down is not None else None,
-        args[0].sdnq_dequantizer,
+        func(args[0].scale, *args[1:], dtype=cast_dtype, **kwargs),
+        func(args[0].zero_point, *args[1:], dtype=cast_dtype, **kwargs) if args[0].zero_point is not None else None,
+        func(args[0].svd_up, *args[1:], dtype=cast_dtype, **kwargs) if args[0].svd_up is not None else None,
+        func(args[0].svd_down, *args[1:], dtype=cast_dtype, **kwargs) if args[0].svd_down is not None else None,
+        sdnq_dequantizer,
     )
     if dtype is not None:
         kwargs["dtype"] = dtype
