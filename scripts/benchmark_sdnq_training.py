@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Optional, Union, Callable
 
 import time
 import torch
@@ -28,6 +28,28 @@ def get_tflops(it_s: float, m: int, n: int, k: int) -> float:
     return round(it_s * ((3*2*m*k*n) + (2 * n * m)) / (10**12), 2)
 
 
+def benchmark_linear(name: str, linear: Callable, x: torch.Tensor, y: torch.Tensor, b: torch.Tensor, steps: int):
+    assert x.ndim == 2
+    try:
+        print(name)
+        sync_func = getattr(torch, x.device.type).synchronize
+        z = linear(x, y, b)
+        loss = z.mean()
+        loss.backward()
+        sync_func()
+        t0 = time.time()
+        for i in tqdm(range(steps)):
+            z = linear(x, y, b)
+            loss = z.mean()
+            loss.backward()
+            sync_func()
+        t1 = time.time()
+        return get_tflops(steps/(t1 - t0), x.shape[0],z.shape[1],x.shape[1])
+    except Exception:
+        print(f"{name} test failed")
+        return 0
+
+
 def main(
     steps: int = 50,
     mnk: int = 8192,
@@ -41,7 +63,6 @@ def main(
         device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else None
         if device is None:
             raise RuntimeError("A GPU is required to run SDNQ Benchmark")
-    sync_func = getattr(torch, torch.device(device).type).synchronize
 
     if dtype is None:
         dtype = torch.bfloat16 if not sdnq.common.is_rdna2 else torch.float16
@@ -63,10 +84,16 @@ def main(
     y.requires_grad_(True)
     b.requires_grad_(True)
 
+    yqg16 = SDNQTensor.from_float(y, weights_dtype="int16", group_size=32)
+    yqgu16 = SDNQTensor.from_float(y, weights_dtype="uint16", group_size=32)
+    yqgf16 = SDNQTensor.from_float(y, weights_dtype="float16", group_size=32)
+    yqg16.requires_grad_(True)
+    yqgu16.requires_grad_(True)
+    yqgf16.requires_grad_(True)
+
     yq = SDNQTensor.from_float(y, weights_dtype="int8", group_size=-1)
     yqg = SDNQTensor.from_float(y, weights_dtype="int8", group_size=32)
     yqgu = SDNQTensor.from_float(y, weights_dtype="uint8", group_size=32)
-
     yq.requires_grad_(True)
     yqg.requires_grad_(True)
     yqgu.requires_grad_(True)
@@ -76,699 +103,83 @@ def main(
         yqf.requires_grad_(True)
     except Exception:
         print("FP8 creation failed")
+        yqf = None
     try:
         yqgf = SDNQTensor.from_float(y, weights_dtype="fp8", group_size=32)
         yqgf.requires_grad_(True)
     except Exception:
         print("Grouped FP8 creation failed")
+        yqgf = None
 
-
-    try:
-        print("PyTorch Float:")
-        z = torch.nn.functional.linear(x, y, b)
-        loss = z.mean()
-        loss.backward()
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            z = torch.nn.functional.linear(x, y, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-        t1 = time.time()
-        pytorch_float_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("PyTorch Float test failed")
-        pytorch_float_tflops = 0
-
-
-    try:
-        print("SDNQ Float:")
-        z = quantized_linear_with_backward(x, y, b)
-        loss = z.mean()
-        loss.backward()
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            z = quantized_linear_with_backward(x, y, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-        t1 = time.time()
-        sdnq_float_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float test failed")
-        sdnq_float_uint8_tflops = 0
-
+    pytorch_float_tflops = benchmark_linear("PyTorch Float", torch.nn.functional.linear, x, y, b, steps)
+    sdnq_float_tflops = benchmark_linear("SDNQ Float", quantized_linear_with_backward, x, y, b, steps)
 
     if sdnq.common.use_torch_compile:
-        try:
-            print("SDNQ INT8:")
-            z = int8_matmul_with_backward(x, yq, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_with_backward(x, yq, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 test failed")
-            sdnq_int8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8:")
-            z = fp8_matmul_with_backward(x, yqf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_with_backward(x, yqf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 test failed")
-            sdnq_fp8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW:")
-            z = fp8_matmul_tensorwise_with_backward(x, yqf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_with_backward(x, yqf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW test failed")
-            sdnq_fp8_tw_tflops = 0
+        sdnq_int8_tflops = benchmark_linear("SDNQ INT8", int8_matmul_with_backward, x, yq, b, steps)
+        sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", fp8_matmul_with_backward, x, yqf, b, steps)
+        sdnq_fp8_tw_tflops = benchmark_linear("SDNQ FP8 TW", fp8_matmul_tensorwise_with_backward, x, yqf, b, steps)
     else:
         print("Torch Compile is disabled, skipping quantized matmul tests.")
 
-
-    try:
-        print("SDNQ Float UINT8:")
-        z = quantized_linear_with_backward(x, yqgu, b)
-        loss = z.mean()
-        loss.backward()
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            z = quantized_linear_with_backward(x, yqgu, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-        t1 = time.time()
-        sdnq_float_uint8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float UINT8 test failed")
-        sdnq_float_uint8_tflops = 0
-
-
-    try:
-        print("SDNQ Float INT8:")
-        z = quantized_linear_with_backward(x, yqg, b)
-        loss = z.mean()
-        loss.backward()
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            z = quantized_linear_with_backward(x, yqg, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-        t1 = time.time()
-        sdnq_float_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float INT8 test failed")
-        sdnq_float_int8_tflops = 0
-
-
-    try:
-        print("SDNQ Float FP8:")
-        z = quantized_linear_with_backward(x, yqgf, b)
-        loss = z.mean()
-        loss.backward()
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            z = quantized_linear_with_backward(x, yqgf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-        t1 = time.time()
-        sdnq_float_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float FP8 test failed")
-        sdnq_float_fp8_tflops = 0
-
+    sdnq_float_uint16_tflops = benchmark_linear("SDNQ Float UINT16", quantized_linear_with_backward, x, yqgu16, b, steps)
+    sdnq_float_int16_tflops = benchmark_linear("SDNQ Float INT16", quantized_linear_with_backward, x, yqg16, b, steps)
+    sdnq_float_fp16_tflops = benchmark_linear("SDNQ Float FP16", quantized_linear_with_backward, x, yqgf16, b, steps)
+    sdnq_float_uint8_tflops = benchmark_linear("SDNQ Float UINT8", quantized_linear_with_backward, x, yqgu, b, steps)
+    sdnq_float_int8_tflops = benchmark_linear("SDNQ Float INT8", quantized_linear_with_backward, x, yqg, b, steps)
+    sdnq_float_fp8_tflops = benchmark_linear("SDNQ Float FP8", quantized_linear_with_backward, x, yqgf, b, steps)
 
     if sdnq.common.use_torch_compile:
-        try:
-            print("SDNQ INT8 Dynamic Float:")
-            z = int8_matmul_dynamic_with_backward(x, y, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_dynamic_with_backward(x, y, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_dyn_float_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 Dynamic Float test failed")
-            sdnq_int8_dyn_float_tflops = 0
+        sdnq_int8_dyn_float_tflops = benchmark_linear("SDNQ INT8 Dynamic Float", int8_matmul_dynamic_with_backward, x, y, b, steps)
+        sdnq_int8_dyn_uint16_tflops = benchmark_linear("SDNQ INT8 Dynamic UINT16", int8_matmul_dynamic_with_backward, x, yqgu16, b, steps)
+        sdnq_int8_dyn_int16_tflops = benchmark_linear("SDNQ INT8 Dynamic INT16", int8_matmul_dynamic_with_backward, x, yqg16, b, steps)
+        sdnq_int8_dyn_fp16_tflops = benchmark_linear("SDNQ INT8 Dynamic FP16", int8_matmul_dynamic_with_backward, x, yqgf16, b, steps)
+        sdnq_int8_dyn_uint8_tflops = benchmark_linear("SDNQ INT8 Dynamic UINT8", int8_matmul_dynamic_with_backward, x, yqgu, b, steps)
+        sdnq_int8_dyn_int8_tflops = benchmark_linear("SDNQ INT8 Dynamic INT8", int8_matmul_dynamic_with_backward, x, yqg, b, steps)
+        sdnq_int8_dyn_fp8_tflops = benchmark_linear("SDNQ INT8 Dynamic FP8", int8_matmul_dynamic_with_backward, x, yqgf, b, steps)
 
+        sdnq_fp8_dyn_float_tflops = benchmark_linear("SDNQ FP8 Dynamic Float", fp8_matmul_dynamic_with_backward, x, y, b, steps)
+        sdnq_fp8_dyn_uint16_tflops = benchmark_linear("SDNQ FP8 Dynamic UINT16", fp8_matmul_dynamic_with_backward, x, yqgu16, b, steps)
+        sdnq_fp8_dyn_int16_tflops = benchmark_linear("SDNQ FP8 Dynamic INT16", fp8_matmul_dynamic_with_backward, x, yqg16, b, steps)
+        sdnq_fp8_dyn_fp16_tflops = benchmark_linear("SDNQ FP8 Dynamic FP16", fp8_matmul_dynamic_with_backward, x, yqgf16, b, steps)
+        sdnq_fp8_dyn_uint8_tflops = benchmark_linear("SDNQ FP8 Dynamic UINT8", fp8_matmul_dynamic_with_backward, x, yqgu, b, steps)
+        sdnq_fp8_dyn_int8_tflops = benchmark_linear("SDNQ FP8 Dynamic INT8", fp8_matmul_dynamic_with_backward, x, yqg, b, steps)
+        sdnq_fp8_dyn_fp8_tflops = benchmark_linear("SDNQ FP8 Dynamic FP8", fp8_matmul_dynamic_with_backward, x, yqgf, b, steps)
 
-        try:
-            print("SDNQ INT8 Dynamic UINT8:")
-            z = int8_matmul_dynamic_with_backward(x, yqgu, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_dynamic_with_backward(x, yqgu, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_dyn_uint8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 Dynamic UINT8 test failed")
-            sdnq_int8_dyn_uint8_tflops = 0
+        sdnq_fp8_tw_dyn_float_tflops = benchmark_linear("SDNQ FP8 TW Dynamic Float", fp8_matmul_tensorwise_dynamic_with_backward, x, y, b, steps)
+        sdnq_fp8_tw_dyn_uint16_tflops = benchmark_linear("SDNQ FP8 TW Dynamic UINT16", fp8_matmul_tensorwise_dynamic_with_backward, x, yqgu16, b, steps)
+        sdnq_fp8_tw_dyn_int16_tflops = benchmark_linear("SDNQ FP8 TW Dynamic INT16", fp8_matmul_tensorwise_dynamic_with_backward, x, yqg16, b, steps)
+        sdnq_fp8_tw_dyn_fp16_tflops = benchmark_linear("SDNQ FP8 TW Dynamic FP16", fp8_matmul_tensorwise_dynamic_with_backward, x, yqgf16, b, steps)
+        sdnq_fp8_tw_dyn_uint8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic UINT8", fp8_matmul_tensorwise_dynamic_with_backward, x, yqgu, b, steps)
+        sdnq_fp8_tw_dyn_int8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic INT8", fp8_matmul_tensorwise_dynamic_with_backward, x, yqg, b, steps)
+        sdnq_fp8_tw_dyn_fp8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic FP8", fp8_matmul_tensorwise_dynamic_with_backward, x, yqgf, b, steps)
 
+        sdnq_int8_ckpt_tflops = benchmark_linear("SDNQ INT8 CKPT", int8_matmul_with_backward_ckpt, x, yq, b, steps)
+        sdnq_fp8_ckpt_tflops = benchmark_linear("SDNQ FP8 CKPT", fp8_matmul_with_backward_ckpt, x, yqf, b, steps)
+        sdnq_fp8_tw_ckpt_tflops = benchmark_linear("SDNQ FP8 TW CKPT", fp8_matmul_tensorwise_with_backward_ckpt, x, yqf, b, steps)
 
-        try:
-            print("SDNQ INT8 Dynamic INT8:")
-            z = int8_matmul_dynamic_with_backward(x, yqg, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_dynamic_with_backward(x, yqg, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_dyn_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 Dynamic INT8 test failed")
-            sdnq_int8_dyn_int8_tflops = 0
+        sdnq_int8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT Float", int8_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
+        sdnq_int8_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT UINT16", int8_matmul_dynamic_with_backward_ckpt, x, yqgu16, b, steps)
+        sdnq_int8_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT INT16", int8_matmul_dynamic_with_backward_ckpt, x, yqg16, b, steps)
+        sdnq_int8_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT FP16", int8_matmul_dynamic_with_backward_ckpt, x, yqgf16, b, steps)
+        sdnq_int8_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT UINT8", int8_matmul_dynamic_with_backward_ckpt, x, yqgu, b, steps)
+        sdnq_int8_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT INT8", int8_matmul_dynamic_with_backward_ckpt, x, yqg, b, steps)
+        sdnq_int8_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT FP8", int8_matmul_dynamic_with_backward_ckpt, x, yqgf, b, steps)
 
+        sdnq_fp8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT Float", fp8_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
+        sdnq_fp8_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT UINT16", fp8_matmul_dynamic_with_backward_ckpt, x, yqgu16, b, steps)
+        sdnq_fp8_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT INT16", fp8_matmul_dynamic_with_backward_ckpt, x, yqg16, b, steps)
+        sdnq_fp8_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT FP16", fp8_matmul_dynamic_with_backward_ckpt, x, yqgf16, b, steps)
+        sdnq_fp8_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT UINT8", fp8_matmul_dynamic_with_backward_ckpt, x, yqgu, b, steps)
+        sdnq_fp8_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT INT8", fp8_matmul_dynamic_with_backward_ckpt, x, yqg, b, steps)
+        sdnq_fp8_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT FP8", fp8_matmul_dynamic_with_backward_ckpt, x, yqgf, b, steps)
 
-        try:
-            print("SDNQ INT8 Dynamic FP8:")
-            z = int8_matmul_dynamic_with_backward(x, yqgf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_dynamic_with_backward(x, yqgf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_dyn_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 Dynamic FP8 test failed")
-            sdnq_int8_dyn_fp8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 Dynamic Float:")
-            z = fp8_matmul_dynamic_with_backward(x, y, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_dynamic_with_backward(x, y, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_dyn_float_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 Dynamic Float test failed")
-            sdnq_fp8_dyn_float_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 Dynamic UINT8:")
-            z = fp8_matmul_dynamic_with_backward(x, yqgu, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_dynamic_with_backward(x, yqgu, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_dyn_uint8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 Dynamic UINT8 test failed")
-            sdnq_fp8_dyn_uint8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 Dynamic INT8:")
-            z = fp8_matmul_dynamic_with_backward(x, yqg, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_dynamic_with_backward(x, yqg, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_dyn_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 Dynamic INT8 test failed")
-            sdnq_fp8_dyn_int8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 Dynamic FP8:")
-            z = fp8_matmul_dynamic_with_backward(x, yqgf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_dynamic_with_backward(x, yqgf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_dyn_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 Dynamic FP8 test failed")
-            sdnq_fp8_dyn_fp8_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 Dynamic FP8:")
-            z = int8_matmul_dynamic_with_backward(x, yqgf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_dynamic_with_backward(x, yqgf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_dyn_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 Dynamic FP8 test failed")
-            sdnq_int8_dyn_fp8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW Dynamic Float:")
-            z = fp8_matmul_tensorwise_dynamic_with_backward(x, y, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_dynamic_with_backward(x, y, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_dyn_float_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW Dynamic Float test failed")
-            sdnq_fp8_tw_dyn_float_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW Dynamic UINT8:")
-            z = fp8_matmul_tensorwise_dynamic_with_backward(x, yqgu, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_dynamic_with_backward(x, yqgu, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_dyn_uint8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW Dynamic UINT8 test failed")
-            sdnq_fp8_tw_dyn_uint8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW Dynamic INT8:")
-            z = fp8_matmul_tensorwise_dynamic_with_backward(x, yqg, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_dynamic_with_backward(x, yqg, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_dyn_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW Dynamic INT8 test failed")
-            sdnq_fp8_tw_dyn_int8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW Dynamic FP8:")
-            z = fp8_matmul_tensorwise_dynamic_with_backward(x, yqgf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_dynamic_with_backward(x, yqgf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_dyn_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW Dynamic FP8 test failed")
-            sdnq_fp8_tw_dyn_fp8_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 CKPT:")
-            z = int8_matmul_with_backward_ckpt(x, yq, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_with_backward_ckpt(x, yq, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_ckpt_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 CKPT test failed")
-            sdnq_int8_ckpt_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 CKPT:")
-            z = fp8_matmul_with_backward_ckpt(x, yqf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_with_backward_ckpt(x, yqf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_ckpt_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 CKPT test failed")
-            sdnq_fp8_ckpt_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW CKPT:")
-            z = fp8_matmul_tensorwise_with_backward_ckpt(x, yqf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_with_backward_ckpt(x, yqf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_ckpt_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW CKPT test failed")
-            sdnq_fp8_tw_ckpt_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 Dynamic Float:")
-            z = int8_matmul_dynamic_with_backward_ckpt(x, y, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_dynamic_with_backward_ckpt(x, y, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_dyn_ckpt_float_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 Dynamic CKPT Float test failed")
-            sdnq_int8_dyn_ckpt_float_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 Dynamic CKPT UINT8:")
-            z = int8_matmul_dynamic_with_backward_ckpt(x, yqgu, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_dynamic_with_backward_ckpt(x, yqgu, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_dyn_ckpt_uint8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 Dynamic CKPT UINT8 test failed")
-            sdnq_int8_dyn_ckpt_uint8_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 Dynamic CKPT INT8:")
-            z = int8_matmul_dynamic_with_backward_ckpt(x, yqg, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_dynamic_with_backward_ckpt(x, yqg, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_dyn_ckpt_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 Dynamic CKPT INT8 test failed")
-            sdnq_int8_dyn_ckpt_int8_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 Dynamic CKPT FP8:")
-            z = int8_matmul_dynamic_with_backward_ckpt(x, yqgf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = int8_matmul_dynamic_with_backward_ckpt(x, yqgf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_dyn_ckpt_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 Dynamic CKPT FP8 test failed")
-            sdnq_int8_dyn_ckpt_fp8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 Dynamic CKPT Float:")
-            z = fp8_matmul_dynamic_with_backward_ckpt(x, y, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_dynamic_with_backward_ckpt(x, y, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_dyn_ckpt_float_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 Dynamic CKPT Float test failed")
-            sdnq_fp8_dyn_ckpt_float_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 Dynamic CKPT UINT8:")
-            z = fp8_matmul_dynamic_with_backward_ckpt(x, yqgu, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_dynamic_with_backward_ckpt(x, yqgu, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_dyn_ckpt_uint8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 Dynamic CKPT UINT8 test failed")
-            sdnq_fp8_dyn_ckpt_uint8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 Dynamic CKPT INT8:")
-            z = fp8_matmul_dynamic_with_backward_ckpt(x, yqg, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_dynamic_with_backward_ckpt(x, yqg, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_dyn_ckpt_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 Dynamic CKPT INT8 test failed")
-            sdnq_fp8_dyn_ckpt_int8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 Dynamic CKPT FP8:")
-            z = fp8_matmul_dynamic_with_backward_ckpt(x, yqgf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_dynamic_with_backward_ckpt(x, yqgf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_dyn_ckpt_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 Dynamic CKPT FP8 test failed")
-            sdnq_fp8_dyn_ckpt_fp8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW Dynamic CKPT Float:")
-            z = fp8_matmul_tensorwise_dynamic_with_backward_ckpt(x, y, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_dynamic_with_backward_ckpt(x, y, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_dyn_ckpt_float_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW Dynamic CKPT Float test failed")
-            sdnq_fp8_tw_dyn_ckpt_float_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW Dynamic CKPT UINT8:")
-            z = fp8_matmul_tensorwise_dynamic_with_backward_ckpt(x, yqgu, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_dynamic_with_backward_ckpt(x, yqgu, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_dyn_ckpt_uint8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW Dynamic CKPT UINT8 test failed")
-            sdnq_fp8_tw_dyn_ckpt_uint8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW Dynamic CKPT INT8:")
-            z = fp8_matmul_tensorwise_dynamic_with_backward_ckpt(x, yqg, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_dynamic_with_backward_ckpt(x, yqg, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_dyn_ckpt_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW Dynamic CKPT INT8 test failed")
-            sdnq_fp8_tw_dyn_ckpt_int8_tflops = 0
-
-
-        try:
-            print("SDNQ FP8 TW Dynamic CKPT FP8:")
-            z = fp8_matmul_tensorwise_dynamic_with_backward_ckpt(x, yqgf, b)
-            loss = z.mean()
-            loss.backward()
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                z = fp8_matmul_tensorwise_dynamic_with_backward_ckpt(x, yqgf, b)
-                loss = z.mean()
-                loss.backward()
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_dyn_ckpt_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW Dynamic CKPT FP8 test failed")
-            sdnq_fp8_tw_dyn_ckpt_fp8_tflops = 0
+        sdnq_fp8_tw_dyn_ckpt_float_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT Float", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, y, b, steps)
+        sdnq_fp8_tw_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT UINT16", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, yqgu16, b, steps)
+        sdnq_fp8_tw_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT INT16", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, yqg16, b, steps)
+        sdnq_fp8_tw_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT FP16", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, yqgf16, b, steps)
+        sdnq_fp8_tw_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT UINT8", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, yqgu, b, steps)
+        sdnq_fp8_tw_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT INT8", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, yqg, b, steps)
+        sdnq_fp8_tw_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT FP8", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, yqgf, b, steps)
     else:
         print("Torch Compile is disabled, skipping quantized matmul tests.")
 
@@ -790,22 +201,34 @@ def main(
         print("SDNQ FP8 TFLOPS:", sdnq_fp8_tflops)
         print("SDNQ FP8 TW TFLOPS:", sdnq_fp8_tw_tflops)
     print("==================================================")
+    print("SDNQ Float UINT16 TFLOPS:", sdnq_float_uint16_tflops)
+    print("SDNQ Float INT16 TFLOPS:", sdnq_float_int16_tflops)
+    print("SDNQ Float FP16 TFLOPS:", sdnq_float_fp16_tflops)
     print("SDNQ Float UINT8 TFLOPS:", sdnq_float_uint8_tflops)
     print("SDNQ Float INT8 TFLOPS:", sdnq_float_int8_tflops)
     print("SDNQ Float FP8 TFLOPS:", sdnq_float_fp8_tflops)
     if sdnq.common.use_torch_compile:
         print("==================================================")
         print("SDNQ INT8 Dynamic Float TFLOPS:", sdnq_int8_dyn_float_tflops)
+        print("SDNQ INT8 Dynamic UINT16 TFLOPS:", sdnq_int8_dyn_uint16_tflops)
+        print("SDNQ INT8 Dynamic INT16 TFLOPS:", sdnq_int8_dyn_int16_tflops)
+        print("SDNQ INT8 Dynamic FP16 TFLOPS:", sdnq_int8_dyn_fp16_tflops)
         print("SDNQ INT8 Dynamic UINT8 TFLOPS:", sdnq_int8_dyn_uint8_tflops)
         print("SDNQ INT8 Dynamic INT8 TFLOPS:", sdnq_int8_dyn_int8_tflops)
         print("SDNQ INT8 Dynamic FP8 TFLOPS:", sdnq_int8_dyn_fp8_tflops)
         print("==================================================")
         print("SDNQ FP8 Dynamic Float TFLOPS:", sdnq_fp8_dyn_float_tflops)
+        print("SDNQ FP8 Dynamic UINT16 TFLOPS:", sdnq_fp8_dyn_uint16_tflops)
+        print("SDNQ FP8 Dynamic INT16 TFLOPS:", sdnq_fp8_dyn_int16_tflops)
+        print("SDNQ FP8 Dynamic FP16 TFLOPS:", sdnq_fp8_dyn_fp16_tflops)
         print("SDNQ FP8 Dynamic UINT8 TFLOPS:", sdnq_fp8_dyn_uint8_tflops)
         print("SDNQ FP8 Dynamic INT8 TFLOPS:", sdnq_fp8_dyn_int8_tflops)
         print("SDNQ FP8 Dynamic FP8 TFLOPS:", sdnq_fp8_dyn_fp8_tflops)
         print("==================================================")
         print("SDNQ FP8 TW Dynamic Float TFLOPS:", sdnq_fp8_tw_dyn_float_tflops)
+        print("SDNQ FP8 TW Dynamic UINT16 TFLOPS:", sdnq_fp8_tw_dyn_uint16_tflops)
+        print("SDNQ FP8 TW Dynamic INT16 TFLOPS:", sdnq_fp8_tw_dyn_int16_tflops)
+        print("SDNQ FP8 TW Dynamic FP16 TFLOPS:", sdnq_fp8_tw_dyn_fp16_tflops)
         print("SDNQ FP8 TW Dynamic UINT8 TFLOPS:", sdnq_fp8_tw_dyn_uint8_tflops)
         print("SDNQ FP8 TW Dynamic INT8 TFLOPS:", sdnq_fp8_tw_dyn_int8_tflops)
         print("SDNQ FP8 TW Dynamic FP8 TFLOPS:", sdnq_fp8_tw_dyn_fp8_tflops)
@@ -815,16 +238,25 @@ def main(
         print("SDNQ FP8 TW CKPT TFLOPS:", sdnq_fp8_tw_ckpt_tflops)
         print("==================================================")
         print("SDNQ INT8 Dynamic CKPT Float TFLOPS:", sdnq_int8_dyn_ckpt_float_tflops)
+        print("SDNQ INT8 Dynamic CKPT UINT16 TFLOPS:", sdnq_int8_dyn_ckpt_uint16_tflops)
+        print("SDNQ INT8 Dynamic CKPT INT16 TFLOPS:", sdnq_int8_dyn_ckpt_int16_tflops)
+        print("SDNQ INT8 Dynamic CKPT FP16 TFLOPS:", sdnq_int8_dyn_ckpt_fp16_tflops)
         print("SDNQ INT8 Dynamic CKPT UINT8 TFLOPS:", sdnq_int8_dyn_ckpt_uint8_tflops)
         print("SDNQ INT8 Dynamic CKPT INT8 TFLOPS:", sdnq_int8_dyn_ckpt_int8_tflops)
         print("SDNQ INT8 Dynamic CKPT FP8 TFLOPS:", sdnq_int8_dyn_ckpt_fp8_tflops)
         print("==================================================")
         print("SDNQ FP8 Dynamic CKPT Float TFLOPS:", sdnq_fp8_dyn_ckpt_float_tflops)
+        print("SDNQ FP8 Dynamic CKPT UINT16 TFLOPS:", sdnq_fp8_dyn_ckpt_uint16_tflops)
+        print("SDNQ FP8 Dynamic CKPT INT16 TFLOPS:", sdnq_fp8_dyn_ckpt_int16_tflops)
+        print("SDNQ FP8 Dynamic CKPT FP16 TFLOPS:", sdnq_fp8_dyn_ckpt_fp16_tflops)
         print("SDNQ FP8 Dynamic CKPT UINT8 TFLOPS:", sdnq_fp8_dyn_ckpt_uint8_tflops)
         print("SDNQ FP8 Dynamic CKPT INT8 TFLOPS:", sdnq_fp8_dyn_ckpt_int8_tflops)
         print("SDNQ FP8 Dynamic CKPT FP8 TFLOPS:", sdnq_fp8_dyn_ckpt_fp8_tflops)
         print("==================================================")
         print("SDNQ FP8 TW Dynamic CKPT Float TFLOPS:", sdnq_fp8_tw_dyn_ckpt_float_tflops)
+        print("SDNQ FP8 TW Dynamic CKPT UINT16 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_uint16_tflops)
+        print("SDNQ FP8 TW Dynamic CKPT INT16 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_int16_tflops)
+        print("SDNQ FP8 TW Dynamic CKPT FP16 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_fp16_tflops)
         print("SDNQ FP8 TW Dynamic CKPT UINT8 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_uint8_tflops)
         print("SDNQ FP8 TW Dynamic CKPT INT8 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_int8_tflops)
         print("SDNQ FP8 TW Dynamic CKPT FP8 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_fp8_tflops)

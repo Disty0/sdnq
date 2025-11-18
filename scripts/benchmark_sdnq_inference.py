@@ -13,6 +13,24 @@ def get_tflops(it_s: float, m: int, n: int, k: int) -> float:
     return round(it_s * ((2*m*k*n) + (n * m)) / (10**12), 2)
 
 
+def benchmark_linear(name: str, linear: torch.nn.Linear, x: torch.Tensor, steps: int):
+    assert x.ndim == 2
+    try:
+        print(name)
+        sync_func = getattr(torch, x.device.type).synchronize
+        z = linear(x)
+        sync_func()
+        t0 = time.time()
+        for i in tqdm(range(steps)):
+            z = linear(x)
+            sync_func()
+        t1 = time.time()
+        return get_tflops(steps/(t1 - t0), x.shape[0],z.shape[1],x.shape[1])
+    except Exception:
+        print(f"{name} test failed")
+        return 0
+
+
 @torch.no_grad()
 def main(
     steps: int = 50,
@@ -27,7 +45,6 @@ def main(
         device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else None
         if device is None:
             raise RuntimeError("A GPU is required to run SDNQ Benchmark")
-    sync_func = getattr(torch, torch.device(device).type).synchronize
 
     if dtype is None:
         dtype = torch.bfloat16 if not sdnq.common.is_rdna2 else torch.float16
@@ -44,385 +61,53 @@ def main(
     x = torch.randn(m,k, device=device, dtype=dtype)
     x.requires_grad_(False)
 
-    try:
-        print("PyTorch Float:")
-        linear = torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        pytorch_float_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("PyTorch Float test failed")
-        pytorch_float_tflops = 0
 
+    pytorch_float_tflops = benchmark_linear("PyTorch Float", torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), x, steps)
 
     if sdnq.common.use_torch_compile:
-        try:
-            print("SDNQ INT8:")
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 test failed")
-            sdnq_int8_tflops = 0
-
+        sdnq_int8_tflops = benchmark_linear("SDNQ INT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
 
         backup_tw_fp8 = sdnq.common.use_tensorwise_fp8_matmul
-        try:
-            print("SDNQ FP8:")
-            sdnq.common.use_tensorwise_fp8_matmul = False
-            sdnq.quantizer.use_tensorwise_fp8_matmul = False
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 test failed")
-            sdnq_fp8_tflops = 0
+
+        sdnq.common.use_tensorwise_fp8_matmul = False
+        sdnq.quantizer.use_tensorwise_fp8_matmul = False
+        sdnq.forward.use_tensorwise_fp8_matmul = False
+        sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
+
+        sdnq.common.use_tensorwise_fp8_matmul = True
+        sdnq.quantizer.use_tensorwise_fp8_matmul = True
+        sdnq.forward.use_tensorwise_fp8_matmul = True
+        sdnq_fp8_tw_tflops = benchmark_linear("SDNQ FP8 TW", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
+
         sdnq.common.use_tensorwise_fp8_matmul = backup_tw_fp8
         sdnq.quantizer.use_tensorwise_fp8_matmul = backup_tw_fp8
-
-
-        backup_tw_fp8 = sdnq.common.use_tensorwise_fp8_matmul
-        try:
-            print("SDNQ FP8 TW:")
-            sdnq.common.use_tensorwise_fp8_matmul = True
-            sdnq.quantizer.use_tensorwise_fp8_matmul = True
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_fp8_tw_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ FP8 TW test failed")
-            sdnq_fp8_tw_tflops = 0
-        sdnq.common.use_tensorwise_fp8_matmul = backup_tw_fp8
-        sdnq.quantizer.use_tensorwise_fp8_matmul = backup_tw_fp8
-
-
-        try:
-            print("SDNQ INT8 INT7:")
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int7", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_int7_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 INT7 test failed")
-            sdnq_int8_int7_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 INT6:")
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int6", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_int6_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 INT6 test failed")
-            sdnq_int8_int6_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 INT5:")
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int5", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_int5_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 INT5 test failed")
-            sdnq_int8_int5_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 UINT4:")
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint4", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_uint4_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 UINT4 test failed")
-            sdnq_int8_uint4_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 UINT3:")
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint3", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_uint3_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 UINT3 test failed")
-            sdnq_int8_uint3_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 UINT2:")
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint2", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_uint2_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 UINT2 test failed")
-            sdnq_int8_uint2_tflops = 0
-
-
-        try:
-            print("SDNQ INT8 UINT1:")
-            linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint1", torch_dtype=dtype, use_quantized_matmul=True)
-            _ = linear(x)
-            sync_func()
-            t0 = time.time()
-            for i in tqdm(range(steps)):
-                _ = linear(x)
-                sync_func()
-            t1 = time.time()
-            sdnq_int8_uint1_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-        except Exception:
-            print("SDNQ INT8 UINT1 test failed")
-            sdnq_int8_uint1_tflops = 0
+        sdnq.forward.use_tensorwise_fp8_matmul = backup_tw_fp8
+        
+        sdnq_int8_int7_tflops = benchmark_linear("SDNQ INT8 INT7", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int7", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
+        sdnq_int8_int5_tflops = benchmark_linear("SDNQ INT8 INT6", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int6", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
+        sdnq_int8_int6_tflops = benchmark_linear("SDNQ INT8 INT5", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int5", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
+        sdnq_int8_uint4_tflops = benchmark_linear("SDNQ INT8 UINT4", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint4", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
+        sdnq_int8_uint3_tflops = benchmark_linear("SDNQ INT8 UINT3", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint3", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
+        sdnq_int8_uint2_tflops = benchmark_linear("SDNQ INT8 UINT2", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint2", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
+        sdnq_int8_uint1_tflops = benchmark_linear("SDNQ INT8 UINT1", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint1", torch_dtype=dtype, use_quantized_matmul=True), x, steps)
     else:
         print("Torch Compile is disabled, skipping quantized matmul tests.")
 
+    sdnq_float_int16_tflops = benchmark_linear("SDNQ Float INT16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int16", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_int8_tflops = benchmark_linear("SDNQ Float INT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_int7_tflops = benchmark_linear("SDNQ Float INT7", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int7", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_int6_tflops = benchmark_linear("SDNQ Float INT6", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int6", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_int5_tflops = benchmark_linear("SDNQ Float INT5", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int5", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_uint4_tflops = benchmark_linear("SDNQ Float UINT4", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint4", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_uint3_tflops = benchmark_linear("SDNQ Float UINT3", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint3", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_uint2_tflops = benchmark_linear("SDNQ Float UINT2", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint2", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_uint1_tflops = benchmark_linear("SDNQ Float UINT1", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint1", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
 
-    try:
-        print("SDNQ Float INT8:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_int8_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float INT8 test failed")
-        sdnq_float_int8_tflops = 0
-
-
-    try:
-        print("SDNQ Float INT7:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int7", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_int7_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float INT7 test failed")
-        sdnq_float_int7_tflops = 0
-
-
-    try:
-        print("SDNQ Float INT6:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int6", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_int6_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float INT6 test failed")
-        sdnq_float_int6_tflops = 0
-
-
-    try:
-        print("SDNQ Float INT5:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int5", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_int5_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float INT5 test failed")
-        sdnq_float_int5_tflops = 0
-
-
-    try:
-        print("SDNQ Float UINT4:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint4", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_uint4_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float UINT4 test failed")
-        sdnq_float_uint4_tflops = 0
-
-
-    try:
-        print("SDNQ Float UINT3:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint3", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_uint3_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float UINT3 test failed")
-        sdnq_float_uint3_tflops = 0
-
-
-    try:
-        print("SDNQ Float UINT2:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint2", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_uint2_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float UINT2 test failed")
-        sdnq_float_uint2_tflops = 0
-
-
-    try:
-        print("SDNQ Float UINT1:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="uint1", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_uint1_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float UINT1 test failed")
-        sdnq_float_uint1_tflops = 0
-
-
-    try:
-        print("SDNQ Float FP8 E4:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_fp8_e4_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float FP8 E4 test failed")
-        sdnq_float_fp8_e4_tflops = 0
-
-
-    try:
-        print("SDNQ Float FP8 E5:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e5m2", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_fp8_e5_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float FP8 E5 test failed")
-        sdnq_float_fp8_e5_tflops = 0
-
-
-    try:
-        print("SDNQ Float FP8 E4 FNUZ:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fnuz", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_fp8_e4fnuz_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float FP8 E4 FNUZ test failed")
-        sdnq_float_fp8_e4fnuz_tflops = 0
-
-
-    try:
-        print("SDNQ Float FP8 E5 FNUZ:")
-        linear = sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e5m2fnuz", torch_dtype=dtype, use_quantized_matmul=False)
-        _ = linear(x)
-        sync_func()
-        t0 = time.time()
-        for i in tqdm(range(steps)):
-            _ = linear(x)
-            sync_func()
-        t1 = time.time()
-        sdnq_float_fp8_e5fnuz_tflops = get_tflops(steps/(t1 - t0), m,n,k)
-    except Exception:
-        print("SDNQ Float FP8 E5 FNUZ test failed")
-        sdnq_float_fp8_e5fnuz_tflops = 0
+    sdnq_float_fp16_tflops = benchmark_linear("SDNQ Float FP16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float16", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_fp8_e4_tflops = benchmark_linear("SDNQ Float FP8 E4", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fn", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_fp8_e5_tflops = benchmark_linear("SDNQ Float FP8 E5", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e5m2", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_fp8_e4fnuz_tflops = benchmark_linear("SDNQ Float FP8 E4 FNUZ", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e4m3fnuz", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
+    sdnq_float_fp8_e5fnuz_tflops = benchmark_linear("SDNQ Float FP8 E5 FNUZ", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="float8_e5m2fnuz", torch_dtype=dtype, use_quantized_matmul=False), x, steps)
 
 
     print("")
@@ -449,6 +134,7 @@ def main(
         print("SDNQ INT8 UINT2 TFLOPS:", sdnq_int8_uint2_tflops)
         print("SDNQ INT8 UINT1 TFLOPS:", sdnq_int8_uint1_tflops)
     print("==================================================")
+    print("SDNQ Float INT16 TFLOPS:", sdnq_float_int16_tflops)
     print("SDNQ Float INT8 TFLOPS:", sdnq_float_int8_tflops)
     print("SDNQ Float INT7 TFLOPS:", sdnq_float_int7_tflops)
     print("SDNQ Float INT6 TFLOPS:", sdnq_float_int6_tflops)
@@ -458,6 +144,7 @@ def main(
     print("SDNQ Float UINT2 TFLOPS:", sdnq_float_uint2_tflops)
     print("SDNQ Float UINT1 TFLOPS:", sdnq_float_uint1_tflops)
     print("==================================================")
+    print("SDNQ Float FP16 TFLOPS:", sdnq_float_fp16_tflops)
     print("SDNQ Float FP8 E4 TFLOPS:", sdnq_float_fp8_e4_tflops)
     print("SDNQ Float FP8 E5 TFLOPS:", sdnq_float_fp8_e5_tflops)
     print("SDNQ Float FP8 E4 FNUZ TFLOPS:", sdnq_float_fp8_e4fnuz_tflops)
