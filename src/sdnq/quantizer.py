@@ -703,7 +703,11 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             quantization_config_dict.pop("return_device", None)
             quantization_config_dict.pop("non_blocking", None)
             quantization_config_dict.pop("add_skip_keys", None)
+            quantization_config_dict.pop("use_static_quantization", None)
             quantization_config_dict.pop("use_stochastic_rounding", None)
+            quantization_config_dict.pop("quantized_matmul_dtype", None)
+            quantization_config_dict.pop("use_grad_ckpt", None)
+            quantization_config_dict.pop("is_training", None)
             with init_empty_weights():
                 model = sdnq_post_load_quant(model, add_skip_keys=False, **quantization_config_dict)
 
@@ -725,6 +729,17 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
         model.quantization_config = self.quantization_config
 
     def _process_model_after_weight_loading(self, model, **kwargs): # pylint: disable=unused-argument
+        if self.quantization_config.is_training:
+            from .training import convert_sdnq_model_to_training
+            model = convert_sdnq_model_to_training(
+                model,
+                dtype=self.torch_dtype,
+                quantized_matmul_dtype=self.quantization_config.quantized_matmul_dtype,
+                use_grad_ckpt=self.quantization_config.use_grad_ckpt,
+                use_quantized_matmul=self.quantization_config.use_quantized_matmul,
+                use_stochastic_rounding=self.quantization_config.use_stochastic_rounding,
+                dequantize_fp32=self.quantization_config.dequantize_fp32,
+            )
         if shared.opts.diffusers_offload_mode != "none":
             try:
                 model = model.to(device=devices.cpu)
@@ -743,30 +758,14 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
         return self.get_accelerator_warm_up_factor()
 
     def _dequantize(self, model):
-        model = dequantize_sdnq_model(model)
-        if hasattr(model, "quantization_method"):
-            del model.quantization_method
-        if hasattr(model, "quantization_config"):
-            del model.quantization_config
-        if hasattr(model, "config"):
-            try:
-                if hasattr(model.config, "quantization_config"):
-                    del model.config.quantization_config
-            except Exception:
-                pass
-            try:
-                if hasattr(model.config, "pop"):
-                    model.config.pop("quantization_config", None)
-            except Exception:
-                pass
-        return model
+        return dequantize_sdnq_model(model)
 
     def is_serializable(self, *args, **kwargs) -> bool:  # pylint: disable=unused-argument, invalid-overridden-method
-        return True
+        return not self.quantization_config.is_training
 
     @property
     def is_trainable(self):
-        return False
+        return self.quantization_config.is_training
 
     @property
     def is_compileable(self):
