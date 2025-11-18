@@ -8,7 +8,7 @@ from itertools import chain
 import torch
 
 from .stochastic import copy_stochastic_
-from sdnq.training import SDNQTensor
+from ..training import SDNQTensor
 
 
 def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, norm_mode: str, clips: Tuple[float]):

@@ -4,8 +4,8 @@ import copy
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
 
-from sdnq.quantizer import sdnq_quantize_layer_weight_compiled
-from sdnq.dequantizer import SDNQDequantizer
+from ..quantizer import sdnq_quantize_layer_weight_compiled
+from ..dequantizer import SDNQDequantizer
 
 
 class SDNQTensor(torch.Tensor):

@@ -4,11 +4,11 @@ import torch
 
 from .optimizer import SDNQOptimizer
 from .stochastic import copy_stochastic_
-from sdnq.training import SDNQTensor
+from ..training import SDNQTensor
 
-from sdnq.common import compile_func
-from sdnq.training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
-from sdnq.training.layers.linear.linear_fp8_dynamic import fp8_matmul_dynamic
+from ..common import compile_func
+from ..training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
+from ..training.layers.linear.linear_fp8_dynamic import fp8_matmul_dynamic
 
 
 class Muon(SDNQOptimizer):

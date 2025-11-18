@@ -1,9 +1,9 @@
 from typing import Tuple, Optional
 
 import torch
-from sdnq.common import compile_func, use_contiguous_mm
+from ....common import compile_func, use_contiguous_mm
 
-from sdnq.dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias, quantize_fp8, quantize_fp8_sr
+from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias, quantize_fp8, quantize_fp8_sr
 from .forward import check_mats, quantized_linear_with_backward
 from .linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
 from ...tensor import SDNQTensor # noqa: TID252

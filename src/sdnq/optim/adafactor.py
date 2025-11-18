@@ -4,7 +4,7 @@ import torch
 
 from .optimizer import SDNQOptimizer, apply_norm_to_update_
 from .stochastic import copy_stochastic_
-from sdnq.training import SDNQTensor
+from ..training import SDNQTensor
 
 
 class Adafactor(SDNQOptimizer):

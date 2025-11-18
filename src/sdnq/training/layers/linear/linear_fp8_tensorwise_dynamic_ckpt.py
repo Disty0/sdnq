@@ -1,9 +1,9 @@
 from typing import Tuple, Union
 
 import torch
-from sdnq.common import compile_func
+from ....common import compile_func
 
-from sdnq.dequantizer import quantize_fp8
+from ....dequantizer import quantize_fp8
 from .forward import quantized_linear_with_backward
 from .linear_fp8_tensorwise import fp8_matmul_tensorwise
 from .linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic

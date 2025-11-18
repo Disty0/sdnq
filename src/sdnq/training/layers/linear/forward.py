@@ -1,7 +1,7 @@
 from typing import Tuple, Union
 
 import torch
-from sdnq.common import compile_func, use_contiguous_mm
+from ....common import compile_func, use_contiguous_mm
 
 from ...tensor import SDNQTensor # noqa: TID252
 

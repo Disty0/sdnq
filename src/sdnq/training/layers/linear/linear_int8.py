@@ -1,14 +1,14 @@
 from typing import Tuple, Optional
 
 import torch
-from sdnq.common import compile_func, int_mm_func, use_contiguous_mm
+from ....common import compile_func, int_mm_func, use_contiguous_mm
 
-from sdnq.dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8, quantize_int8_sr
+from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8, quantize_int8_sr
 from .linear_int8_dynamic import int8_matmul_dynamic
 from .forward import check_mats, quantized_linear_with_backward
 from ...tensor import SDNQTensor # noqa: TID252
 try:
-    from sdnq.triton_mm import int_mm as triton_int_mm
+    from ....triton_mm import int_mm as triton_int_mm
 except ImportError:
     triton_int_mm = int_mm_func
 
