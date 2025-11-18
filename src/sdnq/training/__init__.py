@@ -14,7 +14,7 @@ from .tensor import SDNQTensor
 
 
 @torch.no_grad()
-def apply_sdnq_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", torch_dtype=None, group_size=0, svd_rank=32, svd_steps=2, use_svd=False, use_grad_ckpt=True, use_quantized_matmul=False, use_static_quantization=True, use_stochastic_rounding=False, dequantize_fp32=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, full_param_name=""):
+def apply_sdnq_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", torch_dtype=None, group_size=0, svd_rank=32, svd_steps=2, use_svd=False, use_grad_ckpt=True, use_quantized_matmul=False, use_static_quantization=True, use_stochastic_rounding=True, dequantize_fp32=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, full_param_name=""):
     if not use_quantized_matmul and not use_static_quantization:
         return model
     if modules_to_not_convert is None:
@@ -106,7 +106,7 @@ def sdnq_post_load_quant(
     use_grad_ckpt: bool = True,
     use_quantized_matmul: bool = False,
     use_static_quantization: bool = True,
-    use_stochastic_rounding: bool = False,
+    use_stochastic_rounding: bool = True,
     dequantize_fp32: bool = True,
     non_blocking: bool = False,
     add_skip_keys:bool = True,
@@ -183,7 +183,7 @@ def sdnq_post_load_quant(
 
 
 @torch.no_grad()
-def convert_sdnq_layer_to_training(self: torch.nn.Module, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = False, inplace: bool = False):
+def convert_sdnq_layer_to_training(self: torch.nn.Module, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = True, inplace: bool = False):
     assert not self.sdnq_dequantizer.use_quantized_matmul
     if inplace:
         sdnq_dequantizer = self.sdnq_dequantizer
@@ -207,7 +207,7 @@ def convert_sdnq_layer_to_training(self: torch.nn.Module, quantized_matmul_dtype
 
 
 @torch.no_grad()
-def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = False):
+def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = True):
     if hasattr(model, "sdnq_dequantizer"):
         layer_class_name = model.__class__.__name__
         if layer_class_name not in linear_types:
@@ -267,7 +267,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
 
 
 @torch.no_grad()
-def convert_sdnq_model_to_training(model: torch.nn.Module, dtype: torch.dtype = None, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = False, dequantize_fp32: bool = True):
+def convert_sdnq_model_to_training(model: torch.nn.Module, dtype: torch.dtype = None, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = True, dequantize_fp32: bool = True):
     model = apply_options_to_model(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=False)
     model = convert_sdnq_module_to_training(
         model,
