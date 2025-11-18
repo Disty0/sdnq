@@ -63,7 +63,6 @@ quantized_model = apply_options_to_model(quantized_model, use_quantized_matmul=T
 
 Example code for quantized training:  
 Note:  
- - Only INT8, UINT8 and FP8 (E4) are supported in training.  
  - Safetensors serialization is not supported with static quantized training.  
 
 ```py
@@ -76,6 +75,7 @@ model = sdnq_post_load_quant(
     quantized_matmul_dtype="int8",
     group_size=32, # -1 means disabled
     svd_rank=32,
+    svd_steps=2,
     use_svd=False,
     use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
     use_quantized_matmul=triton_is_available,
