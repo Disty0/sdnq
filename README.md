@@ -63,7 +63,8 @@ quantized_model = apply_options_to_model(quantized_model, use_quantized_matmul=T
 
 Example code for quantized training:  
 Note:  
- - Safetensors serialization is not supported with static quantized training.  
+ - Safetensors serialization is not supported with SDNQ training.  
+   Either don't use Safetensors serialization or convert the quantized model to standard SDNQ model before saving.  
 
 ```py
 from sdnq.training import sdnq_post_load_quant
@@ -73,7 +74,7 @@ model = sdnq_post_load_quant(
     model,
     weights_dtype="uint8",
     quantized_matmul_dtype="int8",
-    group_size=32, # -1 means disabled
+    group_size=0, # 0 means auto, -1 means disabled
     svd_rank=32,
     svd_steps=2,
     use_svd=False,
@@ -81,6 +82,7 @@ model = sdnq_post_load_quant(
     use_quantized_matmul=triton_is_available,
     use_static_quantization=True, # quantize the model weights
     use_stochastic_rounding=True,
+    dequantize_fp32=True,
     non_blocking=False,
     add_skip_keys=True,
     quantization_device="cuda",
@@ -88,6 +90,28 @@ model = sdnq_post_load_quant(
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
     modules_dtype_dict={"int8": ["lm_head"]},
 )
+```
+
+Example code for converting standard SDNQ model to training SDNQ Model:  
+
+```py
+from sdnq.training import convert_sdnq_model_to_training
+from sdnq.common import use_torch_compile as triton_is_available
+quantized_model = convert_sdnq_model_to_training(
+    quantized_model,
+    quantized_matmul_dtype="int8",
+    use_grad_ckpt=True,
+    use_quantized_matmul=triton_is_available,
+    use_stochastic_rounding=True,
+    dequantize_fp32=True,
+)
+```
+
+Example code for converting training SDNQ model to standard SDNQ Model:  
+
+```py
+from sdnq.training import convert_training_model_to_sdnq
+quantized_model = convert_training_model_to_sdnq(quantized_model)
 ```
 
 

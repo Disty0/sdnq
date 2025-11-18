@@ -63,7 +63,7 @@ class SDNQTensor(torch.Tensor):
         svd_rank: int = 32,
         svd_steps: int = 8,
         use_svd: bool = False,
-        use_stochastic_rounding: bool = False,
+        use_stochastic_rounding: bool = True,
         dequantize_fp32: bool = True,
         param_name: str = None,
     ):
