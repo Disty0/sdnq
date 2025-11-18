@@ -164,27 +164,28 @@ def re_quantize_matmul_packed_int_symmetric(weight: torch.ByteTensor, scale: tor
 
 @devices.inference_context()
 def dequantize_layer_weight(self: torch.nn.Module, inplace: bool = False):
-    weight = self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul)
+    weight = torch.nn.Parameter(self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul), requires_grad=True)
     forward = getattr(torch.nn, self.sdnq_dequantizer.layer_class_name).forward
     if inplace:
-        self.weight.data = weight
+        self.weight = weight
         self.forward = forward
         self.forward = self.forward.__get__(self, self.__class__)
         del self.sdnq_dequantizer, self.scale, self.zero_point, self.svd_up, self.svd_down
-    return weight, forward
+        return self
+    else:
+        return weight, forward
 
 
 @devices.inference_context()
 def dequantize_sdnq_module(model: torch.nn.Module):
     if hasattr(model, "sdnq_dequantizer"):
-        model.weight.data, _ = dequantize_layer_weight(model, inplace=True)
+        model = dequantize_layer_weight(model, inplace=True)
     has_children = list(model.children())
     if not has_children:
         return model
     for module_name, module in model.named_children():
         if hasattr(module, "sdnq_dequantizer"):
-            module.weight.data, _ = dequantize_layer_weight(module, inplace=True)
-            setattr(model, module_name, module)
+            setattr(model, module_name, dequantize_layer_weight(module, inplace=True))
         else:
             setattr(model, module_name, dequantize_sdnq_model(module))
     return model
@@ -230,6 +231,7 @@ class SDNQDequantizer():
     ):
         self.is_packed = dtype_dict[weights_dtype]["is_packed"]
         self.is_unsigned = dtype_dict[weights_dtype]["is_unsigned"]
+        self.is_integer = dtype_dict[weights_dtype]["is_integer"]
         self.result_dtype = result_dtype
         self.result_shape = result_shape
         self.original_shape = original_shape

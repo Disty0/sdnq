@@ -8,7 +8,7 @@ from ..dequantizer import dequantize_layer_weight
 from ..loader import apply_options_to_model
 from ..common import linear_types
 
-#from ..forward import get_forward_func as get_sdnq_forward_func
+from ..forward import get_forward_func as get_sdnq_forward_func
 from .forward import get_forward_func
 from .tensor import SDNQTensor
 
@@ -201,7 +201,9 @@ def convert_sdnq_layer_to_training(self: torch.nn.Module, quantized_matmul_dtype
             self.forward = getattr(torch.nn, sdnq_dequantizer.layer_class_name).forward
         self.forward = self.forward.__get__(self, self.__class__)
         del self.sdnq_dequantizer, self.scale, self.zero_point, self.svd_up, self.svd_down
-    return weight, quantized_forward
+        return self
+    else:
+        return weight, quantized_forward
 
 
 @torch.no_grad()
@@ -209,7 +211,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
     if hasattr(model, "sdnq_dequantizer"):
         layer_class_name = model.__class__.__name__
         if layer_class_name not in linear_types:
-            model.weight.data, _ = dequantize_layer_weight(model, inplace=True)
+            model = dequantize_layer_weight(model, inplace=True)
         else:
             output_channel_size, channel_size = model.sdnq_dequantizer.original_shape
             if channel_size >= 32 and output_channel_size >= 32:
@@ -217,7 +219,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
                     current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 8 == 0 and channel_size % 8 == 0
                 else:
                     current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
-                model.weight, _ = convert_sdnq_layer_to_training(
+                model = convert_sdnq_layer_to_training(
                     model,
                     quantized_matmul_dtype=quantized_matmul_dtype,
                     use_grad_ckpt=use_grad_ckpt,
@@ -226,7 +228,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
                     inplace=True,
                 )
             else:
-                model.weight.data, _ = dequantize_layer_weight(model, inplace=True)
+                model = dequantize_layer_weight(model, inplace=True)
     has_children = list(model.children())
     if not has_children:
         return model
@@ -234,7 +236,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
         if hasattr(module, "sdnq_dequantizer"):
             layer_class_name = module.__class__.__name__
             if layer_class_name not in linear_types:
-                module.weight.data, _ = dequantize_layer_weight(module, inplace=True)
+                module = dequantize_layer_weight(module, inplace=True)
             else:
                 output_channel_size, channel_size = module.sdnq_dequantizer.original_shape
                 if channel_size >= 32 and output_channel_size >= 32:
@@ -242,7 +244,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
                         current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 8 == 0 and channel_size % 8 == 0
                     else:
                         current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
-                    module.weight, _ = convert_sdnq_layer_to_training(
+                    module = convert_sdnq_layer_to_training(
                         module,
                         quantized_matmul_dtype=quantized_matmul_dtype,
                         use_grad_ckpt=use_grad_ckpt,
@@ -251,7 +253,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
                         inplace=True,
                     )
                 else:
-                    module.weight.data, _ = dequantize_layer_weight(module, inplace=True)
+                    module = dequantize_layer_weight(module, inplace=True)
             setattr(model, module_name, module)
         else:
             setattr(model, module_name, convert_sdnq_module_to_training(
@@ -301,6 +303,74 @@ def convert_sdnq_model_to_training(model: torch.nn.Module, dtype: torch.dtype = 
                 model.config["quantization_config"].use_stochastic_rounding = use_stochastic_rounding
                 model.config["quantization_config"].dequantize_fp32 = dequantize_fp32
                 model.config["quantization_config"].is_training = True
+        except Exception:
+            pass
+    return model
+
+
+@torch.no_grad()
+def convert_training_layer_to_sdnq(self: torch.nn.Module, inplace: bool = False):
+    if inplace:
+        sdnq_dequantizer = self.weight.sdnq_dequantizer
+    else:
+        sdnq_dequantizer = copy.deepcopy(self.weight.sdnq_dequantizer)
+    sdnq_dequantizer.use_quantized_matmul = False
+    weight = torch.nn.Parameter(self.weight.weight, requires_grad=False)
+    scale = torch.nn.Parameter(self.weight.scale, requires_grad=False)
+    zero_point = torch.nn.Parameter(self.weight.zero_point, requires_grad=False)
+    svd_up = torch.nn.Parameter(self.weight.svd_up, requires_grad=False)
+    svd_down = torch.nn.Parameter(self.weight.svd_down, requires_grad=False)
+    quantized_forward = get_sdnq_forward_func(self.__class__.__name__, False, sdnq_dequantizer.is_integer)
+    if inplace:
+        self.weight = weight
+        self.scale = scale
+        self.zero_point = zero_point
+        self.svd_up = svd_up
+        self.svd_down = svd_down
+        self.sdnq_dequantizer = sdnq_dequantizer
+        self.forward = quantized_forward
+        self.forward = self.forward.__get__(self, self.__class__)
+        return self
+    else:
+        return weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer, quantized_forward
+
+
+@torch.no_grad()
+def convert_training_module_to_sdnq(model: torch.nn.Module):
+    if hasattr(model, "weight") and isinstance(model.weight, SDNQTensor):
+        model = convert_training_layer_to_sdnq(model, inplace=True)
+    has_children = list(model.children())
+    if not has_children:
+        return model
+    for module_name, module in model.named_children():
+        if hasattr(module, "weight") and isinstance(module.weight, SDNQTensor):
+            setattr(model, module_name, convert_training_layer_to_sdnq(module, inplace=True))
+        else:
+            setattr(model, module_name, convert_training_module_to_sdnq(module))
+    return model
+
+
+@torch.no_grad()
+def convert_training_model_to_sdnq(model: torch.nn.Module):
+    model = convert_training_module_to_sdnq(model)
+    model.quantization_method = QuantizationMethod.SDNQ
+    if hasattr(model, "quantization_config"):
+        model.quantization_config.quant_method = QuantizationMethod.SDNQ
+        model.quantization_config.use_quantized_matmul = False
+        model.quantization_config.is_training = False
+    if hasattr(model, "config"):
+        try:
+            if hasattr(model.config, "quantization_config"):
+                model.config.quantization_config.quant_method = QuantizationMethod.SDNQ
+                model.config.quantization_config.use_quantized_matmul = False
+                model.config.quantization_config.is_training = False
+        except Exception:
+            pass
+        try:
+            if hasattr(model.config, "get") and model.config.get("quantization_config", None) is not None:
+                model.config["quantization_config"].quant_method = QuantizationMethod.SDNQ
+                model.config["quantization_config"].use_quantized_matmul = False
+                model.config["quantization_config"].is_training = False
         except Exception:
             pass
     return model
