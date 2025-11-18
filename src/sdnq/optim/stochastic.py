@@ -25,8 +25,8 @@ def copy_stochastic_(target: Tensor, source: Tensor):
     # add the random number to the lower part of the mantissa
     result.add_(source.view(dtype=torch.int32))
 
-    # mask off the lower part of the mantissa
-    result.bitwise_and_(-mantissa_difference)  # -65536 = FFFF0000 as a signed int32
+    # mask off the lower part of the mantissa, -65536 = FFFF0000 as a signed int32
+    result.bitwise_and_(-mantissa_difference)
 
     # copy the higher 16 bit into the target tensor
     target.copy_(result.view(dtype=torch.float32))
