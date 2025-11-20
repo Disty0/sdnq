@@ -20,12 +20,12 @@ def main(model_path, out_path, dtype=None):
     print("Successfully converted the model!\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Create a bucket list with a given dataset path')
-    parser.add_argument('model_path', type=str)
-    parser.add_argument('out_path', type=str)
-    parser.add_argument('--dtype', default="none", type=str)
+    parser = argparse.ArgumentParser(description="Dequantize SDNQ Training models")
+    parser.add_argument("model_path", type=str)
+    parser.add_argument("out_path", type=str)
+    parser.add_argument("--dtype", default="none", type=str)
 
     args = parser.parse_args()
     dtype = getattr(torch, args.dtype) if args.dtype not in {None, "none"} else None

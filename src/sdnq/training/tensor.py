@@ -360,3 +360,4 @@ def sdnq_view(func, *args, **kwargs):
 
 
 torch.serialization.add_safe_globals([SDNQTensor])
+torch.serialization.add_safe_globals([SDNQDequantizer])
