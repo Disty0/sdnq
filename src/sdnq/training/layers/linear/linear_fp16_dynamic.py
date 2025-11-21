@@ -2,7 +2,7 @@ from typing import Tuple, Union
 
 import torch
 
-from ....common import compile_func, use_contiguous_mm
+from ....common import compile_func, fp_mm_func, use_contiguous_mm
 from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
 from ...tensor import SDNQTensor # noqa: TID252
 
@@ -46,9 +46,9 @@ def fp16_matmul_dynamic(
     input, weight, scale = quantize_fp_mm_tensorwise(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr, matmul_dtype="float16")
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(torch.mm(input, weight, out_dtype=torch.float32), scale, bias, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric_with_bias(fp_mm_func(input, weight), scale, bias, dtype=return_dtype, result_shape=output_shape)
     else:
-        return dequantize_symmetric(torch.mm(input, weight, out_dtype=torch.float32), scale, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric(fp_mm_func(input, weight), scale, dtype=return_dtype, result_shape=output_shape)
 
 
 def fp16_matmul_dynamic_backward(

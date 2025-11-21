@@ -10,9 +10,9 @@ from ...dequantizer import quantize_fp_mm # noqa: TID252
 from .forward import check_mats
 
 
-def quantize_fp_mm_input(input: torch.FloatTensor) -> Tuple[torch.Tensor, torch.FloatTensor]:
+def quantize_fp_mm_input(input: torch.FloatTensor, matmul_dtype: str = "float8_e4m3fn") -> Tuple[torch.Tensor, torch.FloatTensor]:
     input = input.flatten(0,-2).to(dtype=torch.float32)
-    input, input_scale = quantize_fp_mm(input, dim=-1)
+    input, input_scale = quantize_fp_mm(input, dim=-1, matmul_dtype=matmul_dtype)
     return input, input_scale
 
 

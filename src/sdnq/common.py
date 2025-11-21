@@ -81,6 +81,20 @@ else:
     int_mm_func = torch._int_mm
 
 
+fp_mm_func = None
+if os.environ.get("SDNQ_USE_TRITON_MM", "1").lower() not in {"0", "false", "no"}:
+    try:
+        from .triton_mm import fp_mm
+        fp_mm_func = fp_mm
+    except ImportError:
+        fp_mm_func = None
+
+if fp_mm_func is None:
+    def fp_mm(x: torch.Tensor, y: torch.Tensor) -> torch.FloatTensor:
+        return torch.mm(x,y, out_dtype=torch.float32)
+    fp_mm_func = fp_mm
+
+
 if use_torch_compile:
     torch._dynamo.config.cache_size_limit = max(8192, torch._dynamo.config.cache_size_limit)
     torch._dynamo.config.accumulated_recompile_limit = max(8192, torch._dynamo.config.accumulated_recompile_limit)

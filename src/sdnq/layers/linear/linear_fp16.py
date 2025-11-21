@@ -2,7 +2,7 @@
 
 import torch
 
-from ...common import compile_func # noqa: TID252
+from ...common import compile_func, fp_mm_func # noqa: TID252
 from ...dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias # noqa: TID252
 
 from .forward import check_mats
@@ -28,9 +28,9 @@ def fp16_matmul(
     input, scale = quantize_fp_mm_input_tensorwise(input, scale, matmul_dtype="float16")
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(torch.mm(input, weight, out_dtype=torch.float32), scale, bias, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric_with_bias(fp_mm_func(input, weight), scale, bias, dtype=return_dtype, result_shape=output_shape)
     else:
-        return dequantize_symmetric(torch.mm(input, weight, out_dtype=torch.float32), scale, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric(fp_mm_func(input, weight), scale, dtype=return_dtype, result_shape=output_shape)
 
 
 def quantized_linear_forward_fp16_matmul(self, input: torch.FloatTensor) -> torch.FloatTensor:

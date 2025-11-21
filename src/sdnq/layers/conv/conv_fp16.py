@@ -4,7 +4,7 @@ from typing import List
 
 import torch
 
-from ...common import compile_func # noqa: TID252
+from ...common import compile_func, fp_mm_func # noqa: TID252
 from ...dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias # noqa: TID252
 
 from .forward import get_conv_args, process_conv_input
@@ -38,13 +38,13 @@ def conv_fp16_matmul(
     input, weight = check_mats(input, weight)
 
     if groups == 1:
-        result = torch.mm(input, weight, out_dtype=torch.float32)
+        result = fp_mm_func(input, weight)
     else:
         weight = weight.view(weight.shape[0], groups, weight.shape[1] // groups)
         input = input.view(input.shape[0], groups, input.shape[1] // groups)
         result = []
         for i in range(groups):
-            result.append(torch.mm(input[:, i], weight[:, i], out_dtype=torch.float32))
+            result.append(fp_mm_func(input[:, i], weight[:, i]))
         result = torch.cat(result, dim=-1)
     if bias is not None:
         dequantize_symmetric_with_bias(result, scale, bias, dtype=return_dtype, result_shape=mm_output_shape)
