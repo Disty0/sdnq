@@ -318,12 +318,12 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
     weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype)
     if (
         not dequantize_fp32
+        and dtype_dict[weights_dtype]["num_bits"] <= 8
         and not (
             use_quantized_matmul
             and not dtype_dict[quantized_matmul_dtype]["is_integer"]
             and (not use_tensorwise_fp8_matmul or dtype_dict[quantized_matmul_dtype]["num_bits"] == 16)
         )
-        and not (weights_dtype == "uint16" and torch_dtype == torch.float16) # uint16 range is larger than fp16, fp16 will cause NaN on dequant
     ):
         scale = scale.to(dtype=torch_dtype)
         if zero_point is not None:
