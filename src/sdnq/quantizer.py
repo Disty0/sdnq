@@ -320,9 +320,8 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
         not dequantize_fp32
         and not (
             use_quantized_matmul
-            and not use_tensorwise_fp8_matmul
             and not dtype_dict[quantized_matmul_dtype]["is_integer"]
-            and dtype_dict[quantized_matmul_dtype]["num_bits"] == 8
+            and (not use_tensorwise_fp8_matmul or dtype_dict[quantized_matmul_dtype]["num_bits"] == 16)
         )
         and not (weights_dtype == "uint16" and torch_dtype == torch.float16) # uint16 range is larger than fp16, fp16 will cause NaN on dequant
     ):
