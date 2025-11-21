@@ -33,12 +33,16 @@ dtype_dict = {
     "float8_e5m2": {"min": -57344, "max": 57344, "num_bits": 8, "sign": 1, "exponent": 5, "mantissa": 2, "target_dtype": torch.float8_e5m2, "torch_dtype": torch.float8_e5m2, "storage_dtype": torch.float8_e5m2, "is_unsigned": False, "is_integer": False, "is_packed": False},
 }
 
-dtype_dict["fp8"] = dtype_dict["float8_e4m3fn"]
-dtype_dict["bool"] = dtype_dict["uint1"]
 if hasattr(torch, "float8_e4m3fnuz"):
     dtype_dict["float8_e4m3fnuz"] = {"min": -240, "max": 240, "num_bits": 8, "sign": 1, "exponent": 4, "mantissa": 3, "target_dtype": "fp8", "torch_dtype": torch.float8_e4m3fnuz, "storage_dtype": torch.float8_e4m3fnuz, "is_unsigned": False, "is_integer": False, "is_packed": False}
 if hasattr(torch, "float8_e5m2fnuz"):
     dtype_dict["float8_e5m2fnuz"] = {"min": -57344, "max": 57344, "num_bits": 8, "sign": 1, "exponent": 5, "mantissa": 2, "target_dtype": "fp8", "torch_dtype": torch.float8_e5m2fnuz, "storage_dtype": torch.float8_e5m2fnuz, "is_unsigned": False, "is_integer": False, "is_packed": False}
+
+dtype_dict["fp32"] = dtype_dict["float32"]
+dtype_dict["bf16"] = dtype_dict["bfloat16"]
+dtype_dict["fp16"] = dtype_dict["float16"]
+dtype_dict["fp8"] = dtype_dict["float8_e4m3fn"]
+dtype_dict["bool"] = dtype_dict["uint1"]
 
 linear_types = {"Linear"}
 conv_types = {"Conv1d", "Conv2d", "Conv3d"}

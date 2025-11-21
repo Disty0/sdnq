@@ -1,21 +1,22 @@
 from typing import Tuple
 
 import torch
-from ....common import compile_func, use_contiguous_mm
 
-from ....dequantizer import dequantize_symmetric, quantize_fp8, quantize_fp8_sr
-from .forward import check_mats, quantized_linear_with_backward
-from .linear_fp8_dynamic import fp8_matmul_dynamic
+from ....common import compile_func, use_contiguous_mm
+from ....dequantizer import dequantize_symmetric, quantize_fp_mm, quantize_fp_mm_sr
 from ...tensor import SDNQTensor # noqa: TID252
 
+from .forward import check_mats, quantized_linear_with_backward
+from .linear_fp8_dynamic import fp8_matmul_dynamic
 
-def quantize_fp8_matmul_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> Tuple[torch.Tensor, torch.FloatTensor]:
+
+def quantize_fp_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> Tuple[torch.Tensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     if use_sr:
-        input, input_scale = quantize_fp8_sr(input.to(dtype=torch.float32), dim=dim)
+        input, input_scale = quantize_fp_mm_sr(input.to(dtype=torch.float32), dim=dim)
     else:
-        input, input_scale = quantize_fp8(input.to(dtype=torch.float32), dim=dim)
+        input, input_scale = quantize_fp_mm(input.to(dtype=torch.float32), dim=dim)
     return input, input_scale
 
 
@@ -51,7 +52,7 @@ def fp8_matmul(
             _, svd_up = check_mats(None, svd_up)
             _, svd_down = check_mats(None, svd_down)
             svd_bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, input_scale = quantize_fp8_matmul_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
+    input, input_scale = quantize_fp_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight)
     if bias is not None and bias.dtype != torch.bfloat16:
         bias = bias.to(dtype=torch.bfloat16)

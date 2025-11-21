@@ -1,24 +1,25 @@
 from typing import Tuple, Union
 
 import torch
-from ....common import compile_func, use_contiguous_mm
 
-from ....dequantizer import quantize_fp8, quantize_fp8_sr
-from .forward import check_mats, quantized_linear_with_backward
+from ....common import compile_func, use_contiguous_mm
+from ....dequantizer import quantize_fp_mm, quantize_fp_mm_sr
 from ...tensor import SDNQTensor # noqa: TID252
 
+from .forward import check_mats, quantized_linear_with_backward
 
-def quantize_fp8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True, use_sr: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
+
+def quantize_fp_mm_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True, use_sr: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     else:
         weight = weight.t()
-    weight, scale = quantize_fp8(weight.to(dtype=torch.float32), dim=-1)
+    weight, scale = quantize_fp_mm(weight.to(dtype=torch.float32), dim=-1)
     weight, scale = weight.t_(), scale.t_()
     if use_sr:
-        input, input_scale = quantize_fp8_sr(input.to(dtype=torch.float32), dim=-1)
+        input, input_scale = quantize_fp_mm_sr(input.to(dtype=torch.float32), dim=-1)
     else:
-        input, input_scale = quantize_fp8(input.to(dtype=torch.float32), dim=-1)
+        input, input_scale = quantize_fp_mm(input.to(dtype=torch.float32), dim=-1)
     return input, weight, input_scale, scale
 
 
@@ -49,7 +50,7 @@ def fp8_matmul_dynamic(
             _, svd_up = check_mats(None, svd_up)
             _, svd_down = check_mats(None, svd_down)
             svd_bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, weight, input_scale, scale = quantize_fp8_matmul(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
+    input, weight, input_scale, scale = quantize_fp_mm_matmul(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight)
     if bias is not None and bias.dtype != torch.bfloat16:
         bias = bias.to(dtype=torch.bfloat16)

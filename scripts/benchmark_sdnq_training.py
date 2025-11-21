@@ -23,6 +23,11 @@ from sdnq.training.layers.linear.linear_fp8_tensorwise_ckpt import fp8_matmul_te
 from sdnq.training.layers.linear.linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic_with_backward
 from sdnq.training.layers.linear.linear_fp8_tensorwise_dynamic_ckpt import fp8_matmul_tensorwise_dynamic_with_backward_ckpt
 
+from sdnq.training.layers.linear.linear_fp16 import fp16_matmul_with_backward
+from sdnq.training.layers.linear.linear_fp16_ckpt import fp16_matmul_with_backward_ckpt
+from sdnq.training.layers.linear.linear_fp16_dynamic import fp16_matmul_dynamic_with_backward
+from sdnq.training.layers.linear.linear_fp16_dynamic_ckpt import fp16_matmul_dynamic_with_backward_ckpt
+
 
 def get_tflops(it_s: float, m: int, n: int, k: int) -> float:
     return round(it_s * ((3*2*m*k*n) + (2 * n * m)) / (10**12), 2)
@@ -84,9 +89,11 @@ def main(
     y.requires_grad_(True)
     b.requires_grad_(True)
 
+    yqf16 = SDNQTensor.from_float(y, weights_dtype="float16", group_size=-1)
     yqg16 = SDNQTensor.from_float(y, weights_dtype="int16", group_size=32)
     yqgu16 = SDNQTensor.from_float(y, weights_dtype="uint16", group_size=32)
     yqgf16 = SDNQTensor.from_float(y, weights_dtype="float16", group_size=32)
+    yqf16.requires_grad_(True)
     yqg16.requires_grad_(True)
     yqgu16.requires_grad_(True)
     yqgf16.requires_grad_(True)
@@ -118,6 +125,7 @@ def main(
         sdnq_int8_tflops = benchmark_linear("SDNQ INT8", int8_matmul_with_backward, x, yq, b, steps)
         sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", fp8_matmul_with_backward, x, yqf, b, steps)
         sdnq_fp8_tw_tflops = benchmark_linear("SDNQ FP8 TW", fp8_matmul_tensorwise_with_backward, x, yqf, b, steps)
+        sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", fp16_matmul_with_backward, x, yqf16, b, steps)
     else:
         print("Torch Compile is disabled, skipping quantized matmul tests.")
 
@@ -153,9 +161,18 @@ def main(
         sdnq_fp8_tw_dyn_int8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic INT8", fp8_matmul_tensorwise_dynamic_with_backward, x, yqg, b, steps)
         sdnq_fp8_tw_dyn_fp8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic FP8", fp8_matmul_tensorwise_dynamic_with_backward, x, yqgf, b, steps)
 
+        sdnq_fp16_dyn_float_tflops = benchmark_linear("SDNQ FP16 Dynamic Float", fp16_matmul_dynamic_with_backward, x, y, b, steps)
+        sdnq_fp16_dyn_uint16_tflops = benchmark_linear("SDNQ FP16 Dynamic UINT16", fp16_matmul_dynamic_with_backward, x, yqgu16, b, steps)
+        sdnq_fp16_dyn_int16_tflops = benchmark_linear("SDNQ FP16 Dynamic INT16", fp16_matmul_dynamic_with_backward, x, yqg16, b, steps)
+        sdnq_fp16_dyn_fp16_tflops = benchmark_linear("SDNQ FP16 Dynamic FP16", fp16_matmul_dynamic_with_backward, x, yqgf16, b, steps)
+        sdnq_fp16_dyn_uint8_tflops = benchmark_linear("SDNQ FP16 Dynamic UINT8", fp16_matmul_dynamic_with_backward, x, yqgu, b, steps)
+        sdnq_fp16_dyn_int8_tflops = benchmark_linear("SDNQ FP16 Dynamic INT8", fp16_matmul_dynamic_with_backward, x, yqg, b, steps)
+        sdnq_fp16_dyn_fp8_tflops = benchmark_linear("SDNQ FP16 Dynamic FP8", fp16_matmul_dynamic_with_backward, x, yqgf, b, steps)
+
         sdnq_int8_ckpt_tflops = benchmark_linear("SDNQ INT8 CKPT", int8_matmul_with_backward_ckpt, x, yq, b, steps)
         sdnq_fp8_ckpt_tflops = benchmark_linear("SDNQ FP8 CKPT", fp8_matmul_with_backward_ckpt, x, yqf, b, steps)
         sdnq_fp8_tw_ckpt_tflops = benchmark_linear("SDNQ FP8 TW CKPT", fp8_matmul_tensorwise_with_backward_ckpt, x, yqf, b, steps)
+        sdnq_fp16_ckpt_tflops = benchmark_linear("SDNQ FP16 CKPT", fp16_matmul_with_backward_ckpt, x, yqf, b, steps)
 
         sdnq_int8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT Float", int8_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
         sdnq_int8_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT UINT16", int8_matmul_dynamic_with_backward_ckpt, x, yqgu16, b, steps)
@@ -180,6 +197,14 @@ def main(
         sdnq_fp8_tw_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT UINT8", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, yqgu, b, steps)
         sdnq_fp8_tw_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT INT8", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, yqg, b, steps)
         sdnq_fp8_tw_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ FP8 TW Dynamic CKPT FP8", fp8_matmul_tensorwise_dynamic_with_backward_ckpt, x, yqgf, b, steps)
+
+        sdnq_fp16_dyn_ckpt_float_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT Float", fp16_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
+        sdnq_fp16_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT UINT16", fp16_matmul_dynamic_with_backward_ckpt, x, yqgu16, b, steps)
+        sdnq_fp16_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT INT16", fp16_matmul_dynamic_with_backward_ckpt, x, yqg16, b, steps)
+        sdnq_fp16_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT FP16", fp16_matmul_dynamic_with_backward_ckpt, x, yqgf16, b, steps)
+        sdnq_fp16_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT UINT8", fp16_matmul_dynamic_with_backward_ckpt, x, yqgu, b, steps)
+        sdnq_fp16_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT INT8", fp16_matmul_dynamic_with_backward_ckpt, x, yqg, b, steps)
+        sdnq_fp16_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT FP8", fp16_matmul_dynamic_with_backward_ckpt, x, yqgf, b, steps)
     else:
         print("Torch Compile is disabled, skipping quantized matmul tests.")
 
@@ -200,6 +225,7 @@ def main(
         print("SDNQ INT8 TFLOPS:", sdnq_int8_tflops)
         print("SDNQ FP8 TFLOPS:", sdnq_fp8_tflops)
         print("SDNQ FP8 TW TFLOPS:", sdnq_fp8_tw_tflops)
+        print("SDNQ FP16 TFLOPS:", sdnq_fp16_tflops)
     print("==================================================")
     print("SDNQ Float UINT16 TFLOPS:", sdnq_float_uint16_tflops)
     print("SDNQ Float INT16 TFLOPS:", sdnq_float_int16_tflops)
@@ -233,9 +259,18 @@ def main(
         print("SDNQ FP8 TW Dynamic INT8 TFLOPS:", sdnq_fp8_tw_dyn_int8_tflops)
         print("SDNQ FP8 TW Dynamic FP8 TFLOPS:", sdnq_fp8_tw_dyn_fp8_tflops)
         print("==================================================")
+        print("SDNQ FP16 Dynamic Float TFLOPS:", sdnq_fp16_dyn_float_tflops)
+        print("SDNQ FP16 Dynamic UINT16 TFLOPS:", sdnq_fp16_dyn_uint16_tflops)
+        print("SDNQ FP16 Dynamic INT16 TFLOPS:", sdnq_fp16_dyn_int16_tflops)
+        print("SDNQ FP16 Dynamic FP16 TFLOPS:", sdnq_fp16_dyn_fp16_tflops)
+        print("SDNQ FP16 Dynamic UINT8 TFLOPS:", sdnq_fp16_dyn_uint8_tflops)
+        print("SDNQ FP16 Dynamic INT8 TFLOPS:", sdnq_fp16_dyn_int8_tflops)
+        print("SDNQ FP16 Dynamic FP8 TFLOPS:", sdnq_fp16_dyn_fp8_tflops)
+        print("==================================================")
         print("SDNQ INT8 CKPT TFLOPS:", sdnq_int8_ckpt_tflops)
         print("SDNQ FP8 CKPT TFLOPS:", sdnq_fp8_ckpt_tflops)
         print("SDNQ FP8 TW CKPT TFLOPS:", sdnq_fp8_tw_ckpt_tflops)
+        print("SDNQ FP16 CKPT TFLOPS:", sdnq_fp16_ckpt_tflops)
         print("==================================================")
         print("SDNQ INT8 Dynamic CKPT Float TFLOPS:", sdnq_int8_dyn_ckpt_float_tflops)
         print("SDNQ INT8 Dynamic CKPT UINT16 TFLOPS:", sdnq_int8_dyn_ckpt_uint16_tflops)
@@ -260,6 +295,14 @@ def main(
         print("SDNQ FP8 TW Dynamic CKPT UINT8 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_uint8_tflops)
         print("SDNQ FP8 TW Dynamic CKPT INT8 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_int8_tflops)
         print("SDNQ FP8 TW Dynamic CKPT FP8 TFLOPS:", sdnq_fp8_tw_dyn_ckpt_fp8_tflops)
+        print("==================================================")
+        print("SDNQ FP16 Dynamic CKPT Float TFLOPS:", sdnq_fp16_dyn_ckpt_float_tflops)
+        print("SDNQ FP16 Dynamic CKPT UINT16 TFLOPS:", sdnq_fp16_dyn_ckpt_uint16_tflops)
+        print("SDNQ FP16 Dynamic CKPT INT16 TFLOPS:", sdnq_fp16_dyn_ckpt_int16_tflops)
+        print("SDNQ FP16 Dynamic CKPT FP16 TFLOPS:", sdnq_fp16_dyn_ckpt_fp16_tflops)
+        print("SDNQ FP16 Dynamic CKPT UINT8 TFLOPS:", sdnq_fp16_dyn_ckpt_uint8_tflops)
+        print("SDNQ FP16 Dynamic CKPT INT8 TFLOPS:", sdnq_fp16_dyn_ckpt_int8_tflops)
+        print("SDNQ FP16 Dynamic CKPT FP8 TFLOPS:", sdnq_fp16_dyn_ckpt_fp8_tflops)
     print("==================================================")
     print("")
 

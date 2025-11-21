@@ -1,28 +1,29 @@
 from typing import Tuple, Union
 
 import torch
-from ....common import compile_func, int_mm_func, use_contiguous_mm
 
-from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int8, quantize_int8_sr
-from .forward import check_mats, quantized_linear_with_backward
+from ....common import compile_func, int_mm_func, use_contiguous_mm
+from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int_mm, quantize_int_mm_sr
 from ...tensor import SDNQTensor # noqa: TID252
+
+from .forward import check_mats, quantized_linear_with_backward
 
 try:
     from ....triton_mm import int_mm as triton_int_mm
 except ImportError:
     triton_int_mm = int_mm_func
 
-def quantize_int8_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True, use_sr: bool = False) -> Tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
+def quantize_int_mm_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True, use_sr: bool = False) -> Tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
         weight = weight.t()
         if use_contiguous_mm:
             weight = weight.contiguous()
-    weight, scale = quantize_int8(weight.to(dtype=torch.float32), dim=0)
+    weight, scale = quantize_int_mm(weight.to(dtype=torch.float32), dim=0)
     if use_sr:
-        input, input_scale = quantize_int8_sr(input.to(dtype=torch.float32), dim=-1)
+        input, input_scale = quantize_int_mm_sr(input.to(dtype=torch.float32), dim=-1)
     else:
-        input, input_scale = quantize_int8(input.to(dtype=torch.float32), dim=-1)
+        input, input_scale = quantize_int_mm(input.to(dtype=torch.float32), dim=-1)
     scale = torch.mul(input_scale, scale)
     if scale.dtype == torch.float16: # fp16 will overflow
         scale = scale.to(dtype=torch.float32)
@@ -63,7 +64,7 @@ def int8_matmul_dynamic(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, weight, scale = quantize_int8_matmul(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
+    input, weight, scale = quantize_int_mm_matmul(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight)
     if bias is not None:
         return dequantize_symmetric_with_bias(int_mm(input, weight), scale, bias, dtype=return_dtype, result_shape=output_shape)

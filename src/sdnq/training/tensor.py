@@ -67,7 +67,7 @@ class SDNQTensor(torch.Tensor):
         dequantize_fp32: bool = True,
         param_name: str = None,
     ):
-        weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer, _ = sdnq_quantize_layer_weight_compiled(
+        weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer = sdnq_quantize_layer_weight_compiled(
             weight,
             layer_class_name=layer_class_name,
             weights_dtype=weights_dtype,

@@ -1,13 +1,14 @@
 from typing import Tuple, Union
 
 import torch
-from ....common import compile_func
 
-from ....dequantizer import quantize_int8
+from ....common import compile_func
+from ....dequantizer import quantize_int_mm
+from ...tensor import SDNQTensor # noqa: TID252
+
 from .forward import quantized_linear_with_backward
 from .linear_int8 import int8_matmul
 from .linear_int8_dynamic import int8_matmul_dynamic
-from ...tensor import SDNQTensor # noqa: TID252
 
 
 def int8_matmul_dynamic_ckpt(
@@ -20,8 +21,8 @@ def int8_matmul_dynamic_ckpt(
     do_input_reshape: bool = True,
 ) -> torch.FloatTensor:
     result = int8_matmul_dynamic(input, weight, bias=bias, svd_up=svd_up, svd_down=svd_down)
-    weight, scale = quantize_int8(weight, dim=0)
-    input, input_scale = quantize_int8(input.flatten(0,-2), dim=0)
+    weight, scale = quantize_int_mm(weight, dim=0)
+    input, input_scale = quantize_int_mm(input.flatten(0,-2), dim=0)
     return result, input, weight, input_scale, scale
 
 
