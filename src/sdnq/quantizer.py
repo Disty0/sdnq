@@ -16,7 +16,7 @@ from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
 
 from .sdnext import devices, shared
-from .common import dtype_dict, common_skip_keys, module_skip_keys_dict, accepted_weights, allowed_types, linear_types, conv_types, conv_transpose_types, compile_func, use_tensorwise_fp8_matmul, use_contiguous_mm
+from .common import dtype_dict, common_skip_keys, module_skip_keys_dict, accepted_weight_dtypes, accepted_matmul_dtypes, allowed_types, linear_types, conv_types, conv_transpose_types, compile_func, use_tensorwise_fp8_matmul, use_contiguous_mm
 from .dequantizer import SDNQDequantizer, dequantize_sdnq_model
 from .packed_int import pack_int_symetric, pack_int_asymetric
 from .forward import get_forward_func
@@ -802,6 +802,10 @@ class SDNQConfig(QuantizationConfigMixin):
         weights_dtype (`str`, *optional*, defaults to `"int8"`):
             The target dtype for the weights after quantization. Supported values are:
             ("int16", "int8", "int7", "int6", "int5", "int4", "int3", "int2", "uint16", "uint8", "uint7", "uint6", "uint5", "uint4", "uint3", "uint2", "uint1", "bool", "float16", "float8_e4m3fn", "float8_e4m3fnuz", "float8_e5m2", "float8_e5m2fnuz")
+        quantized_matmul_dtype (`str`, *optional*, defaults to `None`):
+            The target dtype for quantized matmul.
+            `None` will use "int8" with integer weight dtypes and "float8_e4m3fn" or "float16" with float weight dtypes.
+            Supported values are: ("int8", "float8_e4m3fn", "float16")
         group_size (`int`, *optional*, defaults to `0`):
             Used to decide how many elements of a tensor will share the same quantization group.
             group_size = 0 will automatically select a group size based on weights_dtype.
@@ -817,6 +821,8 @@ class SDNQConfig(QuantizationConfigMixin):
             Enabling this option will use quantized INT8 or FP8 MatMul instead of BF16 / FP16.
         use_quantized_matmul_conv (`bool`, *optional*, defaults to `False`):
             Same as use_quantized_matmul_conv but for the convolutional layers with UNets like SDXL.
+        use_stochastic_rounding (`bool`, *optional*, defaults to `False`):
+            Enabling this option will use stochastic rounding on the quantization step.
         dequantize_fp32 (`bool`, *optional*, defaults to `False`):
             Enabling this option will use FP32 on the dequantization step.
         non_blocking (`bool`, *optional*, defaults to `False`):
@@ -889,8 +895,10 @@ class SDNQConfig(QuantizationConfigMixin):
         r"""
         Safety checker that arguments are correct
         """
-        if self.weights_dtype not in accepted_weights:
-            raise ValueError(f"SDNQ only support weights in {accepted_weights} but found {self.weights_dtype}")
+        if self.weights_dtype not in accepted_weight_dtypes:
+            raise ValueError(f"SDNQ only support weight dtypes in {accepted_weight_dtypes} but found {self.weights_dtype}")
+        if self.quantized_matmul_dtype is not None and self.quantized_matmul_dtype not in accepted_matmul_dtypes:
+            raise ValueError(f"SDNQ only support quantized matmul dtypes in {accepted_matmul_dtypes} but found {self.quantized_matmul_dtype}")
 
         if self.modules_to_not_convert is None:
             self.modules_to_not_convert = []
