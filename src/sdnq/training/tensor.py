@@ -234,14 +234,14 @@ def sdnq_copy_(func, x, y, *args, **kwargs):
 
 @register_op([torch.ops.aten.zeros_like.default])
 def sdnq_zeros_like(func, x, *args, **kwargs):
-    dtype = kwargs.pop("dtype", x.return_dtype)
+    dtype = kwargs.pop("dtype", x.sdnq_dequantizer.result_dtype)
     device = kwargs.pop("device", x.device)
     return torch.zeros(x.sdnq_dequantizer.original_shape, *args, dtype=dtype, device=device, **kwargs)
 
 
 @register_op([torch.ops.aten.ones_like.default])
 def sdnq_ones_like(func, x, *args, **kwargs):
-    dtype = kwargs.pop("dtype", x.return_dtype)
+    dtype = kwargs.pop("dtype", x.sdnq_dequantizer.result_dtype)
     device = kwargs.pop("device", x.device)
     return torch.ones(x.sdnq_dequantizer.original_shape, *args, dtype=dtype, device=device, **kwargs)
 
