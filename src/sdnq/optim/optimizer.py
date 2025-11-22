@@ -27,9 +27,9 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
         update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
     elif norm_mode in {"relative", "adafactor"}:
         update = update.mul_(param.norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
-    elif norm_mode == {"rms_scaled", "adamuon"}:
+    elif norm_mode in {"rms_scaled", "adamuon"}:
         return apply_norm_to_update_(update, param, "rms", clip * 0.2)
-    elif norm_mode == {"rms_clip_scaled", "adamuon_clip"}:
+    elif norm_mode in {"rms_clip_scaled", "adamuon_clip"}:
         return apply_norm_to_update_(update, param, "rms_clip", clip * 0.2)
     elif norm_mode == "muon":
         output_shape = update.shape[0]

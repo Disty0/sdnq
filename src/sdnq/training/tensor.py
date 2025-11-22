@@ -59,7 +59,7 @@ class SDNQTensor(torch.Tensor):
         layer_class_name: str = None,
         weights_dtype: str = "int8",
         torch_dtype: torch.dtype = None,
-        group_size: int = 0,
+        group_size: int = 32,
         svd_rank: int = 32,
         svd_steps: int = 8,
         use_svd: bool = False,

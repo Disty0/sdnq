@@ -74,7 +74,7 @@ model = sdnq_post_load_quant(
     model,
     weights_dtype="uint8",
     quantized_matmul_dtype="int8",
-    group_size=0, # 0 means auto, -1 means disabled
+    group_size=32, # 0 means auto, -1 means disabled
     svd_rank=32,
     svd_steps=2,
     use_svd=False,
