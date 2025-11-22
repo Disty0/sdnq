@@ -227,7 +227,6 @@ def sdnq_copy_(func, x, y, *args, **kwargs):
         if x.svd_up is not None:
             x.svd_up.copy_(y.svd_up, *args, **kwargs)
             x.svd_down.copy_(y.svd_down, *args, **kwargs)
-        x.sdnq_dequantizer.original_shape = y.sdnq_dequantizer.original_shape
     else:
         x.copy_(y.dequantize(), *args, **kwargs)
     return x
