@@ -88,7 +88,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
             param_fp32.mul_(1 - learning_rate * weight_decay)
 
         param_fp32.add_(update, alpha=-learning_rate)
-        if use_stochastic_rounding and param.dtype != torch.float32 and not isinstance(param, SDNQTensor):
+        if use_stochastic_rounding and param.dtype in {torch.float16, torch.bfloat16} and not isinstance(param, SDNQTensor):
             copy_stochastic_(param, param_fp32)
         else:
             param.copy_(param_fp32)

@@ -58,10 +58,13 @@ class CAME(SDNQOptimizer):
                         state["exp_avg_sq"] = torch.zeros_like(param, dtype=torch.float32)
 
                 state["step"] += 1
-                param_fp32 = param.to(dtype=torch.float32)
                 grad = param.grad.to(dtype=torch.float32)
                 if grad_scale is not None:
                     grad.div_(grad_scale.to(dtype=torch.float32))
+                if isinstance(param, SDNQTensor):
+                    param_fp32 = param.dequantize(dtype=torch.float32)
+                else:
+                    param_fp32 = param.to(dtype=torch.float32)
 
                 update = came_update(
                     grad=grad,

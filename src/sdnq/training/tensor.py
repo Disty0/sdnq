@@ -52,7 +52,6 @@ class SDNQTensor(torch.Tensor):
     def __repr__(self):
         return f'SDNQTensor(weight={repr(self.weight)}, scale={repr(self.scale)}, zero_point={repr(self.zero_point)}, svd_up={repr(self.svd_up)}, svd_down={repr(self.svd_down)}), sdnq_dequantizer={repr(self.sdnq_dequantizer)}'
 
-
     @staticmethod
     def from_float(
         weight,
