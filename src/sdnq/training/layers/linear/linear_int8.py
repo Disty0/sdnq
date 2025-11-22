@@ -11,7 +11,7 @@ from .forward import check_mats, quantized_linear_with_backward
 
 try:
     from ....triton_mm import int_mm as triton_int_mm
-except ImportError:
+except Exception:
     triton_int_mm = int_mm_func
 
 
