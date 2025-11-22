@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, Iterator
+from typing import Callable, Tuple, Optional, Iterator
 
 import torch
 
@@ -6,9 +6,11 @@ from .optimizer import SDNQOptimizer
 from .stochastic import copy_stochastic_
 from ..training import SDNQTensor
 
-from ..common import compile_func
+from ..common import compile_func, use_tensorwise_fp8_matmul
 from ..training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
 from ..training.layers.linear.linear_fp8_dynamic import fp8_matmul_dynamic
+from ..training.layers.linear.linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
+from ..training.layers.linear.linear_fp16_dynamic import fp16_matmul_dynamic
 
 
 class Muon(SDNQOptimizer):
@@ -244,9 +246,14 @@ def muon_update(
 
     if use_quantized_matmul:
         if quantized_matmul_dtype == "int8":
-            update = zeropower_via_newtonschulz5_int8_matmul(update, steps=ns_steps, clip=clip)
-        elif quantized_matmul_dtype == "fp8":
-            update = zeropower_via_newtonschulz5_fp8_matmul(update, steps=ns_steps, clip=clip)
+            update = zeropower_via_newtonschulz5_quantized_matmul(update, int8_matmul_dynamic, steps=ns_steps, clip=clip)
+        elif quantized_matmul_dtype in {"fp8", "float8_e4m3fn"}:
+            if use_tensorwise_fp8_matmul:
+                update = zeropower_via_newtonschulz5_quantized_matmul(update, fp8_matmul_tensorwise_dynamic, steps=ns_steps, clip=clip)
+            else:
+                update = zeropower_via_newtonschulz5_fp8_matmul(update, steps=ns_steps, clip=clip)
+        elif quantized_matmul_dtype in {"fp16", "float16"}:
+            update = zeropower_via_newtonschulz5_quantized_matmul(update, fp16_matmul_dynamic, steps=ns_steps, clip=clip)
         else:
             raise NotImplementedError(f'Quantization type {quantized_matmul_dtype} is not implemented')
     else:
@@ -290,7 +297,7 @@ def zeropower_via_newtonschulz5(G: torch.FloatTensor, steps: int = 5, clip: floa
     return X.to(dtype=G.dtype)
 
 
-def zeropower_via_newtonschulz5_int8_matmul(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
+def zeropower_via_newtonschulz5_quantized_matmul(G: torch.FloatTensor, mm_func: Callable, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
     X = G.to(dtype=torch.float32)
     if G.shape[0] > G.shape[1]:
@@ -298,9 +305,9 @@ def zeropower_via_newtonschulz5_int8_matmul(G: torch.FloatTensor, steps: int = 5
 
     X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
     for _ in range(steps):
-        A = int8_matmul_dynamic(X, X, do_input_reshape=True)
-        B = int8_matmul_dynamic((A*c), A, bias=(A*b), do_input_reshape=False)
-        X = int8_matmul_dynamic(B, X, bias=(X*a), do_input_reshape=False)
+        A = mm_func(X, X, do_input_reshape=True)
+        B = mm_func((A*c), A, bias=(A*b), do_input_reshape=False)
+        X = mm_func(B, X, bias=(X*a), do_input_reshape=False)
 
     if G.shape[0] > G.shape[1]:
         X = X.t()
@@ -324,5 +331,5 @@ def zeropower_via_newtonschulz5_fp8_matmul(G: torch.FloatTensor, steps: int = 5,
     return X.to(dtype=G.dtype)
 
 
-zeropower_via_newtonschulz5_int8_matmul = compile_func(zeropower_via_newtonschulz5_int8_matmul)
+zeropower_via_newtonschulz5_quantized_matmul = compile_func(zeropower_via_newtonschulz5_quantized_matmul)
 zeropower_via_newtonschulz5_fp8_matmul = compile_func(zeropower_via_newtonschulz5_fp8_matmul)
