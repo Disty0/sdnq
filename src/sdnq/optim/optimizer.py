@@ -50,20 +50,24 @@ class SDNQOptimizer(torch.optim.Optimizer):
     _step_supports_amp_scaling = True
 
     @staticmethod
-    def apply_group_defaults(group: dict) -> dict:
-        group["lr"] = group.get("lr", 1e-4)
-        group["betas"] = group.get("betas", (0.9, 0.95))
-        group["weight_decay"] = group.get("weight_decay", 0.01)
-        group["clip_threshold"] = group.get("clip_threshold", (1.0, 1e-3, 1e-3))
-        group["final_norm_mode"] = group.get("final_norm_mode", "none")
-        group["use_cautious"] = group.get("use_cautious", False)
-        group["use_stochastic_rounding"] = group.get("use_stochastic_rounding", True)
-        group["use_stochastic_buffers"] = group.get("use_stochastic_buffers", True)
-        group["use_quantized_buffers"] = group.get("use_quantized_buffers", False)
-        group["quantized_buffers_dtype"] = group.get("quantized_buffers_dtype", "uint8")
-        group["quantized_buffers_group_size"] = group.get("quantized_buffers_group_size", 32)
-        group["quantized_buffers_svd_rank"] = group.get("quantized_buffers_svd_rank", 32)
-        group["use_svd_quantization"] = group.get("use_svd_quantization", False)
+    def get_default_kwarg(group: dict, kwargs: dict, key: str, default):
+        return group.get(key, kwargs.get(key, default))
+
+    @staticmethod
+    def apply_group_defaults(group: dict, **kwargs) -> dict:
+        group["lr"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "lr", 1e-4)
+        group["betas"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "betas", (0.9, 0.95))
+        group["weight_decay"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "weight_decay", 0.01)
+        group["clip_threshold"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "clip_threshold", (1.0, 1e-3, 1e-3))
+        group["final_norm_mode"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "final_norm_mode", "none")
+        group["use_cautious"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_cautious", False)
+        group["use_stochastic_rounding"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_stochastic_rounding", True)
+        group["use_stochastic_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_stochastic_buffers", True)
+        group["use_quantized_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_quantized_buffers", False)
+        group["quantized_buffers_dtype"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_dtype", "uint8")
+        group["quantized_buffers_group_size"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_group_size", 32)
+        group["quantized_buffers_svd_rank"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_svd_rank", 32)
+        group["use_svd_quantization"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_svd_quantization", False)
         return group
 
     @staticmethod
