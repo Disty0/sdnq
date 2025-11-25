@@ -82,6 +82,9 @@ else:
     int_mm_func = torch._int_mm
 
 
+def fp_mm_torch(x: torch.Tensor, y: torch.Tensor) -> torch.FloatTensor:
+    return torch.mm(x,y, out_dtype=torch.float32)
+
 fp_mm_func = None
 if os.environ.get("SDNQ_USE_TRITON_MM", "1").lower() not in {"0", "false", "no"}:
     try:
@@ -91,9 +94,7 @@ if os.environ.get("SDNQ_USE_TRITON_MM", "1").lower() not in {"0", "false", "no"}
         fp_mm_func = None
 
 if fp_mm_func is None:
-    def fp_mm(x: torch.Tensor, y: torch.Tensor) -> torch.FloatTensor:
-        return torch.mm(x,y, out_dtype=torch.float32)
-    fp_mm_func = fp_mm
+    fp_mm_func = fp_mm_torch
 
 
 if use_torch_compile:
