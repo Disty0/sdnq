@@ -25,6 +25,7 @@ class Muon(SDNQOptimizer):
     ]
 
     def __init__(self, params, **kwargs):
+        extra_kwargs = kwargs
         if isinstance(params, (torch.nn.Parameter, Iterator)) or (isinstance(params, (list, tuple)) and isinstance(params[0], torch.nn.Parameter)):
             param_groups, extra_kwargs = self.get_muon_groups(params, **kwargs)
         else:
