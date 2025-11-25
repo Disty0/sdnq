@@ -21,7 +21,7 @@ class CAME(SDNQOptimizer):
         for group in param_groups:
             group["betas"] = self.get_default_kwarg(group, kwargs, "betas", (0.9, 0.95, 0.99))
             group["norm_mode"] = self.get_default_kwarg(group, kwargs, "norm_mode", "rms_clip")
-            group = self.apply_group_defaults(group)
+            group = self.apply_group_defaults(group, **kwargs)
             assert set(group.keys()) == self._group_keys
         super().__init__(param_groups, dict())
 

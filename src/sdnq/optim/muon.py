@@ -56,10 +56,10 @@ class Muon(SDNQOptimizer):
                 group["quantized_matmul_dtype"] = self.get_default_kwarg(group, kwargs, "quantized_matmul_dtype", "int8")
                 if isinstance(group["zeropower_dtype"], str):
                     group["zeropower_dtype"] = getattr(torch, group["zeropower_dtype"])
-                group = self.apply_group_defaults(group)
+                group = self.apply_group_defaults(group, **kwargs)
                 assert set(group.keys()) == self._group_keys[0]
             else:
-                group = self.apply_group_defaults(group)
+                group = self.apply_group_defaults(group, **kwargs)
                 assert set(group.keys()) == self._group_keys[1]
         super().__init__(param_groups, dict())
 

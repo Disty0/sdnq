@@ -19,7 +19,7 @@ class AdamW(SDNQOptimizer):
         else:
             param_groups = params
         for group in param_groups:
-            group = self.apply_group_defaults(group)
+            group = self.apply_group_defaults(group, **kwargs)
             assert set(group.keys()) == self._group_keys
         super().__init__(param_groups, dict())
 

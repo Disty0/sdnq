@@ -23,7 +23,7 @@ class Adafactor(SDNQOptimizer):
             group["betas"] = self.get_default_kwarg(group, kwargs, "betas", (-0.8, 0.95))
             group["norm_mode"] = self.get_default_kwarg(group, kwargs, "norm_mode", "relative")
             group["use_first_moment"] = self.get_default_kwarg(group, kwargs, "use_first_moment", False)
-            group = self.apply_group_defaults(group)
+            group = self.apply_group_defaults(group, **kwargs)
             assert set(group.keys()) == self._group_keys
         super().__init__(param_groups, dict())
 
