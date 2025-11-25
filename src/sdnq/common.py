@@ -139,6 +139,10 @@ module_skip_keys_dict = {
         ["single_transformer_blocks.0.norm.linear.weight", "time_text_embed", "context_embedder", "x_embedder", ".proj_out", "norm_out"],
         {}
     ],
+    "Flux2Transformer2DModel": [
+        ["double_stream_modulation_img", "double_stream_modulation_txt", "single_stream_modulation", "time_guidance_embed", "context_embedder", "x_embedder", ".proj_out", "norm_out"],
+        {}
+    ],
     "ChromaTransformer2DModel": [
         ["distilled_guidance_layer", "time_text_embed", "context_embedder", "x_embedder", ".proj_out", "norm_out"],
         {}
