@@ -5,7 +5,7 @@ import torch
 
 from ..quantizer import SDNQConfig, QuantizationMethod, check_param_name_in, get_minimum_dtype, add_module_skip_keys
 from ..dequantizer import dequantize_layer_weight
-from ..loader import apply_options_to_model
+from ..loader import apply_sdnq_options_to_model
 from ..common import linear_types
 
 from ..forward import get_forward_func as get_sdnq_forward_func
@@ -268,7 +268,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
 
 @torch.no_grad()
 def convert_sdnq_model_to_training(model: torch.nn.Module, dtype: torch.dtype = None, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = True, dequantize_fp32: bool = True):
-    model = apply_options_to_model(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=False)
+    model = apply_sdnq_options_to_model(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=False)
     model = convert_sdnq_module_to_training(
         model,
         quantized_matmul_dtype=quantized_matmul_dtype,

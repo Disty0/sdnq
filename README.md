@@ -56,8 +56,8 @@ save_sdnq_model(pipe, "path_to_save_the_quantized_model", is_pipeline=False)
 
 Example code for enabling or disabling quantized matmul with a pre-quantized model:  
 ```py
-from sdnq.loader import apply_options_to_model
-quantized_model = apply_options_to_model(quantized_model, use_quantized_matmul=True)
+from sdnq.loader import apply_sdnq_options_to_model
+quantized_model = apply_sdnq_options_to_model(quantized_model, use_quantized_matmul=True)
 ```
 
 
