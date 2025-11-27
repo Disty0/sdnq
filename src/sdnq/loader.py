@@ -229,7 +229,7 @@ def apply_sdnq_options_to_model(model, dtype: torch.dtype = None, dequantize_fp3
                 if use_quantized_matmul is not None:
                     model.config.quantization_config.use_quantized_matmul = use_quantized_matmul
                 if dequantize_fp32 is not None:
-                    model.config.quantization_config.use_quantized_matmul = dequantize_fp32
+                    model.config.quantization_config.dequantize_fp32 = dequantize_fp32
         except Exception:
             pass
         try:
