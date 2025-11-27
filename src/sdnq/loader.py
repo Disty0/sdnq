@@ -4,7 +4,7 @@ import torch
 from diffusers.models.modeling_utils import ModelMixin
 
 from .common import dtype_dict, use_tensorwise_fp8_matmul
-from .quantizer import SDNQConfig, sdnq_post_load_quant, prepare_weight_for_matmul, prepare_svd_for_matmul
+from .quantizer import SDNQConfig, sdnq_post_load_quant, prepare_weight_for_matmul, prepare_svd_for_matmul, get_quant_args_from_config
 from .forward import get_forward_func
 from .file_loader import load_files
 
@@ -97,17 +97,6 @@ def load_sdnq_model(model_path: str, model_cls: ModelMixin = None, file_name: st
         if model_cls is None:
             raise ValueError(f"Cannot determine model class for {model_path}, please provide model_cls argument")
 
-        quantization_config.pop("is_integer", None)
-        quantization_config.pop("quant_method", None)
-        quantization_config.pop("quantization_device", None)
-        quantization_config.pop("return_device", None)
-        quantization_config.pop("non_blocking", None)
-        quantization_config.pop("add_skip_keys", None)
-        quantization_config.pop("use_static_quantization", None)
-        quantization_config.pop("use_stochastic_rounding", None)
-        quantization_config.pop("use_grad_ckpt", None)
-        quantization_config.pop("is_training", None)
-
         if hasattr(model_cls, "load_config") and hasattr(model_cls, "from_config"):
             config = model_cls.load_config(model_path)
             model = model_cls.from_config(config)
@@ -117,7 +106,7 @@ def load_sdnq_model(model_path: str, model_cls: ModelMixin = None, file_name: st
         else:
             model = model_cls(**model_config)
 
-        model = sdnq_post_load_quant(model, torch_dtype=dtype, add_skip_keys=False, **quantization_config)
+        model = sdnq_post_load_quant(model, torch_dtype=dtype, add_skip_keys=False, **get_quant_args_from_config(quantization_config))
 
     key_mapping = getattr(model, "_checkpoint_conversion_mapping", None)
     files = []
