@@ -16,7 +16,7 @@ from accelerate import init_empty_weights
 from accelerate.utils import set_module_tensor_to_device
 
 from .sdnext import devices, shared
-from .common import dtype_dict, common_skip_keys, module_skip_keys_dict, accepted_weight_dtypes, accepted_matmul_dtypes, allowed_types, linear_types, conv_types, conv_transpose_types, compile_func, use_tensorwise_fp8_matmul, use_contiguous_mm
+from .common import sdnq_version, dtype_dict, common_skip_keys, module_skip_keys_dict, accepted_weight_dtypes, accepted_matmul_dtypes, allowed_types, linear_types, conv_types, conv_transpose_types, compile_func, use_tensorwise_fp8_matmul, use_contiguous_mm
 from .dequantizer import SDNQDequantizer, dequantize_sdnq_model
 from .packed_int import pack_int_symetric, pack_int_asymetric
 from .forward import get_forward_func
@@ -890,8 +890,9 @@ class SDNQConfig(QuantizationConfigMixin):
         self.return_device = return_device
         self.modules_to_not_convert = modules_to_not_convert
         self.modules_dtype_dict = modules_dtype_dict
-        self.post_init()
         self.is_integer = dtype_dict[self.weights_dtype]["is_integer"]
+        self.sdnq_version = sdnq_version
+        self.post_init()
 
     def post_init(self):
         r"""
