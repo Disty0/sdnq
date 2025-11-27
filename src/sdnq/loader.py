@@ -167,7 +167,7 @@ def post_process_model(model):
     return model
 
 
-def apply_sdnq_options_to_model(model, dtype: torch.dtype = None, dequantize_fp32: bool = None, use_quantized_matmul: bool = None):
+def apply_sdnq_options_to_module(model, dtype: torch.dtype = None, dequantize_fp32: bool = None, use_quantized_matmul: bool = None):
     has_children = list(model.children())
     if not has_children:
         if dtype is not None and getattr(model, "dtype", torch.float32) != torch.float32:
@@ -212,5 +212,32 @@ def apply_sdnq_options_to_model(model, dtype: torch.dtype = None, dequantize_fp3
                 module.forward = module.forward.__get__(module, module.__class__)
             setattr(model, module_name, module)
         else:
-            setattr(model, module_name, apply_sdnq_options_to_model(module, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=use_quantized_matmul))
+            setattr(model, module_name, apply_sdnq_options_to_module(module, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=use_quantized_matmul))
+    return model
+
+
+def apply_sdnq_options_to_model(model, dtype: torch.dtype = None, dequantize_fp32: bool = None, use_quantized_matmul: bool = None):
+    model = apply_sdnq_options_to_module(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=use_quantized_matmul)
+    if hasattr(model, "quantization_config"):
+        if use_quantized_matmul is not None:
+            model.quantization_config.use_quantized_matmul = use_quantized_matmul
+        if dequantize_fp32 is not None:
+            model.quantization_config.dequantize_fp32 = dequantize_fp32
+    if hasattr(model, "config"):
+        try:
+            if hasattr(model.config, "quantization_config"):
+                if use_quantized_matmul is not None:
+                    model.config.quantization_config.use_quantized_matmul = use_quantized_matmul
+                if dequantize_fp32 is not None:
+                    model.config.quantization_config.use_quantized_matmul = dequantize_fp32
+        except Exception:
+            pass
+        try:
+            if hasattr(model.config, "get") and model.config.get("quantization_config", None) is not None:
+                if use_quantized_matmul is not None:
+                    model.config["quantization_config"].use_quantized_matmul = use_quantized_matmul
+                if dequantize_fp32 is not None:
+                    model.config["quantization_config"].dequantize_fp32 = dequantize_fp32
+        except Exception:
+            pass
     return model

@@ -320,7 +320,7 @@ def convert_training_layer_to_sdnq(self: torch.nn.Module, inplace: bool = False)
     zero_point = torch.nn.Parameter(self.weight.zero_point, requires_grad=False)
     svd_up = torch.nn.Parameter(self.weight.svd_up, requires_grad=False)
     svd_down = torch.nn.Parameter(self.weight.svd_down, requires_grad=False)
-    quantized_forward = get_sdnq_forward_func(self.__class__.__name__, False, sdnq_dequantizer.is_integer)
+    quantized_forward = get_sdnq_forward_func(self.__class__.__name__, sdnq_dequantizer.quantized_matmul_dtype, False)
     if inplace:
         self.weight = weight
         self.scale = scale
@@ -351,26 +351,36 @@ def convert_training_module_to_sdnq(model: torch.nn.Module):
 
 
 @torch.no_grad()
-def convert_training_model_to_sdnq(model: torch.nn.Module):
+def convert_training_model_to_sdnq(model: torch.nn.Module, dtype: torch.dtype = None, dequantize_fp32: bool = None, use_quantized_matmul: bool = None):
     model = convert_training_module_to_sdnq(model)
     model.quantization_method = QuantizationMethod.SDNQ
     if hasattr(model, "quantization_config"):
+        if use_quantized_matmul is None:
+            use_quantized_matmul = model.quantization_config.use_quantized_matmul
+        if dequantize_fp32 is not None:
+            model.quantization_config.dequantize_fp32 = dequantize_fp32
         model.quantization_config.quant_method = QuantizationMethod.SDNQ
-        model.quantization_config.use_quantized_matmul = False
         model.quantization_config.is_training = False
     if hasattr(model, "config"):
         try:
             if hasattr(model.config, "quantization_config"):
+                if use_quantized_matmul is None:
+                    use_quantized_matmul = model.config.quantization_config.use_quantized_matmul
+                if dequantize_fp32 is not None:
+                    model.config.quantization_config.use_quantized_matmul = dequantize_fp32
                 model.config.quantization_config.quant_method = QuantizationMethod.SDNQ
-                model.config.quantization_config.use_quantized_matmul = False
                 model.config.quantization_config.is_training = False
         except Exception:
             pass
         try:
             if hasattr(model.config, "get") and model.config.get("quantization_config", None) is not None:
+                if use_quantized_matmul is None:
+                    use_quantized_matmul = model.config["quantization_config"].use_quantized_matmul
+                if dequantize_fp32 is not None:
+                    model.config["quantization_config"].dequantize_fp32 = dequantize_fp32
                 model.config["quantization_config"].quant_method = QuantizationMethod.SDNQ
-                model.config["quantization_config"].use_quantized_matmul = False
                 model.config["quantization_config"].is_training = False
         except Exception:
             pass
+    model = apply_sdnq_options_to_model(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=use_quantized_matmul)
     return model
