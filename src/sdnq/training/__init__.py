@@ -6,7 +6,7 @@ import torch
 from ..quantizer import SDNQConfig, QuantizationMethod, check_param_name_in, get_minimum_dtype, add_module_skip_keys
 from ..dequantizer import dequantize_layer_weight
 from ..loader import apply_sdnq_options_to_model
-from ..common import linear_types
+from ..common import linear_types, use_torch_compile
 
 from ..forward import get_forward_func as get_sdnq_forward_func
 from .forward import get_forward_func
@@ -125,27 +125,7 @@ def sdnq_post_load_quant(
     if add_skip_keys:
         model, modules_to_not_convert, modules_dtype_dict = add_module_skip_keys(model, modules_to_not_convert, modules_dtype_dict)
 
-    model = apply_sdnq_to_module(
-        model,
-        weights_dtype=weights_dtype,
-        quantized_matmul_dtype=quantized_matmul_dtype,
-        torch_dtype=torch_dtype,
-        group_size=group_size,
-        svd_rank=svd_rank,
-        svd_steps=svd_steps,
-        use_svd=use_svd,
-        use_grad_ckpt=use_grad_ckpt,
-        use_quantized_matmul=use_quantized_matmul,
-        use_static_quantization=use_static_quantization,
-        use_stochastic_rounding=use_stochastic_rounding,
-        dequantize_fp32=dequantize_fp32,
-        non_blocking=non_blocking,
-        quantization_device=quantization_device,
-        return_device=return_device,
-        modules_to_not_convert=modules_to_not_convert,
-        modules_dtype_dict=modules_dtype_dict,
-    )
-    model.quantization_config = SDNQConfig(
+    quantization_config = SDNQConfig(
         weights_dtype=weights_dtype,
         quantized_matmul_dtype=quantized_matmul_dtype,
         group_size=group_size,
@@ -168,6 +148,28 @@ def sdnq_post_load_quant(
         is_training=True,
     )
 
+    model = apply_sdnq_to_module(
+        model,
+        weights_dtype=weights_dtype,
+        quantized_matmul_dtype=quantized_matmul_dtype,
+        torch_dtype=torch_dtype,
+        group_size=group_size,
+        svd_rank=svd_rank,
+        svd_steps=svd_steps,
+        use_svd=use_svd,
+        use_grad_ckpt=use_grad_ckpt,
+        use_quantized_matmul=use_quantized_matmul,
+        use_static_quantization=use_static_quantization,
+        use_stochastic_rounding=use_stochastic_rounding,
+        dequantize_fp32=dequantize_fp32,
+        non_blocking=non_blocking,
+        quantization_device=quantization_device,
+        return_device=return_device,
+        modules_to_not_convert=modules_to_not_convert,
+        modules_dtype_dict=modules_dtype_dict,
+    )
+
+    model.quantization_config = quantization_config
     if hasattr(model, "config"):
         try:
             model.config.quantization_config = model.quantization_config
@@ -268,6 +270,8 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
 
 @torch.no_grad()
 def convert_sdnq_model_to_training(model: torch.nn.Module, dtype: torch.dtype = None, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = True, dequantize_fp32: bool = True):
+    if use_quantized_matmul and not use_torch_compile:
+        raise RuntimeError("SDNQ Quantized MatMul requires a working Triton install.")
     model = apply_sdnq_options_to_model(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=False)
     model = convert_sdnq_module_to_training(
         model,
@@ -352,6 +356,8 @@ def convert_training_module_to_sdnq(model: torch.nn.Module):
 
 @torch.no_grad()
 def convert_training_model_to_sdnq(model: torch.nn.Module, dtype: torch.dtype = None, dequantize_fp32: bool = None, use_quantized_matmul: bool = None):
+    if use_quantized_matmul and not use_torch_compile:
+        raise RuntimeError("SDNQ Quantized MatMul requires a working Triton install.")
     model = convert_training_module_to_sdnq(model)
     model.quantization_method = QuantizationMethod.SDNQ
     if hasattr(model, "quantization_config"):
