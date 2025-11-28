@@ -4,7 +4,7 @@ For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladm
 
 Install command:  
 ```sh
-pip install git+https://github.com/Disty0/sdnq
+pip install sdnq
 ```
 
 
