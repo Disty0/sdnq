@@ -20,7 +20,7 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
         clip, clip2 = clips[:2]
 
     if norm_mode == "none":
-        return update
+        return update.nan_to_num_().clamp_(-clip,clip)
     elif norm_mode == "rms":
         update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)))
     elif norm_mode == "rms_clip":
