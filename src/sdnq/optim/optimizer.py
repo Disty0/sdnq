@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Tuple, Optional
 
 from collections import defaultdict
 from collections.abc import Hashable, Iterable
@@ -22,7 +22,7 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
     if norm_mode == "none":
         return update
     elif norm_mode == "rms":
-        update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2))).nan_to_num_().clamp_(-clip,clip)
+        update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)))
     elif norm_mode == "rms_clip":
         update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
     elif norm_mode in {"relative", "adafactor"}:
@@ -39,7 +39,7 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
         update = update.mul_(max(1, output_shape / input_shape)**0.5)
     else:
         raise NotImplementedError(f'Norm mode {norm_mode} is not implemented')
-    return update
+    return update.nan_to_num_().clamp_(-clip,clip)
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
@@ -71,6 +71,23 @@ class SDNQOptimizer(torch.optim.Optimizer):
         return group
 
     @staticmethod
+    def get_param_grad(
+        param: torch.nn.Parameter,
+        clip: float = 1.0,
+        grad_scale: Optional[torch.FloatTensor] = None,
+    ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        grad = param.grad.nan_to_num_().to(dtype=torch.float32)
+        if grad_scale is not None:
+            grad.div_(grad_scale.to(dtype=torch.float32))
+        grad = grad.clamp_(-clip,clip)
+
+        if isinstance(param, SDNQTensor):
+            param_fp32 = param.dequantize(dtype=torch.float32)
+        else:
+            param_fp32 = param.to(dtype=torch.float32)
+        return param_fp32, grad
+
+    @staticmethod
     def update_param_(
         param: torch.nn.Parameter,
         param_fp32: torch.FloatTensor,
@@ -82,7 +99,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         final_norm_mode: str,
         use_cautious: bool,
         use_stochastic_rounding: bool
-    ):
+    ) -> None:
         update = apply_norm_to_update_(update, param_fp32, final_norm_mode, clips)
         if use_cautious:
             mask = (torch.mul(update, grad) > 0).to(dtype=torch.float32)
