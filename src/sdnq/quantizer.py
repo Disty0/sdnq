@@ -13,7 +13,6 @@ from diffusers.quantizers.quantization_config import QuantizationConfigMixin
 
 from diffusers.utils import get_module_from_name
 from accelerate import init_empty_weights
-from accelerate.utils import set_module_tensor_to_device
 
 from .sdnext import devices, shared
 from .common import sdnq_version, dtype_dict, common_skip_keys, module_skip_keys_dict, accepted_weight_dtypes, accepted_matmul_dtypes, allowed_types, linear_types, conv_types, conv_transpose_types, compile_func, use_tensorwise_fp8_matmul, use_contiguous_mm, use_torch_compile
