@@ -687,7 +687,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
                     _, param_value = prepare_svd_for_matmul(None, param_value, layer.sdnq_dequantizer.use_quantized_matmul)
 
                 param_value = torch.nn.Parameter(param_value, requires_grad=False)
-                param_value._is_hf_initialized = True
+                param_value._is_hf_initialized = True # pylint: disable=protected-access
             setattr(layer, tensor_name, param_value)
             return
 
@@ -729,13 +729,13 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             param_name=param_name,
         )
 
-        layer.weight._is_hf_initialized = True
-        layer.scale._is_hf_initialized = True
+        layer.weight._is_hf_initialized = True # pylint: disable=protected-access
+        layer.scale._is_hf_initialized = True # pylint: disable=protected-access
         if layer.zero_point is not None:
-            layer.zero_point._is_hf_initialized = True
+            layer.zero_point._is_hf_initialized = True # pylint: disable=protected-access
         if layer.svd_up is not None:
-            layer.svd_up._is_hf_initialized = True
-            layer.svd_down._is_hf_initialized = True
+            layer.svd_up._is_hf_initialized = True # pylint: disable=protected-access
+            layer.svd_down._is_hf_initialized = True # pylint: disable=protected-access
 
     def get_quantize_ops(self):
         return SDNQQuantize(self)
