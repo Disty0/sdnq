@@ -3,8 +3,9 @@ from typing import Any, Dict, List, Tuple, Optional
 import copy
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
+from torch._guards import detect_fake_mode
 
-from ..quantizer import sdnq_quantize_layer_weight_compiled
+from ..quantizer import sdnq_quantize_layer_weight, sdnq_quantize_layer_weight_compiled
 from ..dequantizer import SDNQDequantizer
 
 
@@ -33,7 +34,12 @@ class SDNQTensor(torch.Tensor):
             svd_up, svd_down = None, None
         else:
             svd_up, svd_down = self.svd_up, self.svd_down
-        return self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, svd_up, svd_down, dtype=dtype, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul)
+        fake_mode = detect_fake_mode((self.weight, self.scale, self.zero_point, svd_up, svd_down))
+        if fake_mode is not None:
+            with fake_mode:
+                return self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, svd_up, svd_down, dtype=dtype, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul, skip_compile=True)
+        else:
+            return self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, svd_up, svd_down, dtype=dtype, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul)
 
     def __tensor_flatten__(self) -> Tuple[List[str], Any]:
         tensor_list = ["weight", "scale"]
@@ -66,20 +72,38 @@ class SDNQTensor(torch.Tensor):
         dequantize_fp32: bool = True,
         param_name: str = None,
     ):
-        weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer = sdnq_quantize_layer_weight_compiled(
-            weight,
-            layer_class_name=layer_class_name,
-            weights_dtype=weights_dtype,
-            torch_dtype=torch_dtype,
-            group_size=group_size,
-            svd_rank=svd_rank,
-            svd_steps=svd_steps,
-            use_svd=use_svd,
-            use_quantized_matmul=False,
-            use_stochastic_rounding=use_stochastic_rounding,
-            dequantize_fp32=dequantize_fp32,
-            param_name=param_name,
-        )
+        fake_mode = detect_fake_mode(weight)
+        if fake_mode is not None:
+            with fake_mode:
+                weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer = sdnq_quantize_layer_weight(
+                    weight,
+                    layer_class_name=layer_class_name,
+                    weights_dtype=weights_dtype,
+                    torch_dtype=torch_dtype,
+                    group_size=group_size,
+                    svd_rank=svd_rank,
+                    svd_steps=svd_steps,
+                    use_svd=use_svd,
+                    use_quantized_matmul=False,
+                    use_stochastic_rounding=use_stochastic_rounding,
+                    dequantize_fp32=dequantize_fp32,
+                    param_name=param_name,
+                )
+        else:
+            weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer = sdnq_quantize_layer_weight_compiled(
+                weight,
+                layer_class_name=layer_class_name,
+                weights_dtype=weights_dtype,
+                torch_dtype=torch_dtype,
+                group_size=group_size,
+                svd_rank=svd_rank,
+                svd_steps=svd_steps,
+                use_svd=use_svd,
+                use_quantized_matmul=False,
+                use_stochastic_rounding=use_stochastic_rounding,
+                dequantize_fp32=dequantize_fp32,
+                param_name=param_name,
+            )
         return SDNQTensor(weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer)
 
     @classmethod
@@ -123,6 +147,8 @@ def register_op(ops: List[torch._ops.OpOverload]):
 
 
 @register_op([
+    torch.ops.aten.eq.Tensor,
+    torch.ops.aten.ne.Tensor,
     torch.ops.aten.sub.Tensor,
     torch.ops.aten.sub.Scalar,
     torch.ops.aten.add.Tensor,
