@@ -265,7 +265,7 @@ class SDNQDequantizer:
             dtype = self.result_dtype
         if self.is_packed:
             if self.is_unsigned:
-                if skip_compile: # compiled training needs to trace with the original function
+                if skip_compile: # compiled training needs to be traced with the original function
                     return dequantize_packed_int_asymmetric(weight, scale, zero_point, self.quantized_weight_shape, self.weights_dtype, svd_up=svd_up, svd_down=svd_down, dtype=dtype, result_shape=self.result_shape, skip_quantized_matmul=skip_quantized_matmul)
                 else:
                     return dequantize_packed_int_asymmetric_compiled(weight, scale, zero_point, self.quantized_weight_shape, self.weights_dtype, svd_up=svd_up, svd_down=svd_down, dtype=dtype, result_shape=self.result_shape, skip_quantized_matmul=skip_quantized_matmul)
