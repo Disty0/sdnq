@@ -1,7 +1,10 @@
 # pylint: disable=redefined-builtin,no-member,protected-access
 
 import os
+import logging
 import torch
+
+logger = logging.getLogger("SDNQ")
 
 # wrapper for modules.devices and modules.shared from SD.Next
 class Devices():
@@ -46,14 +49,33 @@ class Devices():
 
     def has_triton(self) -> bool:
         try:
-            from torch.utils._triton import has_triton as torch_has_triton
-            return torch_has_triton()
+            if torch._dynamo.config.disable:
+                triton_is_available = False
+            else:
+                from torch.utils._triton import has_triton as torch_has_triton
+                triton_is_available = torch_has_triton()
         except Exception:
-            return False
+            triton_is_available = False
+        if triton_is_available:
+            backup_suppress_errors = torch._dynamo.config.suppress_errors
+            torch._dynamo.config.suppress_errors = False
+            try:
+                def test_triton_func(a,b,c):
+                    return a * b + c
+                test_triton_func = torch.compile(test_triton_func, fullgraph=True)
+                test_triton_func(torch.randn(32, device=self.device), torch.randn(32, device=self.device), torch.randn(32, device=self.device))
+                triton_is_available = True
+            except Exception:
+                triton_is_available = False
+                logger.warning("SDNQ: Triton test failed! Falling back to PyTorch Eager mode.")
+            torch._dynamo.config.suppress_errors = backup_suppress_errors
+        else:
+            logger.warning("SDNQ: Triton is not available. Falling back to PyTorch Eager mode.")
+        return triton_is_available
 
 
 class SharedOpts():
-    def __init__(self, backend):
+    def __init__(self, devices):
         self.diffusers_offload_mode = os.environ.get("SDNQ_OFFLOAD_MODE", "none").lower()
         if os.environ.get("SDNQ_USE_TORCH_COMPILE", None) is None:
             self.sdnq_dequantize_compile = devices.has_triton()
@@ -62,9 +84,10 @@ class SharedOpts():
 
 
 class Shared():
-    def __init__(self, backend):
-        self.opts = SharedOpts(backend=backend)
+    def __init__(self, devices, logger):
+        self.log = logger
+        self.opts = SharedOpts(devices=devices)
 
 
 devices = Devices()
-shared = Shared(backend=devices.backend)
+shared = Shared(devices=devices, logger=logger)
