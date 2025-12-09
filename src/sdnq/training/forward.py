@@ -2,7 +2,7 @@ from ..common import dtype_dict, use_tensorwise_fp8_matmul
 
 
 def get_forward_func(param_weights_dtype: str, quantized_matmul_dtype: str, use_grad_ckpt: bool, use_quantized_matmul: bool, use_static_quantization: bool, current_group_size: int):
-    can_use_static_matmul = bool(use_static_quantization and current_group_size < 0 and (param_weights_dtype == quantized_matmul_dtype or (param_weights_dtype in {"fp8", "float8_e4m3fn", "float8_e5m2"} and quantized_matmul_dtype in {"fp8", "float8_e4m3fn"})))
+    can_use_static_matmul = bool(use_static_quantization and current_group_size < 0 and (param_weights_dtype == quantized_matmul_dtype or (param_weights_dtype in {"fp8", "float8_e4m3fn", "float8_e5m2"} and quantized_matmul_dtype in {"fp8", "float8_e4m3fn", "fp16", "float16"})))
     if use_quantized_matmul:
         if dtype_dict[quantized_matmul_dtype]["is_integer"]:
             if use_grad_ckpt:

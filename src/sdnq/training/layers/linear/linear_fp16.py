@@ -50,6 +50,7 @@ def fp16_matmul(
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
     input, scale = quantize_fp_mm_input_tensorwise(input, scale=scale, do_input_reshape=do_input_reshape, use_sr=use_sr, matmul_dtype="float16")
+    weight = weight.to(dtype=torch.float16) # fp8 weights
     input, weight = check_mats(input, weight)
     if bias is not None:
         return dequantize_symmetric_with_bias(fp_mm_func(input, weight), scale, bias, dtype=return_dtype, result_shape=output_shape)
