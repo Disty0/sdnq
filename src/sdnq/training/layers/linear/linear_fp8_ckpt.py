@@ -23,7 +23,7 @@ def fp8_matmul_ckpt(
     do_transpose: bool = False,
 ) -> torch.FloatTensor:
     result = fp8_matmul(input, weight, scale, bias=bias, svd_up=svd_up, svd_down=svd_down, output_shape=output_shape, do_input_reshape=do_input_reshape, do_transpose=do_transpose)
-    new_input, input_scale = quantize_fp_mm(input.flatten(0,-2), dim=0)
+    new_input, input_scale = quantize_fp_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0)
     return result, new_input, input_scale
 
 
