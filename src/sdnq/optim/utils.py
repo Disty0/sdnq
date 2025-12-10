@@ -110,5 +110,5 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
             input_shape *= shape
         update = update.mul_(max(1, output_shape / input_shape)**0.5)
     else:
-        raise NotImplementedError(f'Norm mode {norm_mode} is not implemented')
+        raise NotImplementedError(f"Norm mode {norm_mode} is not implemented")
     return update.nan_to_num_().clamp_(-clip,clip)

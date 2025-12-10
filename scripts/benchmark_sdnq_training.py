@@ -309,14 +309,14 @@ def main(
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description='Create a bucket list with a given dataset path')
-    parser.add_argument('--steps', default=50, type=int)
-    parser.add_argument('--mnk', default=8192, type=int)
-    parser.add_argument('--dtype', default=None, type=str)
-    parser.add_argument('--device', default=None, type=str)
-    parser.add_argument('-m', default=None, type=int)
-    parser.add_argument('-n', default=None, type=int)
-    parser.add_argument('-k', default=None, type=int)
+    parser = argparse.ArgumentParser(description="Create a bucket list with a given dataset path")
+    parser.add_argument("--steps", default=50, type=int)
+    parser.add_argument("--mnk", default=8192, type=int)
+    parser.add_argument("--dtype", default=None, type=str)
+    parser.add_argument("--device", default=None, type=str)
+    parser.add_argument("-m", default=None, type=int)
+    parser.add_argument("-n", default=None, type=int)
+    parser.add_argument("-k", default=None, type=int)
 
     args = parser.parse_args()
     main(steps=args.steps, mnk=args.mnk, dtype=args.dtype, device=args.device, m=args.m, n=args.n, k=args.k)

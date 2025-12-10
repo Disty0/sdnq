@@ -233,7 +233,7 @@ def muon_update(
         elif quantized_matmul_dtype in {"fp16", "float16"}:
             update = zeropower_via_newtonschulz5_quantized_matmul(update, fp16_matmul_dynamic, steps=ns_steps, clip=clip)
         else:
-            raise NotImplementedError(f'Quantization type {quantized_matmul_dtype} is not implemented')
+            raise NotImplementedError(f"Quantization type {quantized_matmul_dtype} is not implemented")
     else:
         update = zeropower_via_newtonschulz5(update, steps=ns_steps, clip=clip, dtype=zeropower_dtype)
 

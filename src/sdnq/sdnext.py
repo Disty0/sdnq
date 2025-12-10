@@ -4,7 +4,7 @@ import os
 import logging
 import torch
 
-logger = logging.getLogger("SDNQ")
+logger = logging.getLogger("sdnq")
 
 # wrapper for modules.devices and modules.shared from SD.Next
 class Devices():
@@ -65,9 +65,9 @@ class Devices():
                 test_triton_func = torch.compile(test_triton_func, fullgraph=True)
                 test_triton_func(torch.randn(32, device=self.device), torch.randn(32, device=self.device), torch.randn(32, device=self.device))
                 triton_is_available = True
-            except Exception:
+            except Exception as e:
                 triton_is_available = False
-                logger.warning("SDNQ: Triton test failed! Falling back to PyTorch Eager mode.")
+                logger.warning(f"SDNQ: Triton test failed! Falling back to PyTorch Eager mode. Error message: {e}")
             torch._dynamo.config.suppress_errors = backup_suppress_errors
         else:
             logger.warning("SDNQ: Triton is not available. Falling back to PyTorch Eager mode.")
