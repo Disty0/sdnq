@@ -58,7 +58,7 @@ def copy_stochastic_(
 
     mantissa_difference = 1 << (23 - dtype_dict[torch_dtype_dict[target.dtype]]["mantissa"])
     return target.copy_(
-        torch.randint_like(source, dtype=torch.int32, low=0, high=mantissa_difference).add_(source.to(dtype=torch.float32).view(dtype=torch.int32)).view(dtype=torch.float32)
+        torch.randint_like(source, low=0, high=mantissa_difference, dtype=torch.int32).add_(source.to(dtype=torch.float32).view(dtype=torch.int32)).view(dtype=torch.float32)
     )
 
 
