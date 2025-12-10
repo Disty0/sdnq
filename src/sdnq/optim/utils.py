@@ -56,10 +56,16 @@ def copy_stochastic_(
     if not use_stochastic_rounding or target.dtype == torch.float32 or isinstance(target, SDNQTensor):
         return target.copy_(source)
 
-    mantissa_difference = 1 << (23 - dtype_dict[torch_dtype_dict[target.dtype]]["mantissa"])
-    return target.copy_(
-        torch.randint_like(source, low=0, high=mantissa_difference, dtype=torch.int32).add_(source.to(dtype=torch.float32).view(dtype=torch.int32)).view(dtype=torch.float32)
-    )
+    if torch.is_floating_point(target):
+        mantissa_difference = 1 << (23 - dtype_dict[torch_dtype_dict[target.dtype]]["mantissa"])
+        return target.copy_(
+            torch.randint_like(source, low=0, high=mantissa_difference, dtype=torch.int32).add_(source.to(dtype=torch.float32).view(dtype=torch.int32)).view(dtype=torch.float32)
+        )
+    else:
+        if source.dtype != torch.float32:
+            return target.copy_(source.to(dtype=torch.float32).add_(torch.randn_like(source, dtype=torch.float32), alpha=0.1).round_())
+        else:
+            return target.copy_(source.add(torch.randn_like(source), alpha=0.1).round_())
 
 
 def lerp_buffer_stochastic_(
