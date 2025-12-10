@@ -1,4 +1,4 @@
-from typing import Any, Tuple, Optional
+from typing import Any
 
 from collections import defaultdict
 from collections.abc import Hashable, Iterable
@@ -7,39 +7,7 @@ from itertools import chain
 
 import torch
 
-from .stochastic import copy_stochastic_
 from ..training import SDNQTensor
-
-
-def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, norm_mode: str, clips: Tuple[float]):
-    if isinstance(clips, float):
-        clip, clip2 = clips, 0
-    elif len(clips) == 1:
-        clip, clip2 = clips[0], 0
-    else:
-        clip, clip2 = clips[:2]
-
-    if norm_mode == "none":
-        return update.nan_to_num_().clamp_(-clip,clip)
-    elif norm_mode == "rms":
-        update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)))
-    elif norm_mode == "rms_clip":
-        update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
-    elif norm_mode in {"relative", "adafactor"}:
-        update = update.mul_(param.norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
-    elif norm_mode in {"rms_scaled", "adamuon"}:
-        return apply_norm_to_update_(update, param, "rms", clip * 0.2)
-    elif norm_mode in {"rms_clip_scaled", "adamuon_clip"}:
-        return apply_norm_to_update_(update, param, "rms_clip", clip * 0.2)
-    elif norm_mode == "muon":
-        output_shape = update.shape[0]
-        input_shape = 1
-        for shape in update.shape[1:]:
-            input_shape *= shape
-        update = update.mul_(max(1, output_shape / input_shape)**0.5)
-    else:
-        raise NotImplementedError(f'Norm mode {norm_mode} is not implemented')
-    return update.nan_to_num_().clamp_(-clip,clip)
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
@@ -69,50 +37,6 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["quantized_buffers_svd_rank"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_svd_rank", 32)
         group["use_svd_quantization"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_svd_quantization", False)
         return group
-
-    @staticmethod
-    def get_param_grad(
-        param: torch.nn.Parameter,
-        clip: float = 1.0,
-        grad_scale: Optional[torch.FloatTensor] = None,
-    ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
-        grad = param.grad.nan_to_num_().to(dtype=torch.float32)
-        if grad_scale is not None:
-            grad.div_(grad_scale.to(dtype=torch.float32))
-        grad = grad.clamp_(-clip,clip)
-
-        if isinstance(param, SDNQTensor):
-            param_fp32 = param.dequantize(dtype=torch.float32)
-        else:
-            param_fp32 = param.to(dtype=torch.float32)
-        return param_fp32, grad
-
-    @staticmethod
-    def update_param_(
-        param: torch.nn.Parameter,
-        param_fp32: torch.FloatTensor,
-        grad: torch.FloatTensor,
-        update: torch.FloatTensor,
-        learning_rate: float,
-        weight_decay: float,
-        clips: Tuple[float],
-        final_norm_mode: str,
-        use_cautious: bool,
-        use_stochastic_rounding: bool
-    ) -> None:
-        update = apply_norm_to_update_(update, param_fp32, final_norm_mode, clips)
-        if use_cautious:
-            mask = (torch.mul(update, grad) > 0).to(dtype=torch.float32)
-            mask.div_(mask.mean().clamp_(min=clips[-1]))
-            update = update.mul_(mask)
-        if weight_decay != 0:
-            param_fp32.mul_(1 - learning_rate * weight_decay)
-
-        param_fp32.add_(update, alpha=-learning_rate)
-        if use_stochastic_rounding and param.dtype in {torch.float16, torch.bfloat16} and not isinstance(param, SDNQTensor):
-            copy_stochastic_(param, param_fp32)
-        else:
-            param.copy_(param_fp32)
 
     def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict[Any, Any]], key: Hashable = None) -> torch.Tensor:
         assert param_groups is not None

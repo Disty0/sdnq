@@ -2,9 +2,11 @@ from typing import Tuple, Optional, Iterator
 
 import torch
 
-from .optimizer import SDNQOptimizer, apply_norm_to_update_
-from .stochastic import copy_stochastic_
 from ..training import SDNQTensor
+
+from .optimizer import SDNQOptimizer
+from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_, apply_norm_to_update_
+from .adafactor import approx_sq_grad
 
 
 class CAME(SDNQOptimizer):
@@ -58,7 +60,7 @@ class CAME(SDNQOptimizer):
                         state["exp_avg_sq"] = torch.zeros_like(param, dtype=torch.float32)
 
                 state["step"] += 1
-                param_fp32, grad = self.get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
+                param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
                 update = came_update(
                     grad=grad,
@@ -76,7 +78,7 @@ class CAME(SDNQOptimizer):
                     use_stochastic_buffers=group["use_stochastic_buffers"],
                 ).to(dtype=torch.float32)
 
-                self.update_param_(
+                update_param_(
                     param=param,
                     param_fp32=param_fp32,
                     grad=grad,
@@ -123,16 +125,8 @@ def came_update(
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
     update = apply_norm_to_update_(update, param, norm_mode, clips)
 
-    if exp_avg.dtype != torch.float32:
-        exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(update, 1 - beta1)
-        if use_stochastic_buffers and not isinstance(exp_avg, SDNQTensor):
-            copy_stochastic_(exp_avg, exp_avg_fp32)
-        else:
-            exp_avg.copy_(exp_avg_fp32)
-    else:
-        exp_avg.lerp_(update, 1 - beta1)
-        exp_avg_fp32 = exp_avg
 
+    exp_avg, exp_avg_fp32 = lerp_buffer_stochastic_(exp_avg, update, 1 - beta1, use_stochastic_rounding=use_stochastic_buffers)
     if exp_avg_sq is None:
         res = torch.sub(update, exp_avg_fp32).square_()
         one_minus_beta3 = 1 - beta3
@@ -144,9 +138,3 @@ def came_update(
 
     update = update.nan_to_num_().clamp_(-clip,clip)
     return update
-
-
-def approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col):
-    r_factor = torch.div(exp_avg_sq_row, exp_avg_sq_row.mean(dim=-1, keepdim=True)).rsqrt_().unsqueeze(-1)
-    c_factor = exp_avg_sq_col.rsqrt().unsqueeze(-2)
-    return torch.mul(r_factor, c_factor)

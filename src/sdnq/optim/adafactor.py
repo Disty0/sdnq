@@ -2,9 +2,10 @@ from typing import Tuple, Optional, Iterator
 
 import torch
 
-from .optimizer import SDNQOptimizer, apply_norm_to_update_
-from .stochastic import copy_stochastic_
 from ..training import SDNQTensor
+
+from .optimizer import SDNQOptimizer
+from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_, apply_norm_to_update_
 
 
 class Adafactor(SDNQOptimizer):
@@ -60,7 +61,7 @@ class Adafactor(SDNQOptimizer):
                             state["exp_avg"] = torch.zeros_like(param)
 
                 state["step"] += 1
-                param_fp32, grad = self.get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
+                param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
                 update = adafactor_update(
                     param=param_fp32,
@@ -77,7 +78,7 @@ class Adafactor(SDNQOptimizer):
                 ).to(dtype=torch.float32)
 
 
-                self.update_param_(
+                update_param_(
                     param=param,
                     param_fp32=param_fp32,
                     grad=grad,
@@ -127,16 +128,9 @@ def adafactor_update(
             exp_avg_fp32 = exp_avg.dequantize(dtype=torch.float32).lerp_(update, 1 - beta2)
             exp_avg.copy_(exp_avg_fp32)
             update = exp_avg_fp32
-        elif exp_avg.dtype != torch.float32:
-            exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(update, 1 - beta2)
-            if use_stochastic_buffers and not isinstance(exp_avg, SDNQTensor):
-                copy_stochastic_(exp_avg, exp_avg_fp32)
-            else:
-                exp_avg.copy_(exp_avg_fp32)
-            update = exp_avg_fp32.clone()
         else:
-            exp_avg = exp_avg.lerp_(update, 1 - beta2)
-            update = exp_avg.clone()
+            exp_avg, exp_avg_fp32 = lerp_buffer_stochastic_(exp_avg, update, 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
+            update = exp_avg_fp32.clone()
 
     return update
 

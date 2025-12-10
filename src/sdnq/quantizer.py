@@ -59,8 +59,7 @@ def quantize_weight(weight: torch.FloatTensor, reduction_axes: Union[int, List[i
     else:
         if use_stochastic_rounding:
             mantissa_difference = 1 << (23 - dtype_dict[weights_dtype]["mantissa"])
-            quantized_weight = quantized_weight.view(dtype=torch.int32)
-            quantized_weight = torch.randint_like(quantized_weight, low=0, high=mantissa_difference).add_(quantized_weight).bitwise_and_(-mantissa_difference).view(dtype=torch.float32)
+            quantized_weight = quantized_weight.view(dtype=torch.int32).add_(torch.randint_like(quantized_weight, low=0, high=mantissa_difference)).view(dtype=torch.float32)
         quantized_weight.nan_to_num_()
     quantized_weight = quantized_weight.clamp_(dtype_dict[weights_dtype]["min"], dtype_dict[weights_dtype]["max"]).to(dtype_dict[weights_dtype]["torch_dtype"])
     return quantized_weight, scale, zero_point

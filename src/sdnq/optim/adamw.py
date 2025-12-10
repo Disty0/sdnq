@@ -2,9 +2,10 @@ from typing import Tuple, Iterator
 
 import torch
 
-from .optimizer import SDNQOptimizer
-from .stochastic import copy_stochastic_
 from ..training import SDNQTensor
+
+from .optimizer import SDNQOptimizer
+from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_
 
 
 class AdamW(SDNQOptimizer):
@@ -48,7 +49,7 @@ class AdamW(SDNQOptimizer):
                         state["exp_avg_sq"] = torch.zeros_like(param)
 
                 state["step"] += 1
-                param_fp32, grad = self.get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
+                param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
                 update = adam_update(
                     grad=grad,
@@ -60,7 +61,7 @@ class AdamW(SDNQOptimizer):
                     use_stochastic_buffers=group["use_stochastic_buffers"],
                 ).to(dtype=torch.float32)
 
-                self.update_param_(
+                update_param_(
                     param=param,
                     param_fp32=param_fp32,
                     grad=grad,
@@ -86,20 +87,8 @@ def adam_update(
     use_stochastic_buffers: bool = False,
 ) -> torch.FloatTensor:
     beta1, beta2 = betas
-    if exp_avg.dtype != torch.float32:
-        exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(grad, 1 - beta1)
-        exp_avg_sq_fp32 = exp_avg_sq.to(dtype=torch.float32).lerp_(grad.square(), 1 - beta2)
-        if use_stochastic_buffers and not isinstance(exp_avg, SDNQTensor):
-            copy_stochastic_(exp_avg, exp_avg_fp32)
-            copy_stochastic_(exp_avg_sq, exp_avg_sq_fp32)
-        else:
-            exp_avg.copy_(exp_avg_fp32)
-            exp_avg_sq.copy_(exp_avg_sq_fp32)
-    else:
-        exp_avg.lerp_(grad, 1 - beta1)
-        exp_avg_sq.lerp_(grad.square(), 1 - beta2)
-        exp_avg_fp32 = exp_avg
-        exp_avg_sq_fp32 = exp_avg_sq
+    exp_avg, exp_avg_fp32 = lerp_buffer_stochastic_(exp_avg, grad, 1 - beta1, use_stochastic_rounding=use_stochastic_buffers)
+    exp_avg_sq, exp_avg_sq_fp32 = lerp_buffer_stochastic_(exp_avg_sq, grad.square(), 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
     exp_avg_c = exp_avg_fp32 / (1 - beta1 ** step)
     exp_avg_sq_c = exp_avg_sq_fp32 / (1 - beta2 ** step)
     return exp_avg_c.mul_(exp_avg_sq_c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)

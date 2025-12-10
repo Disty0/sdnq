@@ -2,9 +2,10 @@ from typing import Tuple, Iterator
 
 import torch
 
-from .optimizer import SDNQOptimizer
-from .stochastic import copy_stochastic_
 from ..training import SDNQTensor
+
+from .optimizer import SDNQOptimizer
+from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_
 
 
 class Lion(SDNQOptimizer):
@@ -47,7 +48,7 @@ class Lion(SDNQOptimizer):
                         state["exp_avg"] = torch.zeros_like(param)
 
                 state["step"] += 1
-                param_fp32, grad = self.get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
+                param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
                 update = lion_update(
                     grad=grad,
@@ -56,7 +57,7 @@ class Lion(SDNQOptimizer):
                     use_stochastic_buffers=group["use_stochastic_buffers"],
                 ).to(dtype=torch.float32)
 
-                self.update_param_(
+                update_param_(
                     param=param,
                     param_fp32=param_fp32,
                     grad=grad,
@@ -80,12 +81,5 @@ def lion_update(
 ) -> torch.FloatTensor:
     beta1, beta2 = betas
     update = exp_avg.to(dtype=torch.float32).lerp(grad, 1 - beta1).sign_()
-    if exp_avg.dtype != torch.float32:
-        exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(grad, 1 - beta2)
-        if use_stochastic_buffers and not isinstance(exp_avg, SDNQTensor):
-            copy_stochastic_(exp_avg, exp_avg_fp32)
-        else:
-            exp_avg.copy_(exp_avg_fp32)
-    else:
-        exp_avg.lerp_(grad, 1 - beta2)
+    lerp_buffer_stochastic_(exp_avg, grad, 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
     return update

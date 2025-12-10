@@ -2,8 +2,6 @@ from typing import Callable, Tuple, Optional, Iterator
 
 import torch
 
-from .optimizer import SDNQOptimizer
-from .stochastic import copy_stochastic_
 from ..training import SDNQTensor
 
 from ..common import compile_func, use_tensorwise_fp8_matmul
@@ -11,6 +9,10 @@ from ..training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
 from ..training.layers.linear.linear_fp8_dynamic import fp8_matmul_dynamic
 from ..training.layers.linear.linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
 from ..training.layers.linear.linear_fp16_dynamic import fp16_matmul_dynamic
+
+from .optimizer import SDNQOptimizer
+from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_
+from .adamw import adam_update
 
 
 class Muon(SDNQOptimizer):
@@ -118,7 +120,7 @@ class Muon(SDNQOptimizer):
                                 state["v_buffer"] = torch.zeros_like(param)
 
                     state["step"] += 1
-                    param_fp32, grad = self.get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
+                    param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
                     update = muon_update(
                         param=param_fp32,
@@ -136,7 +138,7 @@ class Muon(SDNQOptimizer):
                         use_stochastic_buffers=group["use_stochastic_buffers"],
                     ).to(dtype=torch.float32)
 
-                    self.update_param_(
+                    update_param_(
                         param=param,
                         param_fp32=param_fp32,
                         grad=grad,
@@ -164,7 +166,7 @@ class Muon(SDNQOptimizer):
                             state["exp_avg_sq"] = torch.zeros_like(param)
 
                     state["step"] += 1
-                    param_fp32, grad = self.get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
+                    param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
                     update = adam_update(
                         grad=grad,
@@ -176,7 +178,7 @@ class Muon(SDNQOptimizer):
                         use_stochastic_buffers=group["use_stochastic_buffers"],
                     ).to(dtype=torch.float32)
 
-                    self.update_param_(
+                    update_param_(
                         param=param,
                         param_fp32=param_fp32,
                         grad=grad,
@@ -190,35 +192,6 @@ class Muon(SDNQOptimizer):
                     )
 
         return loss
-
-
-def adam_update(
-    grad: torch.FloatTensor,
-    exp_avg: torch.FloatTensor,
-    exp_avg_sq: torch.FloatTensor,
-    step: int,
-    betas: Tuple[float, float],
-    clip: float,
-    use_stochastic_buffers: bool = False,
-) -> torch.FloatTensor:
-    beta1, beta2 = betas
-    if exp_avg.dtype != torch.float32:
-        exp_avg_fp32 = exp_avg.to(dtype=torch.float32).lerp_(grad, 1 - beta1)
-        exp_avg_sq_fp32 = exp_avg_sq.to(dtype=torch.float32).lerp_(grad.square(), 1 - beta2)
-        if use_stochastic_buffers and not isinstance(exp_avg, SDNQTensor):
-            copy_stochastic_(exp_avg, exp_avg_fp32)
-            copy_stochastic_(exp_avg_sq, exp_avg_sq_fp32)
-        else:
-            exp_avg.copy_(exp_avg_fp32)
-            exp_avg_sq.copy_(exp_avg_sq_fp32)
-    else:
-        exp_avg.lerp_(grad, 1 - beta1)
-        exp_avg_sq.lerp_(grad.square(), 1 - beta2)
-        exp_avg_fp32 = exp_avg
-        exp_avg_sq_fp32 = exp_avg_sq
-    exp_avg_c = exp_avg_fp32 / (1 - beta1 ** step)
-    exp_avg_sq_c = exp_avg_sq_fp32 / (1 - beta2 ** step)
-    return exp_avg_c.mul_(exp_avg_sq_c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)
 
 
 def muon_update(
@@ -239,15 +212,7 @@ def muon_update(
     beta1, beta2 = betas
     reshape_grad = (grad.ndim > 2)
 
-    if momentum_buffer.dtype != torch.float32:
-        momentum_buffer_fp32 = momentum_buffer.to(dtype=torch.float32).lerp_(grad, 1 - beta1)
-        if use_stochastic_buffers and not isinstance(momentum_buffer, SDNQTensor):
-            copy_stochastic_(momentum_buffer, momentum_buffer_fp32)
-        else:
-            momentum_buffer.copy_(momentum_buffer_fp32)
-    else:
-        momentum_buffer.lerp_(grad, 1 - beta1)
-        momentum_buffer_fp32 = momentum_buffer
+    momentum_buffer, momentum_buffer_fp32 = lerp_buffer_stochastic_(momentum_buffer, grad, 1 - beta1, use_stochastic_rounding=use_stochastic_buffers)
     update = grad.lerp(momentum_buffer_fp32, beta1) if nesterov else momentum_buffer_fp32.clone()
 
     if v_buffer is not None:
@@ -276,15 +241,7 @@ def muon_update(
         update = update.unflatten(-1, grad_shape[1:])
 
     if v_buffer is not None:
-        if v_buffer.dtype != torch.float32:
-            v_buffer_fp32 = v_buffer.to(dtype=torch.float32).lerp_(update.square(), 1 - beta2)
-            if use_stochastic_buffers and not isinstance(v_buffer, SDNQTensor):
-                copy_stochastic_(v_buffer, v_buffer_fp32)
-            else:
-                v_buffer.copy_(v_buffer_fp32)
-        else:
-            v_buffer.lerp_(update.square(), 1 - beta2)
-            v_buffer_fp32 = v_buffer
+        v_buffer, v_buffer_fp32 = lerp_buffer_stochastic_(v_buffer, update.square(), 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
         v_hat = v_buffer_fp32 / (1 - beta2 ** step)
         update = update.mul_(v_hat.rsqrt_())
 
