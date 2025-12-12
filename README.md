@@ -65,10 +65,10 @@ Note:
    Either don't use Safetensors serialization or convert the quantized model to standard SDNQ model before saving.  
 
 ```py
-from sdnq.training import sdnq_post_load_quant
+from sdnq.training import sdnq_training_post_load_quant
 from sdnq.common import use_torch_compile as triton_is_available
 
-quantized_model = sdnq_post_load_quant(
+quantized_model = sdnq_training_post_load_quant(
     model,
     weights_dtype="uint8",
     quantized_matmul_dtype="int8",

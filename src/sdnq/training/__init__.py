@@ -14,7 +14,7 @@ from .tensor import SDNQTensor
 
 
 @torch.no_grad()
-def apply_sdnq_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", torch_dtype=None, group_size=32, svd_rank=32, svd_steps=2, use_svd=False, use_grad_ckpt=True, use_quantized_matmul=False, use_static_quantization=True, use_stochastic_rounding=True, dequantize_fp32=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, full_param_name=""):
+def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", torch_dtype=None, group_size=32, svd_rank=32, svd_steps=2, use_svd=False, use_grad_ckpt=True, use_quantized_matmul=False, use_static_quantization=True, use_stochastic_rounding=True, dequantize_fp32=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, full_param_name=""):
     if not use_quantized_matmul and not use_static_quantization:
         return model
     if modules_to_not_convert is None:
@@ -74,7 +74,7 @@ def apply_sdnq_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="i
                     module.forward = module.forward.__get__(module, module.__class__)
                     setattr(model, module_name, module)
 
-        setattr(model, module_name, apply_sdnq_to_module(
+        setattr(model, module_name, apply_sdnq_training_to_module(
             module,
             weights_dtype=weights_dtype,
             quantized_matmul_dtype=quantized_matmul_dtype,
@@ -94,7 +94,7 @@ def apply_sdnq_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="i
 
 
 @torch.no_grad()
-def sdnq_post_load_quant(
+def sdnq_training_post_load_quant(
     model: torch.nn.Module,
     weights_dtype: str = "uint8",
     quantized_matmul_dtype: str = "int8",
@@ -148,7 +148,7 @@ def sdnq_post_load_quant(
         is_training=True,
     )
 
-    model = apply_sdnq_to_module(
+    model = apply_sdnq_training_to_module(
         model,
         weights_dtype=weights_dtype,
         quantized_matmul_dtype=quantized_matmul_dtype,
@@ -390,3 +390,6 @@ def convert_training_model_to_sdnq(model: torch.nn.Module, dtype: torch.dtype = 
             pass
     model = apply_sdnq_options_to_model(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=use_quantized_matmul)
     return model
+
+
+sdnq_post_load_quant = sdnq_training_post_load_quant
