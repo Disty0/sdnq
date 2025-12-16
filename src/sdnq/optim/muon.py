@@ -249,56 +249,77 @@ def muon_update(
     return update
 
 
-def zeropower_via_newtonschulz5(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
+def zeropower_via_newtonschulz5(X: torch.FloatTensor, steps: int = 5, clip: float = 1.0, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
-    X = G.to(dtype=torch.float32)
-    if G.shape[0] > G.shape[1]:
-        X = X.t()
+    return_dtype = X.dtype
 
+    if X.shape[0] > X.shape[1]:
+        reshape_grad = True
+        X = X.t()
+    else:
+        reshape_grad = False
+
+    X = X.to(dtype=torch.float32)
     X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
+
     X = X.to(dtype=dtype)
     for _ in range(steps):
         A = torch.mm(X, X.t())
         B = torch.addmm(A, A, A, beta=b, alpha=c)
         X = torch.addmm(X, B, X, beta=a)
 
-    if G.shape[0] > G.shape[1]:
+    if reshape_grad:
         X = X.t()
-    return X.to(dtype=G.dtype)
+    X = X.to(dtype=return_dtype)
+    return X
 
 
-def zeropower_via_newtonschulz5_quantized_matmul(G: torch.FloatTensor, mm_func: Callable, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
+def zeropower_via_newtonschulz5_quantized_matmul(X: torch.FloatTensor, mm_func: Callable, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
-    X = G.to(dtype=torch.float32)
-    if G.shape[0] > G.shape[1]:
-        X = X.t()
+    return_dtype = X.dtype
 
+    if X.shape[0] > X.shape[1]:
+        reshape_grad = True
+        X = X.t()
+    else:
+        reshape_grad = False
+
+    X = X.to(dtype=torch.float32)
     X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
+
     for _ in range(steps):
         A = mm_func(X, X, do_input_reshape=True)
         B = mm_func((A*c), A, bias=(A*b), do_input_reshape=False)
         X = mm_func(B, X, bias=(X*a), do_input_reshape=False)
 
-    if G.shape[0] > G.shape[1]:
+    if reshape_grad:
         X = X.t()
-    return X.to(dtype=G.dtype)
+    X = X.to(dtype=return_dtype)
+    return X
 
 
-def zeropower_via_newtonschulz5_fp8_matmul(G: torch.FloatTensor, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
+def zeropower_via_newtonschulz5_fp8_matmul(X: torch.FloatTensor, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
     a, b, c = (3.4445, -4.7750,  2.0315)
-    X = G.to(dtype=torch.float32)
-    if G.shape[0] > G.shape[1]:
-        X = X.t()
+    return_dtype = X.dtype
 
+    if X.shape[0] > X.shape[1]:
+        reshape_grad = True
+        X = X.t()
+    else:
+        reshape_grad = False
+
+    X = X.to(dtype=torch.float32)
     X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
+
     for _ in range(steps):
         A = fp8_matmul_dynamic(X, X, do_input_reshape=True)
         B = fp8_matmul_dynamic((A*c), A, do_input_reshape=False).add_(A, alpha=b)
         X = fp8_matmul_dynamic(B, X, do_input_reshape=False).add_(X, alpha=a)
 
-    if G.shape[0] > G.shape[1]:
+    if reshape_grad:
         X = X.t()
-    return X.to(dtype=G.dtype)
+    X = X.to(dtype=return_dtype)
+    return X
 
 
 zeropower_via_newtonschulz5_quantized_matmul = compile_func(zeropower_via_newtonschulz5_quantized_matmul)
