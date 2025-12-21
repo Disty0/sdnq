@@ -267,6 +267,7 @@ def zeropower_via_newtonschulz5(X: torch.FloatTensor, steps: int = 5, clip: floa
         A = torch.mm(X, X.t())
         B = torch.addmm(A, A, A, beta=b, alpha=c)
         X = torch.addmm(X, B, X, beta=a)
+    del A, B
 
     if reshape_grad:
         X = X.t()
@@ -291,6 +292,7 @@ def zeropower_via_newtonschulz5_quantized_matmul(X: torch.FloatTensor, mm_func: 
         A = mm_func(X, X, do_input_reshape=True)
         B = mm_func((A*c), A, bias=(A*b), do_input_reshape=False)
         X = mm_func(B, X, bias=(X*a), do_input_reshape=False)
+    del A, B
 
     if reshape_grad:
         X = X.t()
@@ -315,6 +317,7 @@ def zeropower_via_newtonschulz5_fp8_matmul(X: torch.FloatTensor, steps: int = 5,
         A = fp8_matmul_dynamic(X, X, do_input_reshape=True)
         B = fp8_matmul_dynamic((A*c), A, do_input_reshape=False).add_(A, alpha=b)
         X = fp8_matmul_dynamic(B, X, do_input_reshape=False).add_(X, alpha=a)
+    del A, B
 
     if reshape_grad:
         X = X.t()
