@@ -388,9 +388,6 @@ def sdnq_quantize_layer_weight_dynamic(weight, layer_class_name=None, weights_dt
     if use_svd:
         try:
             svd_weight, svd_up, svd_down = apply_svdquant(weight, rank=svd_rank, niter=svd_steps)
-            if use_quantized_matmul:
-                svd_up = svd_up.t_()
-                svd_down = svd_down.t_()
             svd_up, svd_down = prepare_svd_for_matmul(svd_up, svd_down, use_quantized_matmul)
             svd_up = svd_up.to(dtype=torch_dtype)
             svd_down = svd_down.to(dtype=torch_dtype)
@@ -402,6 +399,7 @@ def sdnq_quantize_layer_weight_dynamic(weight, layer_class_name=None, weights_dt
         svd_weight = weight
 
     quantization_loss = None
+    svd_is_transposed = False
     for i in range(weights_dtype_order_to_use.index(weights_dtype), len(weights_dtype_order_to_use)):
         quantized_weight, scale, zero_point, _, _, sdnq_dequantizer = sdnq_quantize_layer_weight(
             svd_weight,
@@ -418,6 +416,11 @@ def sdnq_quantize_layer_weight_dynamic(weight, layer_class_name=None, weights_dt
             dequantize_fp32=dequantize_fp32,
             param_name=param_name,
         )
+
+        if not svd_is_transposed and sdnq_dequantizer.use_quantized_matmul:
+            svd_up = svd_up.t_()
+            svd_down = svd_down.t_()
+            svd_is_transposed = True
 
         quantization_loss = torch.nn.functional.mse_loss(weight, sdnq_dequantizer(quantized_weight, scale, zero_point, svd_up, svd_down, skip_quantized_matmul=sdnq_dequantizer.use_quantized_matmul, dtype=torch.float32)).div(weight_std)
         if quantization_loss <= dynamic_loss_threshold:
