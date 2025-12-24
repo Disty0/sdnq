@@ -203,7 +203,7 @@ def add_module_skip_keys(model, modules_to_not_convert: List[str] = None, module
 
 
 @devices.inference_context()
-def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int8", quantized_matmul_dtype=None, torch_dtype=None, group_size=0, svd_rank=32, svd_steps=8, use_svd=False, use_quantized_matmul=False, use_stochastic_rounding=False, dequantize_fp32=False, param_name=None): # pylint: disable=unused-argument
+def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int8", quantized_matmul_dtype=None, torch_dtype=None, group_size=0, svd_rank=32, svd_steps=8, use_svd=False, use_quantized_matmul=False, use_stochastic_rounding=False, dequantize_fp32=False, using_pre_calculated_svd=False, param_name=None): # pylint: disable=unused-argument
     num_of_groups = 1
     is_conv_type = False
     is_conv_transpose_type = False
@@ -279,9 +279,9 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
         if use_quantized_matmul and not re_quantize_for_matmul and dtype_dict[weights_dtype]["num_bits"] >= 6:
             group_size = -1
         elif is_linear_type:
-            group_size = 2 ** ((2 if svd_up is None else 3) + dtype_dict[weights_dtype]["num_bits"])
+            group_size = 2 ** ((3 if (svd_up is not None or using_pre_calculated_svd) else 2) + dtype_dict[weights_dtype]["num_bits"])
         else:
-            group_size = 2 ** ((1 if svd_up is None else 2) + dtype_dict[weights_dtype]["num_bits"])
+            group_size = 2 ** ((2 if (svd_up is not None or using_pre_calculated_svd) else 1) + dtype_dict[weights_dtype]["num_bits"])
 
     if group_size > 0:
         if group_size >= channel_size:
@@ -411,6 +411,7 @@ def sdnq_quantize_layer_weight_dynamic(weight, layer_class_name=None, weights_dt
             svd_rank=svd_rank,
             svd_steps=svd_steps,
             use_svd=False,
+            using_pre_calculated_svd=use_svd,
             use_quantized_matmul=use_quantized_matmul,
             use_stochastic_rounding=use_stochastic_rounding,
             dequantize_fp32=dequantize_fp32,
