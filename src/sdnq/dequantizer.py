@@ -25,7 +25,7 @@ def dequantize_asymmetric(weight: torch.ByteTensor, scale: torch.FloatTensor, ze
         if result.ndim > 2 and weight.ndim > 2: # convs
             result = result.add_(torch.mm(svd_up, svd_down).unflatten(-1, (*result.shape[1:],)))
         else:
-            result = result.addmm_(svd_up, svd_down)
+            result = result.to(dtype=svd_up.dtype).addmm_(svd_up, svd_down)
     if dtype is not None:
         result = result.to(dtype=dtype)
     return result
@@ -48,7 +48,7 @@ def dequantize_symmetric(weight: torch.CharTensor, scale: torch.FloatTensor, svd
         if result.ndim > 2 and weight.ndim > 2: # convs
             result = result.add_(torch.mm(svd_up, svd_down).unflatten(-1, (*result.shape[1:],)))
         else:
-            result = result.addmm_(svd_up, svd_down)
+            result = result.to(dtype=svd_up.dtype).addmm_(svd_up, svd_down)
     if dtype is not None:
         result = result.to(dtype=dtype)
     return result

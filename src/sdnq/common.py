@@ -65,8 +65,12 @@ linear_types = {"Linear"}
 conv_types = {"Conv1d", "Conv2d", "Conv3d"}
 conv_transpose_types = {"ConvTranspose1d", "ConvTranspose2d", "ConvTranspose3d"}
 allowed_types = set.union(linear_types, conv_types, conv_transpose_types)
+
 accepted_weight_dtypes = set(dtype_dict.keys())
 accepted_matmul_dtypes = {"int8", "fp8", "fp16", "float8_e4m3fnuz", "float16"}
+
+weights_dtype_order = ["uint1", "int2", "uint2", "int3", "uint3", "int4", "uint4", "int5", "uint5", "int6", "uint6", "int8", "uint8", "float8_e4m3fn", "float8_e5m2"]
+weights_dtype_order_fp32 = weights_dtype_order + ["int16", "uint16", "float16"]
 
 is_rdna2 = bool(devices.backend == "rocm" and int(getattr(torch.cuda.get_device_properties(devices.device), "gcnArchName", "gfx0000")[3:]) < 1100)
 use_torch_compile = shared.opts.sdnq_dequantize_compile # this setting requires a full restart of the webui to apply
