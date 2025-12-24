@@ -3,7 +3,7 @@ import json
 import torch
 from diffusers.models.modeling_utils import ModelMixin
 
-from .common import dtype_dict, use_tensorwise_fp8_matmul, check_torch_compile
+from .common import dtype_dict, use_tensorwise_fp8_matmul, check_torch_compile, conv_types, linear_types
 from .quantizer import SDNQConfig, sdnq_post_load_quant, prepare_weight_for_matmul, prepare_svd_for_matmul, get_quant_args_from_config
 from .forward import get_forward_func
 from .file_loader import load_files
@@ -170,6 +170,17 @@ def apply_sdnq_options_to_module(model, dtype: torch.dtype = None, dequantize_fp
         return model
     for module_name, module in model.named_children():
         if hasattr(module, "sdnq_dequantizer"):
+            layer_class_name = module.__class__.__name__
+            if use_quantized_matmul:
+                if layer_class_name in conv_types:
+                    output_channel_size, channel_size = module.sdnq_dequantizer.original_shape[:2]
+                elif layer_class_name in linear_types:
+                    output_channel_size, channel_size = module.sdnq_dequantizer.original_shape
+                else:
+                    use_quantized_matmul = False
+                use_quantized_matmul = use_quantized_matmul and channel_size >= 32 and output_channel_size >= 32
+                use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
+
             if dtype is not None and module.sdnq_dequantizer.result_dtype != torch.float32:
                 module.sdnq_dequantizer.result_dtype = dtype
 
