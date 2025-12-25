@@ -271,6 +271,13 @@ def sdnq_ones_like(func, x, *args, **kwargs):
     return torch.ones(x.sdnq_dequantizer.original_shape, *args, dtype=dtype, device=device, **kwargs)
 
 
+@register_op([torch.ops.aten.empty_like.default])
+def sdnq_empty_like(func, x, *args, **kwargs):
+    dtype = kwargs.pop("dtype", x.sdnq_dequantizer.result_dtype)
+    device = kwargs.pop("device", x.device)
+    return torch.empty(x.sdnq_dequantizer.original_shape, *args, dtype=dtype, device=device, **kwargs)
+
+
 @register_op([torch.ops.aten.mul.Tensor, torch.ops.aten.mul.Scalar])
 def sdnq_mul(func, x, y):
     if isinstance(x, SDNQTensor):
