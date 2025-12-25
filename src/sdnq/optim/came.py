@@ -125,7 +125,6 @@ def came_update(
     update = update.mul_(grad).nan_to_num_().clamp_(-clip,clip)
     update = apply_norm_to_update_(update, param, norm_mode, clips)
 
-
     exp_avg, exp_avg_fp32 = lerp_buffer_stochastic_(exp_avg, update, 1 - beta1, use_stochastic_rounding=use_stochastic_buffers)
     if exp_avg_sq is None:
         res = torch.sub(update, exp_avg_fp32).square_()

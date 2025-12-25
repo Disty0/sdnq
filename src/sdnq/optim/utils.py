@@ -75,15 +75,15 @@ def lerp_buffer_stochastic_(
     use_stochastic_rounding: bool = True,
     return_dequantized_buffer: bool = True,
 ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
-    if buffer.dtype != torch.float32:
+    if isinstance(buffer, SDNQTensor):
+        buffer_fp32 = buffer.dequantize(dtype=torch.float32).lerp_(update, weight)
+        buffer.copy_(buffer_fp32)
+    elif buffer.dtype != torch.float32:
         buffer_fp32 = buffer.to(dtype=torch.float32).lerp_(update, weight)
         copy_stochastic_(buffer, buffer_fp32, use_stochastic_rounding=use_stochastic_rounding)
     else:
         buffer.lerp_(update, weight)
-        if return_dequantized_buffer and isinstance(buffer, SDNQTensor):
-            buffer_fp32 = buffer.dequantize(dtype=torch.float32)
-        else:
-            buffer_fp32 = buffer
+        buffer_fp32 = buffer
     return buffer, buffer_fp32
 
 

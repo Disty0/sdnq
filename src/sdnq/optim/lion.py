@@ -81,5 +81,5 @@ def lion_update(
 ) -> torch.FloatTensor:
     beta1, beta2 = betas
     update = exp_avg.to(dtype=torch.float32).lerp(grad, 1 - beta1).sign_()
-    lerp_buffer_stochastic_(exp_avg, grad, 1 - beta2, use_stochastic_rounding=use_stochastic_buffers, return_dequantized_buffer=False)
+    lerp_buffer_stochastic_(exp_avg, grad, 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
     return update

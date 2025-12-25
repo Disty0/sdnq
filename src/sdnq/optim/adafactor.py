@@ -124,13 +124,8 @@ def adafactor_update(
     update = apply_norm_to_update_(update, param, norm_mode, clips)
 
     if exp_avg is not None:
-        if isinstance(exp_avg, SDNQTensor):
-            exp_avg_fp32 = exp_avg.dequantize(dtype=torch.float32).lerp_(update, 1 - beta2)
-            exp_avg.copy_(exp_avg_fp32)
-            update = exp_avg_fp32
-        else:
-            exp_avg, exp_avg_fp32 = lerp_buffer_stochastic_(exp_avg, update, 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
-            update = exp_avg_fp32.clone()
+        exp_avg, exp_avg_fp32 = lerp_buffer_stochastic_(exp_avg, update, 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
+        update = exp_avg_fp32.clone()
 
     return update
 
