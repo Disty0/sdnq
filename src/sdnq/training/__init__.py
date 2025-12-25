@@ -14,7 +14,7 @@ from .tensor import SDNQTensor
 
 
 @torch.no_grad()
-def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", torch_dtype=None, group_size=32, svd_rank=32, svd_steps=2, use_svd=False, use_grad_ckpt=True, use_quantized_matmul=False, use_static_quantization=True, use_stochastic_rounding=True, dequantize_fp32=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, full_param_name=""):
+def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", torch_dtype=None, group_size=32, svd_rank=32, svd_steps=8, use_svd=False, use_grad_ckpt=True, use_quantized_matmul=False, use_static_quantization=True, use_stochastic_rounding=True, dequantize_fp32=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, full_param_name=""):
     if not use_quantized_matmul and not use_static_quantization:
         return model
     if modules_to_not_convert is None:
@@ -101,7 +101,7 @@ def sdnq_training_post_load_quant(
     torch_dtype: torch.dtype = None,
     group_size: int = 32,
     svd_rank: int = 32,
-    svd_steps: int = 2,
+    svd_steps: int = 8,
     use_svd: bool = False,
     use_grad_ckpt: bool = True,
     use_quantized_matmul: bool = False,
