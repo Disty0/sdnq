@@ -63,10 +63,7 @@ def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul
                 else:
                     current_group_size = -1
 
-                if quantized_matmul_dtype == "int8":
-                    current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 8 == 0 and channel_size % 8 == 0
-                else:
-                    current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
+                current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
                 quantized_forward = get_forward_func(param_weights_dtype, quantized_matmul_dtype, use_grad_ckpt, current_use_quantized_matmul, use_static_quantization, current_group_size)
 
                 if quantized_forward is not None:
@@ -217,10 +214,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
         else:
             output_channel_size, channel_size = model.sdnq_dequantizer.original_shape
             if channel_size >= 32 and output_channel_size >= 32:
-                if quantized_matmul_dtype == "int8":
-                    current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 8 == 0 and channel_size % 8 == 0
-                else:
-                    current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
+                current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
                 model = convert_sdnq_layer_to_training(
                     model,
                     quantized_matmul_dtype=quantized_matmul_dtype,
@@ -242,10 +236,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
             else:
                 output_channel_size, channel_size = module.sdnq_dequantizer.original_shape
                 if channel_size >= 32 and output_channel_size >= 32:
-                    if quantized_matmul_dtype == "int8":
-                        current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 8 == 0 and channel_size % 8 == 0
-                    else:
-                        current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
+                    current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
                     module = convert_sdnq_layer_to_training(
                         module,
                         quantized_matmul_dtype=quantized_matmul_dtype,
