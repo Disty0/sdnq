@@ -134,6 +134,7 @@ def came_update(
         update = approx_sq_grad(exp_avg_res_row, exp_avg_res_col).mul_(exp_avg_fp32)
     else:
         update = exp_avg_fp32.clone()
+    del exp_avg_fp32
 
     update = update.nan_to_num_().clamp_(-clip,clip)
     return update

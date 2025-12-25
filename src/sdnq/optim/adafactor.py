@@ -126,11 +126,13 @@ def adafactor_update(
     if exp_avg is not None:
         exp_avg, exp_avg_fp32 = lerp_buffer_stochastic_(exp_avg, update, 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
         update = exp_avg_fp32.clone()
+        del exp_avg_fp32
 
     return update
 
 
 def approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col):
-    r_factor = torch.div(exp_avg_sq_row, exp_avg_sq_row.mean(dim=-1, keepdim=True)).rsqrt_().unsqueeze(-1)
-    c_factor = exp_avg_sq_col.rsqrt().unsqueeze(-2)
-    return torch.mul(r_factor, c_factor)
+    return torch.mul(
+        torch.div(exp_avg_sq_row, exp_avg_sq_row.mean(dim=-1, keepdim=True)).rsqrt_().unsqueeze(-1),
+        exp_avg_sq_col.rsqrt().unsqueeze(-2),
+    )

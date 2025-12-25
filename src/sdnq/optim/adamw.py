@@ -87,8 +87,13 @@ def adam_update(
     use_stochastic_buffers: bool = False,
 ) -> torch.FloatTensor:
     beta1, beta2 = betas
+
     exp_avg, exp_avg_fp32 = lerp_buffer_stochastic_(exp_avg, grad, 1 - beta1, use_stochastic_rounding=use_stochastic_buffers)
-    exp_avg_sq, exp_avg_sq_fp32 = lerp_buffer_stochastic_(exp_avg_sq, grad.square(), 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
     exp_avg_c = exp_avg_fp32 / (1 - beta1 ** step)
+    del exp_avg_fp32
+
+    exp_avg_sq, exp_avg_sq_fp32 = lerp_buffer_stochastic_(exp_avg_sq, grad.square(), 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
     exp_avg_sq_c = exp_avg_sq_fp32 / (1 - beta2 ** step)
+    del exp_avg_sq_fp32
+
     return exp_avg_c.mul_(exp_avg_sq_c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)

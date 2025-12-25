@@ -214,6 +214,7 @@ def muon_update(
 
     momentum_buffer, momentum_buffer_fp32 = lerp_buffer_stochastic_(momentum_buffer, grad, 1 - beta1, use_stochastic_rounding=use_stochastic_buffers)
     update = grad.lerp(momentum_buffer_fp32, beta1) if nesterov else momentum_buffer_fp32.clone()
+    del momentum_buffer_fp32
 
     if v_buffer is not None:
         update = update.sign_()
@@ -243,6 +244,7 @@ def muon_update(
     if v_buffer is not None:
         v_buffer, v_buffer_fp32 = lerp_buffer_stochastic_(v_buffer, update.square(), 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
         v_hat = v_buffer_fp32 / (1 - beta2 ** step)
+        del v_buffer_fp32
         update = update.mul_(v_hat.rsqrt_())
 
     update = update.nan_to_num_().clamp_(-clip,clip)
