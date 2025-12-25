@@ -171,15 +171,16 @@ def apply_sdnq_options_to_module(model, dtype: torch.dtype = None, dequantize_fp
     for module_name, module in model.named_children():
         if hasattr(module, "sdnq_dequantizer"):
             layer_class_name = module.__class__.__name__
-            if use_quantized_matmul:
+            current_use_quantized_matmul = use_quantized_matmul
+            if current_use_quantized_matmul:
                 if layer_class_name in conv_types:
                     output_channel_size, channel_size = module.sdnq_dequantizer.original_shape[:2]
                 elif layer_class_name in linear_types:
                     output_channel_size, channel_size = module.sdnq_dequantizer.original_shape
                 else:
-                    use_quantized_matmul = False
-                use_quantized_matmul = use_quantized_matmul and channel_size >= 32 and output_channel_size >= 32
-                use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
+                    current_use_quantized_matmul = False
+                current_use_quantized_matmul = current_use_quantized_matmul and channel_size >= 32 and output_channel_size >= 32
+                current_use_quantized_matmul = current_use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
 
             if dtype is not None and module.sdnq_dequantizer.result_dtype != torch.float32:
                 module.sdnq_dequantizer.result_dtype = dtype
@@ -188,7 +189,7 @@ def apply_sdnq_options_to_module(model, dtype: torch.dtype = None, dequantize_fp
                 dequantize_fp32
                 or dtype_dict[module.sdnq_dequantizer.weights_dtype]["num_bits"] > 8
                 or (
-                    (use_quantized_matmul or (use_quantized_matmul is None and module.sdnq_dequantizer.use_quantized_matmul))
+                    (current_use_quantized_matmul or (current_use_quantized_matmul is None and module.sdnq_dequantizer.use_quantized_matmul))
                     and not dtype_dict[module.sdnq_dequantizer.quantized_matmul_dtype]["is_integer"]
                     and (not use_tensorwise_fp8_matmul or dtype_dict[module.sdnq_dequantizer.quantized_matmul_dtype]["num_bits"] == 16)
                 )
@@ -202,19 +203,19 @@ def apply_sdnq_options_to_module(model, dtype: torch.dtype = None, dequantize_fp
                 module.svd_up.data = module.svd_up.to(dtype=scale_dtype)
                 module.svd_down.data = module.svd_down.to(dtype=scale_dtype)
 
-            if use_quantized_matmul is not None and use_quantized_matmul != module.sdnq_dequantizer.use_quantized_matmul:
+            if current_use_quantized_matmul is not None and current_use_quantized_matmul != module.sdnq_dequantizer.use_quantized_matmul:
                 if not module.sdnq_dequantizer.re_quantize_for_matmul:
                     module.scale.t_()
                     module.weight.t_()
-                    if use_quantized_matmul:
+                    if current_use_quantized_matmul:
                         module.weight.data = prepare_weight_for_matmul(module.weight)
                     else:
                         module.scale.data = module.scale.contiguous()
                         module.weight.data = module.weight.contiguous()
                 if module.svd_up is not None:
-                    module.svd_up.data, module.svd_down.data = prepare_svd_for_matmul(module.svd_up.t_(), module.svd_down.t_(), use_quantized_matmul)
-                module.sdnq_dequantizer.use_quantized_matmul = use_quantized_matmul
-                module.forward = get_forward_func(module.__class__.__name__, module.sdnq_dequantizer.quantized_matmul_dtype, use_quantized_matmul)
+                    module.svd_up.data, module.svd_down.data = prepare_svd_for_matmul(module.svd_up.t_(), module.svd_down.t_(), current_use_quantized_matmul)
+                module.sdnq_dequantizer.use_quantized_matmul = current_use_quantized_matmul
+                module.forward = get_forward_func(module.__class__.__name__, module.sdnq_dequantizer.quantized_matmul_dtype, current_use_quantized_matmul)
                 module.forward = module.forward.__get__(module, module.__class__)
             setattr(model, module_name, module)
         else:
