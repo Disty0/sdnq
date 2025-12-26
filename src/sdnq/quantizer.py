@@ -956,8 +956,9 @@ class SDNQConfig(QuantizationConfigMixin):
 
     Args:
         weights_dtype (`str`, *optional*, defaults to `"int8"`):
-            The target dtype for the weights after quantization. Supported values are:
-            ("int16", "int8", "int7", "int6", "int5", "int4", "int3", "int2", "uint16", "uint8", "uint7", "uint6", "uint5", "uint4", "uint3", "uint2", "uint1", "bool", "float16", "float8_e4m3fn", "float8_e4m3fnuz", "float8_e5m2", "float8_e5m2fnuz")
+            The target dtype for the weights after quantization.
+            Check out `sdnq.common.accepted_weight_dtypes` for all the supported values.
+            These are some of the recommended values to use: ("int8", "int7", "int6", "uint5", "uint4", "uint3", "uint2", "float8_e4m3fn", "float7_e3m3fn", "float6_e2m3fn", "float5_e2m2fn", "float4_e2m1fn", "float3_e1m1fn", "float2_e1m0fn")
         quantized_matmul_dtype (`str`, *optional*, defaults to `None`):
             The target dtype for quantized matmul.
             `None` will use "int8" with integer weight dtypes and "float8_e4m3fn" or "float16" with float weight dtypes.
