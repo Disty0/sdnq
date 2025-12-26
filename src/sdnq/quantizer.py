@@ -18,6 +18,7 @@ from .sdnext import devices, shared
 from .common import sdnq_version, dtype_dict, common_skip_keys, module_skip_keys_dict, accepted_weight_dtypes, accepted_matmul_dtypes, weights_dtype_order, weights_dtype_order_fp32, allowed_types, linear_types, conv_types, conv_transpose_types, compile_func, use_tensorwise_fp8_matmul, use_contiguous_mm, check_torch_compile
 from .dequantizer import SDNQDequantizer, dequantize_sdnq_model
 from .packed_int import pack_int_symetric, pack_int_asymetric
+from .packed_float import pack_float
 from .forward import get_forward_func
 
 
@@ -227,6 +228,7 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
         dtype_dict[weights_dtype]["is_unsigned"]
         or dtype_dict[weights_dtype]["is_integer"] != dtype_dict[quantized_matmul_dtype]["is_integer"]
         or dtype_dict[weights_dtype]["num_bits"] > dtype_dict[quantized_matmul_dtype]["num_bits"]
+        or (dtype_dict[weights_dtype]["is_packed"] and not dtype_dict[weights_dtype]["is_integer"])
     )
 
     if layer_class_name in conv_types:
@@ -367,10 +369,13 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
     )
 
     if dtype_dict[weights_dtype]["is_packed"]:
-        if dtype_dict[weights_dtype]["is_unsigned"]:
-            weight = pack_int_asymetric(weight, weights_dtype)
+        if dtype_dict[weights_dtype]["is_integer"]:
+            if dtype_dict[weights_dtype]["is_unsigned"]:
+                weight = pack_int_asymetric(weight, weights_dtype)
+            else:
+                weight = pack_int_symetric(weight, weights_dtype)
         else:
-            weight = pack_int_symetric(weight, weights_dtype)
+            weight = pack_float(weight, weights_dtype)
     else:
         weight = weight.to(dtype=dtype_dict[weights_dtype]["torch_dtype"])
 
