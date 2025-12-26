@@ -38,10 +38,9 @@ def pack_float(x: torch.FloatTensor, weights_dtype: str) -> torch.Tensor:
         ),
         torch.add(x, mantissa_mask),
         x,
-    ).view(torch.float32)
+    )
 
-    x = torch.where(x.abs() < dtype_dict[weights_dtype]["min_normal"], 0, x)
-    x = x.view(torch.int32)
+    x = torch.where(torch.lt(x.view(torch.float32).abs(), dtype_dict[weights_dtype]["min_normal"]), 0, x)
 
     x = torch.bitwise_right_shift(x, mantissa_difference)
     x = torch.bitwise_and(
