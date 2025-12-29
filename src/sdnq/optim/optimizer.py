@@ -42,10 +42,11 @@ class SDNQOptimizer(torch.optim.Optimizer):
         assert param_groups is not None
         if key == "step":
             return value
-        elif isinstance(value, SDNQTensor) or key in self._keep_in_fp32_keys:
-            return value.to(device=param.device, dtype=torch.float32)
+        elif param.dtype == torch.float32 or isinstance(value, SDNQTensor) or key in self._keep_in_fp32_keys:
+            # Sending in 16 bit to GPU and casting to FP32 in GPU is much faster than sending it directly in FP32
+            return value.to(device=param.device).to(dtype=torch.float32)
         else:
-            return value.to(device=param.device, dtype=param.dtype)
+            return value.to(dtype=param.dtype).to(device=param.device)
 
     def _load_state_dict_cast(self, param, value, param_id=None, param_groups=None, key=None):
         r"""Make a deep copy of value, casting all tensors to device of param."""
