@@ -17,9 +17,12 @@ def get_param_grad(
     grad = grad.clamp_(-clip,clip)
 
     if isinstance(param, SDNQTensor):
-        param_fp32 = param.dequantize(dtype=torch.float32)
+        param_fp32 = param.dequantize(dtype=torch.float32).nan_to_num_()
+        if param.dtype not in {torch.float32, torch.bfloat16}:
+            max_val = torch.finfo(param.dtype).max
+            param_fp32 = param_fp32.clamp_(-max_val, max_val)
     else:
-        param_fp32 = param.to(dtype=torch.float32)
+        param_fp32 = param.nan_to_num_().to(dtype=torch.float32)
     return param_fp32, grad
 
 
@@ -56,16 +59,20 @@ def copy_stochastic_(
     if not use_stochastic_rounding or target.dtype == torch.float32 or isinstance(target, SDNQTensor):
         return target.copy_(source)
 
-    if torch.is_floating_point(target):
-        mantissa_difference = 1 << (23 - dtype_dict[torch_dtype_dict[target.dtype]]["mantissa"])
-        return target.copy_(
-            torch.randint_like(source, low=0, high=mantissa_difference, dtype=torch.int32).add_(source.to(dtype=torch.float32).view(dtype=torch.int32)).view(dtype=torch.float32)
-        )
-    else:
+    target_dtype = torch_dtype_dict[target.dtype]
+    min_val = dtype_dict[target_dtype]["min"]
+    max_val = dtype_dict[target_dtype]["max"]
+
+    if dtype_dict[target_dtype]["is_integer"]:
         if source.dtype != torch.float32:
-            return target.copy_(source.to(dtype=torch.float32).add_(torch.randn_like(source, dtype=torch.float32), alpha=0.1).round_())
+            return target.copy_(source.to(dtype=torch.float32).add_(torch.randn_like(source, dtype=torch.float32), alpha=0.1).round_().clamp_(min_val,max_val))
         else:
-            return target.copy_(source.add(torch.randn_like(source), alpha=0.1).round_())
+            return target.copy_(source.add(torch.randn_like(source), alpha=0.1).round_().clamp_(min_val,max_val))
+    else:
+        mantissa_difference = 1 << (23 - dtype_dict[target_dtype]["mantissa"])
+        return target.copy_(
+            torch.randint_like(source, low=0, high=mantissa_difference, dtype=torch.int32).add_(source.to(dtype=torch.float32).view(dtype=torch.int32)).view(dtype=torch.float32).clamp_(min_val,max_val)
+        )
 
 
 def lerp_buffer_stochastic_(
