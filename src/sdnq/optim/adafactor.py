@@ -63,6 +63,9 @@ class Adafactor(SDNQOptimizer):
                 state["step"] += 1
                 param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
+                if factored and group["offload_buffers"] and group["use_first_moment"]:
+                    state["exp_avg"] = state["exp_avg"].to(param.device, non_blocking=group["offload_non_blocking"])
+
                 update = adafactor_update(
                     param=param_fp32,
                     grad=grad,
@@ -77,6 +80,8 @@ class Adafactor(SDNQOptimizer):
                     use_stochastic_buffers=group["use_stochastic_buffers"],
                 ).to(dtype=torch.float32)
 
+                if factored and group["offload_buffers"] and group["use_first_moment"]:
+                    state["exp_avg"] = state["exp_avg"].to("cpu", non_blocking=False)
 
                 update_param_(
                     param=param,

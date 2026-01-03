@@ -122,6 +122,11 @@ class Muon(SDNQOptimizer):
                     state["step"] += 1
                     param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
+                    if group["offload_buffers"]:
+                        state["momentum_buffer"] = state["momentum_buffer"].to(param.device, non_blocking=group["offload_non_blocking"])
+                        if group["adaptive"]:
+                            state["v_buffer"] = state["v_buffer"].to(param.device, non_blocking=group["offload_non_blocking"])
+
                     update = muon_update(
                         param=param_fp32,
                         grad=grad,
@@ -137,6 +142,11 @@ class Muon(SDNQOptimizer):
                         quantized_matmul_dtype=group["quantized_matmul_dtype"],
                         use_stochastic_buffers=group["use_stochastic_buffers"],
                     ).to(dtype=torch.float32)
+
+                    if group["offload_buffers"]:
+                        state["momentum_buffer"] = state["momentum_buffer"].to("cpu", non_blocking=False)
+                        if group["adaptive"]:
+                            state["v_buffer"] = state["v_buffer"].to("cpu", non_blocking=False)
 
                     update_param_(
                         param=param,
@@ -168,6 +178,10 @@ class Muon(SDNQOptimizer):
                     state["step"] += 1
                     param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
+                    if group["offload_buffers"]:
+                        state["exp_avg"] = state["exp_avg"].to(param.device, non_blocking=group["offload_non_blocking"])
+                        state["exp_avg_sq"] = state["exp_avg_sq"].to(param.device, non_blocking=group["offload_non_blocking"])
+
                     update = adam_update(
                         grad=grad,
                         exp_avg=state["exp_avg"],
@@ -177,6 +191,10 @@ class Muon(SDNQOptimizer):
                         clip=group["clip_threshold"][0],
                         use_stochastic_buffers=group["use_stochastic_buffers"],
                     ).to(dtype=torch.float32)
+
+                    if group["offload_buffers"]:
+                        state["exp_avg"] = state["exp_avg"].to("cpu", non_blocking=False)
+                        state["exp_avg_sq"] = state["exp_avg_sq"].to("cpu", non_blocking=False)
 
                     update_param_(
                         param=param,
