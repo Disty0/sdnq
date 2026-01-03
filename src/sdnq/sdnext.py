@@ -2,9 +2,17 @@
 
 import os
 import logging
+from dataclasses import dataclass
+
 import torch
 
 logger = logging.getLogger("sdnq")
+
+
+@dataclass
+class HIPAgent():
+    gfx_version: int
+
 
 # wrapper for modules.devices and modules.shared from SD.Next
 class Devices():
@@ -73,6 +81,8 @@ class Devices():
             logger.warning("SDNQ: Triton is not available. Falling back to PyTorch Eager mode.")
         return triton_is_available
 
+    def get_hip_agent(self):
+        return HIPAgent(int("0x" + getattr(torch.cuda.get_device_properties(self.device), "gcnArchName", "gfx0000")[3:], 16))
 
 class SharedOpts():
     def __init__(self, devices):
