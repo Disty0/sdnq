@@ -61,7 +61,7 @@ class Lion(SDNQOptimizer):
                 ).to(dtype=torch.float32)
 
                 if group["offload_buffers"]:
-                    state = send_buffers_to_cpu(state)
+                    state = send_buffers_to_cpu(state, group["offload_non_blocking"])
 
                 update_param_(
                     param=param,

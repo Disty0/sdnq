@@ -132,8 +132,8 @@ def send_buffers_to_device(state: dict, device: torch.device, non_blocking: bool
     return state
 
 
-def send_buffers_to_cpu(state: dict) -> dict:
+def send_buffers_to_cpu(state: dict, non_blocking: bool) -> dict:
     for key, value in state.items():
         if isinstance(value, torch.Tensor):
-            state[key] = value.to("cpu", non_blocking=False)
+            state[key] = value.to("cpu", non_blocking=non_blocking)
     return state
