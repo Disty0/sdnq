@@ -5,7 +5,7 @@ import torch
 from ..training import SDNQTensor
 
 from .optimizer import SDNQOptimizer
-from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_, apply_norm_to_update_
+from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_, apply_norm_to_update_, send_buffers_to_device, send_buffers_to_cpu
 
 
 class Adafactor(SDNQOptimizer):
@@ -63,8 +63,8 @@ class Adafactor(SDNQOptimizer):
                 state["step"] += 1
                 param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
-                if factored and group["offload_buffers"] and group["use_first_moment"]:
-                    state["exp_avg"] = state["exp_avg"].to(param.device, non_blocking=group["offload_non_blocking"])
+                if group["offload_buffers"]:
+                    state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
 
                 update = adafactor_update(
                     param=param_fp32,
@@ -80,8 +80,8 @@ class Adafactor(SDNQOptimizer):
                     use_stochastic_buffers=group["use_stochastic_buffers"],
                 ).to(dtype=torch.float32)
 
-                if factored and group["offload_buffers"] and group["use_first_moment"]:
-                    state["exp_avg"] = state["exp_avg"].to("cpu", non_blocking=False)
+                if group["offload_buffers"]:
+                    state = send_buffers_to_cpu(state)
 
                 update_param_(
                     param=param,

@@ -5,7 +5,7 @@ import torch
 from ..training import SDNQTensor
 
 from .optimizer import SDNQOptimizer
-from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_
+from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_, send_buffers_to_device, send_buffers_to_cpu
 
 
 class Lion(SDNQOptimizer):
@@ -51,7 +51,7 @@ class Lion(SDNQOptimizer):
                 param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
                 if group["offload_buffers"]:
-                    state["exp_avg"] = state["exp_avg"].to(param.device, non_blocking=group["offload_non_blocking"])
+                    state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
 
                 update = lion_update(
                     grad=grad,
@@ -61,7 +61,7 @@ class Lion(SDNQOptimizer):
                 ).to(dtype=torch.float32)
 
                 if group["offload_buffers"]:
-                    state["exp_avg"] = state["exp_avg"].to("cpu", non_blocking=False)
+                    state = send_buffers_to_cpu(state)
 
                 update_param_(
                     param=param,

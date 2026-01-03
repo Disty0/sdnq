@@ -123,3 +123,17 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
     else:
         raise NotImplementedError(f"Norm mode {norm_mode} is not implemented")
     return update.nan_to_num_().clamp_(-clip,clip)
+
+
+def send_buffers_to_device(state: dict, device: torch.device, non_blocking: bool) -> dict:
+    for key, value in state.items():
+        if isinstance(value, torch.Tensor):
+            state[key] = value.to(device, non_blocking=non_blocking)
+    return state
+
+
+def send_buffers_to_cpu(state: dict) -> dict:
+    for key, value in state.items():
+        if isinstance(value, torch.Tensor):
+            state[key] = value.to("cpu", non_blocking=False)
+    return state

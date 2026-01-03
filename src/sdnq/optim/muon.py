@@ -11,7 +11,7 @@ from ..training.layers.linear.linear_fp8_tensorwise_dynamic import fp8_matmul_te
 from ..training.layers.linear.linear_fp16_dynamic import fp16_matmul_dynamic
 
 from .optimizer import SDNQOptimizer
-from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_
+from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_, send_buffers_to_device, send_buffers_to_cpu
 from .adamw import adam_update
 
 
@@ -123,9 +123,7 @@ class Muon(SDNQOptimizer):
                     param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
                     if group["offload_buffers"]:
-                        state["momentum_buffer"] = state["momentum_buffer"].to(param.device, non_blocking=group["offload_non_blocking"])
-                        if group["adaptive"]:
-                            state["v_buffer"] = state["v_buffer"].to(param.device, non_blocking=group["offload_non_blocking"])
+                        state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
 
                     update = muon_update(
                         param=param_fp32,
@@ -144,9 +142,7 @@ class Muon(SDNQOptimizer):
                     ).to(dtype=torch.float32)
 
                     if group["offload_buffers"]:
-                        state["momentum_buffer"] = state["momentum_buffer"].to("cpu", non_blocking=False)
-                        if group["adaptive"]:
-                            state["v_buffer"] = state["v_buffer"].to("cpu", non_blocking=False)
+                        state = send_buffers_to_cpu(state)
 
                     update_param_(
                         param=param,
@@ -179,8 +175,7 @@ class Muon(SDNQOptimizer):
                     param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
 
                     if group["offload_buffers"]:
-                        state["exp_avg"] = state["exp_avg"].to(param.device, non_blocking=group["offload_non_blocking"])
-                        state["exp_avg_sq"] = state["exp_avg_sq"].to(param.device, non_blocking=group["offload_non_blocking"])
+                        state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
 
                     update = adam_update(
                         grad=grad,
@@ -193,8 +188,7 @@ class Muon(SDNQOptimizer):
                     ).to(dtype=torch.float32)
 
                     if group["offload_buffers"]:
-                        state["exp_avg"] = state["exp_avg"].to("cpu", non_blocking=False)
-                        state["exp_avg_sq"] = state["exp_avg_sq"].to("cpu", non_blocking=False)
+                        state = send_buffers_to_cpu(state)
 
                     update_param_(
                         param=param,
