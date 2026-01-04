@@ -140,7 +140,7 @@ class Muon(SDNQOptimizer):
                     ).to(dtype=torch.float32)
 
                     if group["offload_buffers"]:
-                        state = send_buffers_to_cpu(state, group["offload_non_blocking"])
+                        state = send_buffers_to_cpu(state, group["offload_non_blocking_cpu"])
 
                     update_param_(
                         param=param,
@@ -184,7 +184,7 @@ class Muon(SDNQOptimizer):
                     ).to(dtype=torch.float32)
 
                     if group["offload_buffers"]:
-                        state = send_buffers_to_cpu(state, group["offload_non_blocking"])
+                        state = send_buffers_to_cpu(state, group["offload_non_blocking_cpu"])
 
                     update_param_(
                         param=param,
