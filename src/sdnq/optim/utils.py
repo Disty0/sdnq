@@ -127,7 +127,7 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
 
 def send_buffers_to_device(state: dict, device: torch.device, non_blocking: bool) -> dict:
     for key, value in state.items():
-        if isinstance(value, torch.Tensor):
+        if isinstance(value, torch.Tensor) and value.device != device:
             state[key] = value.to(device, non_blocking=non_blocking)
     return state
 

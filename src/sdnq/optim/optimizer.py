@@ -40,24 +40,25 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["offload_non_blocking"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "offload_non_blocking", False)
         return group
 
-    def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict[Any, Any]], key: Hashable = None) -> torch.Tensor:
-        assert param_groups is not None
+    def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict[Any, Any]], key: Hashable = None, device: torch.device = None) -> torch.Tensor:
+        if device is None:
+            device = param.device
         if key == "step":
             return value
         elif param.dtype == torch.float32 or isinstance(value, SDNQTensor) or key in self._keep_in_fp32_keys:
             # Sending in 16 bit to GPU and casting to FP32 in GPU is much faster than sending it directly in FP32
-            return value.to(device=param.device).to(dtype=torch.float32)
+            return value.to(device=device).to(dtype=torch.float32)
         else:
-            return value.to(dtype=param.dtype).to(device=param.device)
+            return value.to(dtype=param.dtype).to(device=device)
 
-    def _load_state_dict_cast(self, param, value, param_id=None, param_groups=None, key=None):
+    def _load_state_dict_cast(self, param, value, param_id=None, param_groups=None, key=None, device=None):
         r"""Make a deep copy of value, casting all tensors to device of param."""
         if isinstance(value, torch.Tensor):
-            return self._process_value_according_to_param_policy(param, value, param_id, param_groups, key)
+            return self._process_value_according_to_param_policy(param, value, param_id, param_groups, key=key, device=device)
         elif isinstance(value, dict):
-            return {k: self._load_state_dict_cast(param, v, param_id=param_id, param_groups=param_groups, key=k) for k, v in value.items()}
+            return {k: self._load_state_dict_cast(param, v, param_id=param_id, param_groups=param_groups, key=k, device=device) for k, v in value.items()}
         elif isinstance(value, Iterable):
-            return type(value)(self._load_state_dict_cast(param, v, param_id=param_id, param_groups=param_groups) for v in value) # type: ignore[call-arg]
+            return type(value)(self._load_state_dict_cast(param, v, param_id=param_id, param_groups=param_groups, device=device) for v in value) # type: ignore[call-arg]
         else:
             return value
 
@@ -86,12 +87,13 @@ class SDNQOptimizer(torch.optim.Optimizer):
 
         # Update the state
         id_map = dict(zip(chain.from_iterable(g["params"] for g in saved_groups), chain.from_iterable(g["params"] for g in groups)))
+        device = "cpu" if any(group["offload_buffers"] for group in state_dict["param_groups"]) else None
 
         state: defaultdict[torch.Tensor, dict[Any, Any]] = defaultdict(dict)
         for k, v in state_dict["state"].items():
             if k in id_map:
                 param = id_map[k]
-                state[param] = self._load_state_dict_cast(param, v, param_id=k, param_groups=state_dict["param_groups"])
+                state[param] = self._load_state_dict_cast(param, v, param_id=k, param_groups=state_dict["param_groups"], device=device)
             else:
                 state[k] = v
 

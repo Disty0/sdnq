@@ -49,10 +49,8 @@ class AdamW(SDNQOptimizer):
                         state["exp_avg_sq"] = torch.zeros_like(param)
 
                 state["step"] += 1
+                state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
                 param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
-
-                if group["offload_buffers"]:
-                    state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
 
                 update = adam_update(
                     grad=grad,
