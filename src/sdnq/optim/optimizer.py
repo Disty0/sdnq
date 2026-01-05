@@ -8,6 +8,7 @@ from itertools import chain
 import torch
 
 from ..training import SDNQTensor
+from .utils import get_param_grad, update_param_, send_buffers_to_device, send_buffers_to_cpu
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
@@ -40,6 +41,58 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["offload_non_blocking"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "offload_non_blocking", True)
         group["offload_non_blocking_cpu"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "offload_non_blocking_cpu", group["offload_non_blocking"])
         return group
+
+    @torch.no_grad()
+    def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
+        raise NotImplementedError
+        return state
+
+    @torch.no_grad()
+    def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
+        raise NotImplementedError
+        return update # noqa: F821
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        grad_scale = getattr(self, "grad_scale", None)
+
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+
+        for group in self.param_groups:
+            for param in group["params"]:
+                if param.grad is None:
+                    continue
+
+                state = self.state[param]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state = self.init_state(param, group, state)
+
+                state["step"] += 1
+                state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
+                param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
+                update = self.get_param_update(param_fp32, grad, group, state).to(dtype=torch.float32)
+
+                if group["offload_buffers"]:
+                    state = send_buffers_to_cpu(state, group["offload_non_blocking_cpu"])
+
+                update_param_(
+                    param=param,
+                    param_fp32=param_fp32,
+                    grad=grad,
+                    update=update,
+                    learning_rate=group["lr"],
+                    weight_decay=group["weight_decay"],
+                    clips=group["clip_threshold"],
+                    final_norm_mode=group["final_norm_mode"],
+                    use_cautious=group["use_cautious"],
+                    use_stochastic_rounding=group["use_stochastic_rounding"],
+                )
+
+        return loss
 
     def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict[Any, Any]], key: Hashable = None, device: torch.device = None) -> torch.Tensor:
         if device is None:

@@ -11,7 +11,7 @@ from ..training.layers.linear.linear_fp8_tensorwise_dynamic import fp8_matmul_te
 from ..training.layers.linear.linear_fp16_dynamic import fp16_matmul_dynamic
 
 from .optimizer import SDNQOptimizer
-from .utils import get_param_grad, update_param_, lerp_buffer_stochastic_, send_buffers_to_device, send_buffers_to_cpu
+from .utils import lerp_buffer_stochastic_
 from .adamw import adam_update
 
 
@@ -93,113 +93,53 @@ class Muon(SDNQOptimizer):
         return [muon_group, adamw_group], extra_kwargs
 
     @torch.no_grad()
-    def step(self, closure=None):
-        grad_scale = getattr(self, "grad_scale", None)
-
-        loss = None
-        if closure is not None:
-            with torch.enable_grad():
-                loss = closure()
-
-        for group in self.param_groups:
-            if group["use_muon"]:
-                for param in group["params"]:
-                    if param.grad is None:
-                        continue
-
-                    state = self.state[param]
-                    if len(state) == 0:
-                        state["step"] = 0
-                        if group["use_quantized_buffers"]:
-                            state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
-                            if group["adaptive"]:
-                                state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
-                        else:
-                            state["momentum_buffer"] = torch.zeros_like(param)
-                            if group["adaptive"]:
-                                state["v_buffer"] = torch.zeros_like(param)
-
-                    state["step"] += 1
-                    state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
-                    param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
-
-                    update = muon_update(
-                        param=param_fp32,
-                        grad=grad,
-                        momentum_buffer=state["momentum_buffer"],
-                        v_buffer=state["v_buffer"] if group["adaptive"] else None,
-                        step=state["step"],
-                        betas=group["betas"],
-                        clip=group["clip_threshold"][0],
-                        ns_steps=group["ns_steps"],
-                        nesterov=group["nesterov"],
-                        zeropower_dtype=group["zeropower_dtype"],
-                        use_quantized_matmul=group["use_quantized_matmul"],
-                        quantized_matmul_dtype=group["quantized_matmul_dtype"],
-                        use_stochastic_buffers=group["use_stochastic_buffers"],
-                    ).to(dtype=torch.float32)
-
-                    if group["offload_buffers"]:
-                        state = send_buffers_to_cpu(state, group["offload_non_blocking_cpu"])
-
-                    update_param_(
-                        param=param,
-                        param_fp32=param_fp32,
-                        grad=grad,
-                        update=update,
-                        learning_rate=group["lr"],
-                        weight_decay=group["weight_decay"],
-                        clips=group["clip_threshold"],
-                        final_norm_mode=group["final_norm_mode"],
-                        use_cautious=group["use_cautious"],
-                        use_stochastic_rounding=group["use_stochastic_rounding"],
-                    )
+    def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
+        if group["use_muon"]:
+            if group["use_quantized_buffers"]:
+                state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
+                if group["adaptive"]:
+                    state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
             else:
-                for param in group["params"]:
-                    if param.grad is None:
-                        continue
+                state["momentum_buffer"] = torch.zeros_like(param)
+                if group["adaptive"]:
+                    state["v_buffer"] = torch.zeros_like(param)
+        else:
+            if group["use_quantized_buffers"]:
+                state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
+                state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
+            else:
+                state["exp_avg"] = torch.zeros_like(param)
+                state["exp_avg_sq"] = torch.zeros_like(param)
+        return state
 
-                    state = self.state[param]
-                    if len(state) == 0:
-                        state["step"] = 0
-                        if group["use_quantized_buffers"]:
-                            state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
-                            state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
-                        else:
-                            state["exp_avg"] = torch.zeros_like(param)
-                            state["exp_avg_sq"] = torch.zeros_like(param)
-
-                    state["step"] += 1
-                    state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
-                    param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
-
-                    update = adam_update(
-                        grad=grad,
-                        exp_avg=state["exp_avg"],
-                        exp_avg_sq=state["exp_avg_sq"],
-                        step=state["step"],
-                        betas=group["betas"],
-                        clip=group["clip_threshold"][0],
-                        use_stochastic_buffers=group["use_stochastic_buffers"],
-                    ).to(dtype=torch.float32)
-
-                    if group["offload_buffers"]:
-                        state = send_buffers_to_cpu(state, group["offload_non_blocking_cpu"])
-
-                    update_param_(
-                        param=param,
-                        param_fp32=param_fp32,
-                        grad=grad,
-                        update=update,
-                        learning_rate=group["lr"],
-                        weight_decay=group["weight_decay"],
-                        clips=group["clip_threshold"],
-                        final_norm_mode=group["final_norm_mode"],
-                        use_cautious=group["use_cautious"],
-                        use_stochastic_rounding=group["use_stochastic_rounding"],
-                    )
-
-        return loss
+    @torch.no_grad()
+    def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
+        if group["use_muon"]:
+            return muon_update(
+                param=param_fp32,
+                grad=grad,
+                momentum_buffer=state["momentum_buffer"],
+                v_buffer=state.get("v_buffer", None),
+                step=state["step"],
+                betas=group["betas"],
+                clip=group["clip_threshold"][0],
+                ns_steps=group["ns_steps"],
+                nesterov=group["nesterov"],
+                zeropower_dtype=group["zeropower_dtype"],
+                use_quantized_matmul=group["use_quantized_matmul"],
+                quantized_matmul_dtype=group["quantized_matmul_dtype"],
+                use_stochastic_buffers=group["use_stochastic_buffers"],
+            )
+        else:
+            return adam_update(
+                grad=grad,
+                exp_avg=state["exp_avg"],
+                exp_avg_sq=state["exp_avg_sq"],
+                step=state["step"],
+                betas=group["betas"],
+                clip=group["clip_threshold"][0],
+                use_stochastic_buffers=group["use_stochastic_buffers"],
+            )
 
 
 def muon_update(
