@@ -202,7 +202,7 @@ def sdnq_view_ops(func, *args, **kwargs):
         func(args[0].zero_point, *args[1:], **kwargs) if args[0].zero_point is not None else None,
         func(args[0].svd_up, *args[1:], **kwargs) if args[0].svd_up is not None else None,
         func(args[0].svd_down, *args[1:], **kwargs) if args[0].svd_down is not None else None,
-        args[0].sdnq_dequantizer,
+        copy.deepcopy(args[0].sdnq_dequantizer),
     )
     return return_and_correct_aliasing(func, args, kwargs, out)
 

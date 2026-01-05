@@ -31,12 +31,14 @@ def update_param_(
     param_fp32: torch.FloatTensor,
     grad: torch.FloatTensor,
     update: torch.FloatTensor,
+    kahan_buffer: torch.FloatTensor,
     learning_rate: float,
     weight_decay: float,
     clips: Tuple[float],
-    final_norm_mode: str,
-    use_cautious: bool,
-    use_stochastic_rounding: bool,
+    final_norm_mode: str = "none",
+    use_cautious: bool = False,
+    use_stochastic_rounding: bool = True,
+    use_stochastic_buffers: bool = True,
 ) -> torch.FloatTensor:
     update = apply_norm_to_update_(update, param_fp32, final_norm_mode, clips)
     if use_cautious:
@@ -46,8 +48,28 @@ def update_param_(
     if weight_decay != 0:
         param_fp32.mul_(1 - learning_rate * weight_decay)
 
-    param_fp32.add_(update, alpha=-learning_rate)
-    copy_stochastic_(param, param_fp32, use_stochastic_rounding=use_stochastic_rounding)
+    if kahan_buffer is not None:
+        update = update.mul_(-learning_rate).add_(kahan_buffer)
+        param_fp32 = param_fp32.add_(update)
+
+        new_param = param.clone()
+        copy_stochastic_(new_param, param_fp32, use_stochastic_rounding=use_stochastic_rounding)
+        del param_fp32
+
+        kahan_update = torch.sub(param.to(dtype=torch.float32), new_param.to(dtype=torch.float32)).add_(update)
+        del update
+
+        copy_stochastic_(kahan_buffer, kahan_update, use_stochastic_rounding=use_stochastic_buffers)
+        del kahan_update
+
+        param.copy_(new_param)
+        del new_param
+    else:
+        param_fp32.add_(update, alpha=-learning_rate)
+        del update
+
+        copy_stochastic_(param, param_fp32, use_stochastic_rounding=use_stochastic_rounding)
+        del param_fp32
     return param
 
 
@@ -127,13 +149,13 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
 
 def send_buffers_to_device(state: dict, device: torch.device, non_blocking: bool) -> dict:
     for key, value in state.items():
-        if isinstance(value, torch.Tensor) and value.device != device:
+        if isinstance(value, torch.Tensor) and value.device != device and key != "kahan_buffer":
             state[key] = value.to(device, non_blocking=non_blocking)
     return state
 
 
 def send_buffers_to_cpu(state: dict, non_blocking: bool) -> dict:
     for key, value in state.items():
-        if isinstance(value, torch.Tensor):
+        if isinstance(value, torch.Tensor) and value.device.type != "cpu" and key != "kahan_buffer":
             state[key] = value.to("cpu", non_blocking=non_blocking)
     return state

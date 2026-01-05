@@ -12,7 +12,7 @@ from .utils import get_param_grad, update_param_, send_buffers_to_device, send_b
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
-    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_cautious", "use_stochastic_rounding", "use_stochastic_buffers", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "offload_buffers", "offload_non_blocking", "offload_non_blocking_cpu"}
+    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_kahan", "use_cautious", "use_stochastic_rounding", "use_stochastic_buffers", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "offload_buffers", "offload_non_blocking", "offload_non_blocking_cpu"}
     _extra_group_keys = {}
     _keep_in_fp32_keys = {}
     _group_keys = set.union(_base_group_keys, _extra_group_keys)
@@ -29,6 +29,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["weight_decay"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "weight_decay", 0.01)
         group["clip_threshold"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "clip_threshold", (1.0, 1e-3, 1e-3))
         group["final_norm_mode"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "final_norm_mode", "none")
+        group["use_kahan"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_kahan", False)
         group["use_cautious"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_cautious", False)
         group["use_stochastic_rounding"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_stochastic_rounding", True)
         group["use_stochastic_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_stochastic_buffers", True)
@@ -70,6 +71,11 @@ class SDNQOptimizer(torch.optim.Optimizer):
                 if len(state) == 0:
                     state["step"] = 0
                     state = self.init_state(param, group, state)
+                    if group["use_kahan"]:
+                        if group["use_quantized_buffers"]:
+                            state["kahan_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
+                        else:
+                            state["kahan_buffer"] = torch.zeros_like(param)
 
                 state["step"] += 1
                 state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
@@ -78,19 +84,26 @@ class SDNQOptimizer(torch.optim.Optimizer):
 
                 if group["offload_buffers"]:
                     state = send_buffers_to_cpu(state, group["offload_non_blocking_cpu"])
+                    if group["use_kahan"] and state["kahan_buffer"].device != param.device:
+                        state["kahan_buffer"] = state["kahan_buffer"].to(param.device, non_blocking=group["offload_non_blocking"])
 
                 update_param_(
                     param=param,
                     param_fp32=param_fp32,
                     grad=grad,
                     update=update,
+                    kahan_buffer=state.get("kahan_buffer", None),
                     learning_rate=group["lr"],
                     weight_decay=group["weight_decay"],
                     clips=group["clip_threshold"],
                     final_norm_mode=group["final_norm_mode"],
                     use_cautious=group["use_cautious"],
                     use_stochastic_rounding=group["use_stochastic_rounding"],
+                    use_stochastic_buffers=group["use_stochastic_buffers"],
                 )
+
+                if group["offload_buffers"] and group["use_kahan"] and state["kahan_buffer"].device.type != "cpu":
+                    state["kahan_buffer"] = state["kahan_buffer"].to("cpu", non_blocking=group["offload_non_blocking_cpu"])
 
         return loss
 
