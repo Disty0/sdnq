@@ -390,5 +390,47 @@ def sdnq_view(func, *args, **kwargs):
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
+@register_op([
+    torch.ops.c10d.send.default,
+    torch.ops.c10d.recv_.default,
+])
+def sdnq_dist_ops(func, *args, **kwargs):
+    assert len(args[0]) == 1
+    func([args[0][0].scale], *args[1:], **kwargs).wait()
+    if args[0][0].zero_point is not None:
+        func([args[0][0].zero_point], *args[1:], **kwargs).wait()
+    if args[0][0].svd_up is not None:
+        func([args[0][0].svd_up], *args[1:], **kwargs).wait()
+        func([args[0][0].svd_down], *args[1:], **kwargs).wait()
+    return func([args[0][0].weight], *args[1:], **kwargs)
+
+
+@register_op([
+    torch.ops.c10d.broadcast_.default,
+])
+def sdnq_dist_broadcast(func, *args, **kwargs):
+    assert len(args[0]) == 1
+    scale = func([args[0][0].scale], *args[1:], **kwargs)
+    scale[-1].wait()
+    scale = scale[0][0]
+    if args[0][0].zero_point is not None:
+        zero_point = func([args[0][0].zero_point], *args[1:], **kwargs)
+        zero_point[-1].wait()
+        zero_point = zero_point[0][0]
+    else:
+        zero_point = None
+    if args[0][0].svd_up is not None:
+        svd_up = func([args[0][0].svd_up], *args[1:], **kwargs)
+        svd_down = func([args[0][0].svd_down], *args[1:], **kwargs)
+        svd_up[-1].wait()
+        svd_down[-1].wait()
+        svd_up = svd_up[0][0]
+        svd_down = svd_down[0][0]
+    else:
+        svd_up, svd_down = None, None
+    weight = func([args[0][0].weight], *args[1:], **kwargs)
+    return ([SDNQTensor(weight[0][0], scale, zero_point, svd_up, svd_down, copy.deepcopy(args[0][0].sdnq_dequantizer))], weight[-1])
+
+
 torch.serialization.add_safe_globals([SDNQTensor])
 torch.serialization.add_safe_globals([SDNQDequantizer])
