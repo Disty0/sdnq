@@ -412,7 +412,7 @@ def sdnq_cat(func, tensors, dim=0, **kwargs):
                 svd_rank=sdnq_dequantizer.svd_rank,
                 svd_steps=sdnq_dequantizer.svd_steps,
                 use_svd=svd_down is not None,
-                use_stochastic_rounding=False, # this parh is used for zero padding on deepspeed, override sr
+                use_stochastic_rounding=False, # this path is used for zero padding on deepspeed, override sr
                 dequantize_fp32=dequantize_fp32,
             )
         original_shape[0] += tensor.sdnq_dequantizer.original_shape[0]
