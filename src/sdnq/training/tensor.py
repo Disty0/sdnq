@@ -369,12 +369,37 @@ def sdnq_split(func, input, size, dim=0, **kwargs):
         zero_point_list = [None for _ in range(len(weight_list))]
     if input.svd_up is not None:
         svd_up_list = func(input.svd_up, size, dim=dim, **kwargs)
-        svd_down_list = func(input.svd_down, size, dim=1 if dim == 0 else dim, **kwargs)
+        svd_down_list = [input.svd_down for _ in range(len(weight_list))]
     else:
         svd_up_list = svd_down_list = [None for _ in range(len(weight_list))]
-    sdnq_dequantizer = input.sdnq_dequantizer
+    sdnq_dequantizer = copy.deepcopy(input.sdnq_dequantizer)
+    sdnq_dequantizer.original_shape = list(sdnq_dequantizer.original_shape)
+    sdnq_dequantizer.original_shape[0] = weight_list[0].shape[0]
     out = [SDNQTensor(weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer) for weight, scale, zero_point, svd_up, svd_down in zip(weight_list, scale_list, zero_point_list, svd_up_list, svd_down_list)]
     return out
+
+
+@register_op([torch.ops.aten.cat.default])
+def sdnq_cat(func, tensors, dim=0, **kwargs):
+    if dim != 0:
+        raise NotImplementedError("SDNQ only supports cat at dim=0")
+    sdnq_dequantizer = copy.deepcopy(tensors[0].sdnq_dequantizer)
+    original_shape = list(sdnq_dequantizer.original_shape)
+    assert original_shape[0] == tensors[0].weight.shape[0]
+
+    original_shape[0] = 0
+    for tensor in tensors:
+        original_shape[0] += tensor.weight.shape[0]
+    sdnq_dequantizer.original_shape = original_shape
+
+    return SDNQTensor(
+        torch.cat([tensor.weight for tensor in tensors], dim=0),
+        torch.cat([tensor.scale for tensor in tensors], dim=0),
+        torch.cat([tensor.zero_point for tensor in tensors], dim=0) if tensors[0].zero_point is not None else None,
+        torch.cat([tensor.svd_up for tensor in tensors], dim=0) if tensors[0].svd_up is not None else None,
+        tensors[0].svd_down if tensors[0].svd_down is not None else None,
+        sdnq_dequantizer,
+    )
 
 
 @register_op([torch.ops.aten.view.default, torch.ops.aten.as_strided.default])
