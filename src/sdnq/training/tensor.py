@@ -402,12 +402,6 @@ def sdnq_cat(func, tensors, dim=0, **kwargs):
     )
 
 
-@register_op([torch.ops.aten.view.default, torch.ops.aten.as_strided.default])
-def sdnq_view(func, *args, **kwargs):
-    out = SDNQTensor(args[0].weight, args[0].scale, args[0].zero_point, args[0].svd_up, args[0].svd_down, args[0].sdnq_dequantizer)
-    return return_and_correct_aliasing(func, args, kwargs, out)
-
-
 @register_op([
     torch.ops.c10d.send.default,
     torch.ops.c10d.recv_.default,
@@ -440,6 +434,12 @@ def sdnq_dist_broadcast(func, *args, **kwargs):
         ],
         weight[-1],
     )
+
+
+@register_op([torch.ops.aten.view.default, torch.ops.aten.as_strided.default])
+def sdnq_view(func, *args, **kwargs):
+    out = SDNQTensor(args[0].weight, args[0].scale, args[0].zero_point, args[0].svd_up, args[0].svd_down, args[0].sdnq_dequantizer)
+    return return_and_correct_aliasing(func, args, kwargs, out)
 
 
 torch.serialization.add_safe_globals([SDNQTensor])
