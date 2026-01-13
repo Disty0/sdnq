@@ -195,7 +195,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
     sdnq_dequantizer = copy.deepcopy(input.sdnq_dequantizer)
     result = func(input.dequantize(), *args, **kwargs)
     if isinstance(result, (list, tuple)):
-        return [
+        return type(result)(
             SDNQTensor.from_float(
                 tensor,
                 layer_class_name=sdnq_dequantizer.layer_class_name,
@@ -209,7 +209,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
                 dequantize_fp32=input.scale.dtype == torch.float32,
             ) 
             for tensor in result
-        ]
+        )
     else:
         return SDNQTensor.from_float(
             result,
