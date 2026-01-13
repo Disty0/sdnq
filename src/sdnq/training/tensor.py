@@ -207,28 +207,6 @@ def sdnq_view_ops(func, *args, **kwargs):
     return return_and_correct_aliasing(func, args, kwargs, out)
 
 
-@register_op([torch.ops.aten._to_copy.default])
-def sdnq_to(func, *args, **kwargs):
-    cast_dtype = None
-    dtype = kwargs.pop("dtype", None)
-    sdnq_dequantizer = copy.deepcopy(args[0].sdnq_dequantizer)
-    if dtype is not None:
-        sdnq_dequantizer.result_dtype = dtype
-        if args[0].scale.dtype != torch.float32:
-            cast_dtype = dtype
-    out = SDNQTensor(
-        func(args[0].weight, *args[1:], **kwargs),
-        func(args[0].scale, *args[1:], dtype=cast_dtype, **kwargs),
-        func(args[0].zero_point, *args[1:], dtype=cast_dtype, **kwargs) if args[0].zero_point is not None else None,
-        func(args[0].svd_up, *args[1:], dtype=cast_dtype, **kwargs) if args[0].svd_up is not None else None,
-        func(args[0].svd_down, *args[1:], dtype=cast_dtype, **kwargs) if args[0].svd_down is not None else None,
-        sdnq_dequantizer,
-    )
-    if dtype is not None:
-        kwargs["dtype"] = dtype
-    return return_and_correct_aliasing(func, args, kwargs, out)
-
-
 @register_op([torch.ops.aten.copy_.default])
 def sdnq_copy_(func, x, y, *args, **kwargs):
     if isinstance(x, SDNQTensor):
@@ -257,6 +235,28 @@ def sdnq_copy_(func, x, y, *args, **kwargs):
     return x
 
 
+@register_op([torch.ops.aten._to_copy.default, torch.ops.aten.empty_like.default])
+def sdnq_to_copy(func, *args, **kwargs):
+    cast_dtype = None
+    dtype = kwargs.pop("dtype", None)
+    sdnq_dequantizer = copy.deepcopy(args[0].sdnq_dequantizer)
+    if dtype is not None:
+        sdnq_dequantizer.result_dtype = dtype
+        if args[0].scale.dtype != torch.float32:
+            cast_dtype = dtype
+    out = SDNQTensor(
+        func(args[0].weight, *args[1:], **kwargs),
+        func(args[0].scale, *args[1:], dtype=cast_dtype, **kwargs),
+        func(args[0].zero_point, *args[1:], dtype=cast_dtype, **kwargs) if args[0].zero_point is not None else None,
+        func(args[0].svd_up, *args[1:], dtype=cast_dtype, **kwargs) if args[0].svd_up is not None else None,
+        func(args[0].svd_down, *args[1:], dtype=cast_dtype, **kwargs) if args[0].svd_down is not None else None,
+        sdnq_dequantizer,
+    )
+    if dtype is not None:
+        kwargs["dtype"] = dtype
+    return return_and_correct_aliasing(func, args, kwargs, out)
+
+
 @register_op([torch.ops.aten.zeros_like.default])
 def sdnq_zeros_like(func, x, *args, **kwargs):
     dtype = kwargs.pop("dtype", x.sdnq_dequantizer.result_dtype)
@@ -269,13 +269,6 @@ def sdnq_ones_like(func, x, *args, **kwargs):
     dtype = kwargs.pop("dtype", x.sdnq_dequantizer.result_dtype)
     device = kwargs.pop("device", x.device)
     return torch.ones(x.sdnq_dequantizer.original_shape, *args, dtype=dtype, device=device, **kwargs)
-
-
-@register_op([torch.ops.aten.empty_like.default])
-def sdnq_empty_like(func, x, *args, **kwargs):
-    dtype = kwargs.pop("dtype", x.sdnq_dequantizer.result_dtype)
-    device = kwargs.pop("device", x.device)
-    return torch.empty(x.sdnq_dequantizer.original_shape, *args, dtype=dtype, device=device, **kwargs)
 
 
 @register_op([torch.ops.aten.mul.Tensor, torch.ops.aten.mul.Scalar])
