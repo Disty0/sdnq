@@ -215,7 +215,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
     else:
         return SDNQTensor.from_float(
             result,
-            layer_class_name=sdnq_dequantizer.layer_class_name if tensor.ndim != 1 else None,
+            layer_class_name=sdnq_dequantizer.layer_class_name if result.ndim != 1 else None,
             weights_dtype=sdnq_dequantizer.weights_dtype,
             torch_dtype=sdnq_dequantizer.result_dtype,
             group_size=sdnq_dequantizer.group_size,
