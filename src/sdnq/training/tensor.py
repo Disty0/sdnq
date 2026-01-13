@@ -190,6 +190,8 @@ def sdnq_generic_func_(func, *args, **kwargs):
     torch.ops.aten.slice.Tensor,
     torch.ops.aten.split.Tensor,
     torch.ops.aten.chunk.default,
+    torch.ops.aten.view.default,
+    torch.ops.aten.as_strided.default,
 ])
 def sdnq_generic_quantized(func, input, *args, **kwargs):
     sdnq_dequantizer = copy.deepcopy(input.sdnq_dequantizer)
@@ -198,7 +200,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
         return type(result)(
             SDNQTensor.from_float(
                 tensor,
-                layer_class_name=sdnq_dequantizer.layer_class_name,
+                layer_class_name=sdnq_dequantizer.layer_class_name if tensor.ndim != 1 else None,
                 weights_dtype=sdnq_dequantizer.weights_dtype,
                 torch_dtype=sdnq_dequantizer.result_dtype,
                 group_size=sdnq_dequantizer.group_size,
@@ -213,7 +215,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
     else:
         return SDNQTensor.from_float(
             result,
-            layer_class_name=sdnq_dequantizer.layer_class_name,
+            layer_class_name=sdnq_dequantizer.layer_class_name if tensor.ndim != 1 else None,
             weights_dtype=sdnq_dequantizer.weights_dtype,
             torch_dtype=sdnq_dequantizer.result_dtype,
             group_size=sdnq_dequantizer.group_size,
@@ -449,12 +451,6 @@ def sdnq_dist_broadcast(func, *args, **kwargs):
         ],
         weight[-1],
     )
-
-
-@register_op([torch.ops.aten.view.default, torch.ops.aten.as_strided.default])
-def sdnq_view(func, *args, **kwargs):
-    out = SDNQTensor(args[0].weight, args[0].scale, args[0].zero_point, args[0].svd_up, args[0].svd_down, args[0].sdnq_dequantizer)
-    return return_and_correct_aliasing(func, args, kwargs, out)
 
 
 torch.serialization.add_safe_globals([SDNQTensor])
