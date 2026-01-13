@@ -419,6 +419,37 @@ def sdnq_slice(func, input, dim=0, start=None, end=None, step=1):
     )
 
 
+@register_op([torch.ops.aten.select.int])
+def sdnq_select(func, input, dim=0, index=None):
+    if dim != 0:
+        raise NotImplementedError("SDNQ only supports slice at dim=0")
+    sdnq_dequantizer = copy.deepcopy(input.sdnq_dequantizer)
+
+    do_weight_reshape = sdnq_dequantizer.quantized_weight_shape != input.weight.shape
+    if do_weight_reshape:
+        weight = func(input.weight.unflatten(0, (sdnq_dequantizer.quantized_weight_shape[0], -1)), dim=dim, index=index).unsqueeze(0)
+    else:
+        weight = func(input.weight, dim=dim, index=index).unsqueeze(0)
+
+    scale = func(input.scale, dim=dim, index=index).unsqueeze(0)
+
+    sdnq_dequantizer.original_shape = list(sdnq_dequantizer.original_shape)
+    sdnq_dequantizer.quantized_weight_shape = list(sdnq_dequantizer.quantized_weight_shape)
+    sdnq_dequantizer.result_shape = list(sdnq_dequantizer.result_shape)
+    sdnq_dequantizer.original_shape[0] = scale.shape[0]
+    sdnq_dequantizer.quantized_weight_shape[0] = scale.shape[0]
+    sdnq_dequantizer.result_shape[0] = scale.shape[0]
+
+    return SDNQTensor(
+        weight,
+        scale,
+        func(input.zero_point, dim=dim, index=index).unsqueeze(0) if input.zero_point is not None else None,
+        func(input.svd_up, dim=dim, index=index).unsqueeze(0) if input.svd_up is not None else None,
+        input.svd_down if input.svd_down is not None else None,
+        sdnq_dequantizer,
+    )
+
+
 @register_op([torch.ops.aten.cat.default])
 def sdnq_cat(func, tensors, dim=0, **kwargs):
     if dim != 0:
