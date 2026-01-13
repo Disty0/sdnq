@@ -364,7 +364,7 @@ def sdnq_split(func, input, size, dim=0, **kwargs):
     do_weight_reshape = input.sdnq_dequantizer.quantized_weight_shape != input.weight.shape
     if do_weight_reshape:
         weight_list = func(input.weight.unflatten(0, (input.sdnq_dequantizer.quantized_weight_shape[0], -1)), size, dim=dim, **kwargs)
-        weight_list = [weight.flatten() for weight in weight_list]
+        weight_list = [weight.flatten(0,1) for weight in weight_list]
     else:
         weight_list = func(input.weight, size, dim=dim, **kwargs)
 
