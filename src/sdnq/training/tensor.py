@@ -360,7 +360,14 @@ def sdnq_div_(func, x, y):
 def sdnq_split(func, input, size, dim=0, **kwargs):
     if dim != 0:
         raise NotImplementedError("SDNQ only supports split at dim=0")
-    weight_list = func(input.weight, size, dim=dim, **kwargs)
+
+    do_weight_reshape = input.sdnq_dequantizer.quantized_weight_shape != input.weight.shape
+    if do_weight_reshape:
+        weight_list = func(input.weight.unflatten(0, (input.sdnq_dequantizer.quantized_weight_shape[0], -1)), size, dim=dim, **kwargs)
+        weight_list = [weight.flatten() for weight in weight_list]
+    else:
+        weight_list = func(input.weight, size, dim=dim, **kwargs)
+
     scale_list = func(input.scale, size, dim=dim, **kwargs)
     if input.zero_point is not None:
         zero_point_list = func(input.zero_point, size, dim=dim, **kwargs)
