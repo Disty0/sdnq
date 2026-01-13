@@ -395,7 +395,7 @@ def sdnq_cat(func, tensors, dim=0, **kwargs):
 
     original_shape = list(sdnq_dequantizer.original_shape)
     quantized_weight_shape = list(sdnq_dequantizer.quantized_weight_shape)
-    result_shape = list(sdnq_dequantizer.quantized_weight_shape)
+    result_shape = list(sdnq_dequantizer.result_shape)
     original_shape[0] = 0
     quantized_weight_shape[0] = 0
     result_shape[0] = 0
