@@ -360,10 +360,11 @@ def sdnq_div_(func, x, y):
 def sdnq_split(func, input, size, dim=0, **kwargs):
     if dim != 0:
         raise NotImplementedError("SDNQ only supports split at dim=0")
+    sdnq_dequantizer = copy.deepcopy(input.sdnq_dequantizer)
 
-    do_weight_reshape = input.sdnq_dequantizer.quantized_weight_shape != input.weight.shape
+    do_weight_reshape = sdnq_dequantizer.quantized_weight_shape != input.weight.shape
     if do_weight_reshape:
-        weight_list = func(input.weight.unflatten(0, (input.sdnq_dequantizer.quantized_weight_shape[0], -1)), size, dim=dim, **kwargs)
+        weight_list = func(input.weight.unflatten(0, (sdnq_dequantizer.quantized_weight_shape[0], -1)), size, dim=dim, **kwargs)
         weight_list = [weight.flatten(0,1) for weight in weight_list]
     else:
         weight_list = func(input.weight, size, dim=dim, **kwargs)
@@ -378,7 +379,6 @@ def sdnq_split(func, input, size, dim=0, **kwargs):
         svd_down_list = [input.svd_down for _ in range(len(weight_list))]
     else:
         svd_up_list = svd_down_list = [None for _ in range(len(weight_list))]
-    sdnq_dequantizer = copy.deepcopy(input.sdnq_dequantizer)
     sdnq_dequantizer.original_shape = list(sdnq_dequantizer.original_shape)
     sdnq_dequantizer.quantized_weight_shape = list(sdnq_dequantizer.quantized_weight_shape)
     sdnq_dequantizer.result_shape = list(sdnq_dequantizer.result_shape)
@@ -386,6 +386,37 @@ def sdnq_split(func, input, size, dim=0, **kwargs):
     sdnq_dequantizer.quantized_weight_shape[0] = scale_list[0].shape[0]
     sdnq_dequantizer.result_shape[0] = scale_list[0].shape[0]
     return [SDNQTensor(weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer) for weight, scale, zero_point, svd_up, svd_down in zip(weight_list, scale_list, zero_point_list, svd_up_list, svd_down_list)]
+
+
+@register_op([torch.ops.aten.slice.Tensor])
+def sdnq_slice(func, input, dim=0, start=None, end=None, step=1):
+    if dim != 0:
+        raise NotImplementedError("SDNQ only supports slice at dim=0")
+    sdnq_dequantizer = copy.deepcopy(input.sdnq_dequantizer)
+
+    do_weight_reshape = sdnq_dequantizer.quantized_weight_shape != input.weight.shape
+    if do_weight_reshape:
+        weight = func(input.weight.unflatten(0, (sdnq_dequantizer.quantized_weight_shape[0], -1)), dim=dim, start=start, end=end, step=step).flatten(0,1)
+    else:
+        weight = func(input.weight, dim=dim, start=start, end=end, step=step)
+
+    scale = func(input.scale, dim=dim, start=start, end=end, step=step)
+
+    sdnq_dequantizer.original_shape = list(sdnq_dequantizer.original_shape)
+    sdnq_dequantizer.quantized_weight_shape = list(sdnq_dequantizer.quantized_weight_shape)
+    sdnq_dequantizer.result_shape = list(sdnq_dequantizer.result_shape)
+    sdnq_dequantizer.original_shape[0] = scale.shape[0]
+    sdnq_dequantizer.quantized_weight_shape[0] = scale.shape[0]
+    sdnq_dequantizer.result_shape[0] = scale.shape[0]
+
+    return SDNQTensor(
+        weight,
+        scale,
+        func(input.zero_point, dim=dim, start=start, end=end, step=step) if input.zero_point is not None else None,
+        func(input.svd_up, dim=dim, start=start, end=end, step=step) if input.svd_up is not None else None,
+        input.svd_down if input.svd_down is not None else None,
+        sdnq_dequantizer,
+    )
 
 
 @register_op([torch.ops.aten.cat.default])
