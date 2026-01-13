@@ -189,7 +189,6 @@ def sdnq_generic_func_(func, *args, **kwargs):
     torch.ops.aten.detach.default,
     torch.ops.aten.clone.default,
     torch.ops.aten.t.default,
-    torch.ops.aten.slice.Tensor,
     torch.ops.c10d_functional.all_gather_into_tensor.default,
     torch.ops._c10d_functional.all_gather_into_tensor.default,
     torch.ops.c10d_functional.wait_tensor.default,
@@ -374,9 +373,12 @@ def sdnq_split(func, input, size, dim=0, **kwargs):
         svd_up_list = svd_down_list = [None for _ in range(len(weight_list))]
     sdnq_dequantizer = copy.deepcopy(input.sdnq_dequantizer)
     sdnq_dequantizer.original_shape = list(sdnq_dequantizer.original_shape)
-    sdnq_dequantizer.original_shape[0] = weight_list[0].shape[0]
-    out = [SDNQTensor(weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer) for weight, scale, zero_point, svd_up, svd_down in zip(weight_list, scale_list, zero_point_list, svd_up_list, svd_down_list)]
-    return out
+    sdnq_dequantizer.quantized_weight_shape = list(sdnq_dequantizer.quantized_weight_shape)
+    sdnq_dequantizer.result_shape = list(sdnq_dequantizer.result_shape)
+    sdnq_dequantizer.original_shape[0] = scale_list[0].shape[0]
+    sdnq_dequantizer.quantized_weight_shape[0] = scale_list[0].shape[0]
+    sdnq_dequantizer.result_shape[0] = scale_list[0].shape[0]
+    return [SDNQTensor(weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer) for weight, scale, zero_point, svd_up, svd_down in zip(weight_list, scale_list, zero_point_list, svd_up_list, svd_down_list)]
 
 
 @register_op([torch.ops.aten.cat.default])
