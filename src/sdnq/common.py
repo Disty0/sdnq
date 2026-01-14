@@ -314,6 +314,14 @@ module_skip_keys_dict = {
         ["layers.0.adaLN_modulation.0.weight", "t_embedder", "cap_embedder", "siglip_embedder", "all_x_embedder", "all_final_layer"],
         {}
     ],
+    "GlmImageTransformer2DModel": [
+        ["transformer_blocks.0.norm1.linear.weight", "image_projector", "glyph_projector", "prior_projector", "time_condition_embed", "norm_out", "proj_out"],
+        {}
+    ],
+    "GlmImageForConditionalGeneration": [
+        ["lm_head", "patch_embed", "embeddings", "embed_tokens", "vqmodel"],
+        {}
+    ],
     "HunyuanImage3ForCausalMM": [
         ["lm_head", "patch_embed", "time_embed", "time_embed_2", "final_layer", "wte", "ln_f", "timestep_emb", "vae", "vision_aligner", "head", "post_layernorm", "embeddings"],
         {}
