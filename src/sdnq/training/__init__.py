@@ -7,7 +7,7 @@ from ..quantizer import SDNQConfig, QuantizationMethod, check_param_name_in, get
 from ..dequantizer import dequantize_layer_weight
 from ..loader import apply_sdnq_options_to_model
 from ..common import linear_types, check_torch_compile
-from ..layers.wrapper import SDNQLayer
+from ..layers.wrapper import get_sdnq_wrapper_class
 
 from ..forward import get_forward_func as get_sdnq_forward_func
 from .forward import get_forward_func
@@ -68,7 +68,7 @@ def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul
                 quantized_forward = get_forward_func(param_weights_dtype, quantized_matmul_dtype, use_grad_ckpt, current_use_quantized_matmul, use_static_quantization, current_group_size)
 
                 if quantized_forward is not None:
-                    module = SDNQLayer(module, quantized_forward)
+                    module = get_sdnq_wrapper_class(module, quantized_forward)
                     setattr(model, module_name, module)
 
         setattr(model, module_name, apply_sdnq_training_to_module(

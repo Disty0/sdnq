@@ -19,7 +19,7 @@ from .common import sdnq_version, dtype_dict, common_skip_keys, module_skip_keys
 from .dequantizer import SDNQDequantizer, dequantize_sdnq_model
 from .packed_int import pack_int_symetric, pack_int_asymetric
 from .packed_float import pack_float
-from .layers.wrapper import SDNQLayer
+from .layers.wrapper import get_sdnq_wrapper_class
 from .forward import get_forward_func
 
 
@@ -500,7 +500,7 @@ def sdnq_quantize_layer(layer, weights_dtype="int8", quantized_matmul_dtype=None
         ) = weight_data
         del weight_data
 
-        layer = SDNQLayer(layer, get_forward_func(layer_class_name, layer.sdnq_dequantizer.quantized_matmul_dtype, layer.sdnq_dequantizer.use_quantized_matmul))
+        layer = get_sdnq_wrapper_class(layer, get_forward_func(layer_class_name, layer.sdnq_dequantizer.quantized_matmul_dtype, layer.sdnq_dequantizer.use_quantized_matmul))
         layer.weight = torch.nn.Parameter(layer.weight.to(return_device, non_blocking=non_blocking), requires_grad=False)
         layer.scale = torch.nn.Parameter(layer.scale.to(return_device, non_blocking=non_blocking), requires_grad=False)
         if layer.zero_point is not None:
