@@ -12,7 +12,7 @@ class SDNQLayer(torch.nn.Module):
 
     def forward(self, *args, **kwargs) -> torch.Tensor:
         return self.forward_func(self, *args, **kwargs)
-    
+
     def __repr__(self):
         return f"{self.__class__.__name__}(original_class={self.original_class.__name__} forward_func={self.forward_func} sdnq_dequantizer={repr(getattr(self, 'sdnq_dequantizer', None))})"
 
