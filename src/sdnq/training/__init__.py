@@ -7,7 +7,7 @@ from ..quantizer import SDNQConfig, QuantizationMethod, check_param_name_in, get
 from ..dequantizer import dequantize_layer_weight
 from ..loader import apply_sdnq_options_to_model
 from ..common import linear_types, check_torch_compile
-from ..layers.wrapper import get_sdnq_wrapper_class
+from ..layers import get_sdnq_wrapper_class
 
 from ..forward import get_forward_func as get_sdnq_forward_func
 from .forward import get_forward_func

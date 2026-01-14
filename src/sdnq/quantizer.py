@@ -19,8 +19,8 @@ from .common import sdnq_version, dtype_dict, common_skip_keys, module_skip_keys
 from .dequantizer import SDNQDequantizer, dequantize_sdnq_model
 from .packed_int import pack_int_symetric, pack_int_asymetric
 from .packed_float import pack_float
-from .layers.wrapper import get_sdnq_wrapper_class
 from .forward import get_forward_func
+from .layers import get_sdnq_wrapper_class
 
 
 class QuantizationMethod(str, Enum):
