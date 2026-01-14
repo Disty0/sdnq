@@ -56,7 +56,7 @@ def quantize_weight(weight: torch.FloatTensor, reduction_axes: Union[int, List[i
 
     if dtype_dict[weights_dtype]["is_integer"]:
         if use_stochastic_rounding:
-            quantized_weight.add_(torch.randn_like(quantized_weight), alpha=0.1)
+            quantized_weight.add_(torch.rand_like(quantized_weight), alpha=0.1)
         quantized_weight.round_()
     else:
         if use_stochastic_rounding:
