@@ -353,7 +353,7 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
             svd_down = svd_down.to(dtype=torch_dtype)
 
     re_quantize_for_matmul = re_quantize_for_matmul or num_of_groups > 1
-    if use_quantized_matmul and not re_quantize_for_matmul:
+    if use_quantized_matmul and not re_quantize_for_matmul and not dtype_dict[weights_dtype]["is_packed"]:
         scale.t_()
         weight.t_()
         weight = prepare_weight_for_matmul(weight)

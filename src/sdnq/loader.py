@@ -204,7 +204,7 @@ def apply_sdnq_options_to_module(model, dtype: torch.dtype = None, dequantize_fp
                 module.svd_down.data = module.svd_down.to(dtype=scale_dtype)
 
             if current_use_quantized_matmul is not None and current_use_quantized_matmul != module.sdnq_dequantizer.use_quantized_matmul:
-                if not module.sdnq_dequantizer.re_quantize_for_matmul:
+                if not module.sdnq_dequantizer.re_quantize_for_matmul and not dtype_dict[module.sdnq_dequantizer.weights_dtype]["is_packed"]:
                     module.scale.t_()
                     module.weight.t_()
                     if current_use_quantized_matmul:
