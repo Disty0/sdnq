@@ -454,4 +454,3 @@ def sdnq_dist_broadcast(func, *args, **kwargs):
 
 
 torch.serialization.add_safe_globals([SDNQTensor])
-torch.serialization.add_safe_globals([SDNQDequantizer])

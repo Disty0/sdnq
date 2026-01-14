@@ -7,6 +7,7 @@ from ..quantizer import SDNQConfig, QuantizationMethod, check_param_name_in, get
 from ..dequantizer import dequantize_layer_weight
 from ..loader import apply_sdnq_options_to_model
 from ..common import linear_types, check_torch_compile
+from ..layers.wrapper import SDNQLayer
 
 from ..forward import get_forward_func as get_sdnq_forward_func
 from .forward import get_forward_func
@@ -67,8 +68,7 @@ def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul
                 quantized_forward = get_forward_func(param_weights_dtype, quantized_matmul_dtype, use_grad_ckpt, current_use_quantized_matmul, use_static_quantization, current_group_size)
 
                 if quantized_forward is not None:
-                    module.forward = quantized_forward
-                    module.forward = module.forward.__get__(module, module.__class__)
+                    module = SDNQLayer(module, quantized_forward)
                     setattr(model, module_name, module)
 
         setattr(model, module_name, apply_sdnq_training_to_module(
@@ -195,10 +195,9 @@ def convert_sdnq_layer_to_training(self: torch.nn.Module, quantized_matmul_dtype
     if inplace:
         self.weight = weight
         if quantized_forward is not None:
-            self.forward = quantized_forward
+            self.forward_func = quantized_forward
         else:
-            self.forward = getattr(torch.nn, sdnq_dequantizer.layer_class_name).forward
-        self.forward = self.forward.__get__(self, self.__class__)
+            self.forward_func = getattr(torch.nn, sdnq_dequantizer.layer_class_name).forward
         del self.sdnq_dequantizer, self.scale, self.zero_point, self.svd_up, self.svd_down
         return self
     else:
@@ -208,7 +207,7 @@ def convert_sdnq_layer_to_training(self: torch.nn.Module, quantized_matmul_dtype
 @torch.no_grad()
 def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = True):
     if hasattr(model, "sdnq_dequantizer"):
-        layer_class_name = model.__class__.__name__
+        layer_class_name = model.parent_class.__name__
         if layer_class_name not in linear_types:
             model = dequantize_layer_weight(model, inplace=True)
         else:
@@ -230,7 +229,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
         return model
     for module_name, module in model.named_children():
         if hasattr(module, "sdnq_dequantizer"):
-            layer_class_name = module.__class__.__name__
+            layer_class_name = module.parent_class.__name__
             if layer_class_name not in linear_types:
                 module = dequantize_layer_weight(module, inplace=True)
             else:
@@ -315,7 +314,7 @@ def convert_training_layer_to_sdnq(self: torch.nn.Module, inplace: bool = False)
     zero_point = torch.nn.Parameter(self.weight.zero_point, requires_grad=False)
     svd_up = torch.nn.Parameter(self.weight.svd_up, requires_grad=False)
     svd_down = torch.nn.Parameter(self.weight.svd_down, requires_grad=False)
-    quantized_forward = get_sdnq_forward_func(self.__class__.__name__, sdnq_dequantizer.quantized_matmul_dtype, False)
+    quantized_forward = get_sdnq_forward_func(self.parent_class.__name__, sdnq_dequantizer.quantized_matmul_dtype, False)
     if inplace:
         self.weight = weight
         self.scale = scale
@@ -323,8 +322,7 @@ def convert_training_layer_to_sdnq(self: torch.nn.Module, inplace: bool = False)
         self.svd_up = svd_up
         self.svd_down = svd_down
         self.sdnq_dequantizer = sdnq_dequantizer
-        self.forward = quantized_forward
-        self.forward = self.forward.__get__(self, self.__class__)
+        self.forward_func = quantized_forward
         return self
     else:
         return weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer, quantized_forward
