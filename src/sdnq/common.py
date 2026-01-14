@@ -154,9 +154,9 @@ if hasattr(torch, "float8_e5m2fnuz"):
     dtype_dict["float8_e5m2fnuz"] = {"min": -57344.0, "max": 57344.0, "num_bits": 8, "sign": 1, "exponent": 5, "mantissa": 2, "target_dtype": "fp8", "torch_dtype": torch.float8_e5m2fnuz, "storage_dtype": torch.float8_e5m2fnuz, "is_unsigned": False, "is_integer": False, "is_packed": False}
     torch_dtype_dict[torch.float8_e5m2fnuz] = "float8_e5m2fnuz"
 
-linear_types = {"Linear"}
-conv_types = {"Conv1d", "Conv2d", "Conv3d"}
-conv_transpose_types = {"ConvTranspose1d", "ConvTranspose2d", "ConvTranspose3d"}
+linear_types = {"Linear", "SDNQLinear"}
+conv_types = {"Conv1d", "Conv2d", "Conv3d", "SDNQConv1d", "SDNQConv2d", "SDNQConv3d"}
+conv_transpose_types = {"ConvTranspose1d", "ConvTranspose2d", "ConvTranspose3d", "SDNQConvTranspose1d", "SDNQConvTranspose2d", "SDNQConvTranspose3d"}
 allowed_types = set.union(linear_types, conv_types, conv_transpose_types)
 
 accepted_weight_dtypes = set(dtype_dict.keys())
