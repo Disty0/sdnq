@@ -70,6 +70,7 @@ class SDNQTensor(torch.Tensor):
         use_svd: bool = False,
         use_stochastic_rounding: bool = True,
         dequantize_fp32: bool = True,
+        skip_sr: bool = False,
         param_name: str = None,
     ):
         fake_mode = detect_fake_mode(weight)
@@ -87,6 +88,7 @@ class SDNQTensor(torch.Tensor):
                     use_quantized_matmul=False,
                     use_stochastic_rounding=use_stochastic_rounding,
                     dequantize_fp32=dequantize_fp32,
+                    skip_sr=skip_sr,
                     param_name=param_name,
                 )
         else:
@@ -102,6 +104,7 @@ class SDNQTensor(torch.Tensor):
                 use_quantized_matmul=False,
                 use_stochastic_rounding=use_stochastic_rounding,
                 dequantize_fp32=dequantize_fp32,
+                skip_sr=skip_sr,
                 param_name=param_name,
             )
         return SDNQTensor(weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer)
@@ -209,6 +212,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
                 use_svd=input.svd_up is not None,
                 use_stochastic_rounding=sdnq_dequantizer.use_stochastic_rounding,
                 dequantize_fp32=input.scale.dtype == torch.float32,
+                skip_sr=True,
             ) 
             for tensor in result
         )
@@ -224,6 +228,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
             use_svd=input.svd_up is not None,
             use_stochastic_rounding=sdnq_dequantizer.use_stochastic_rounding,
             dequantize_fp32=input.scale.dtype == torch.float32,
+            skip_sr=True,
         )
 
 
@@ -249,6 +254,7 @@ def sdnq_generic_multi_tensor_quantized(func, tensors, *args, **kwargs):
         use_svd=use_svd,
         use_stochastic_rounding=sdnq_dequantizer.use_stochastic_rounding,
         dequantize_fp32=dequantize_fp32,
+        skip_sr=True,
     )
 
 

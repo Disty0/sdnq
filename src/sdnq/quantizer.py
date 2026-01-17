@@ -205,7 +205,7 @@ def add_module_skip_keys(model, modules_to_not_convert: List[str] = None, module
 
 
 @devices.inference_context()
-def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int8", quantized_matmul_dtype=None, torch_dtype=None, group_size=0, svd_rank=32, svd_steps=8, use_svd=False, use_quantized_matmul=False, use_stochastic_rounding=False, dequantize_fp32=False, using_pre_calculated_svd=False, param_name=None): # pylint: disable=unused-argument
+def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int8", quantized_matmul_dtype=None, torch_dtype=None, group_size=0, svd_rank=32, svd_steps=8, use_svd=False, use_quantized_matmul=False, use_stochastic_rounding=False, dequantize_fp32=False, using_pre_calculated_svd=False, skip_sr=False, param_name=None): # pylint: disable=unused-argument
     num_of_groups = 1
     is_conv_type = False
     is_conv_transpose_type = False
@@ -335,7 +335,7 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
         else:
             group_size = -1
 
-    weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype, use_stochastic_rounding=use_stochastic_rounding)
+    weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype, use_stochastic_rounding=(use_stochastic_rounding and not skip_sr))
     if (
         not dequantize_fp32
         and dtype_dict[weights_dtype]["num_bits"] <= 8
