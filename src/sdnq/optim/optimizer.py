@@ -12,7 +12,7 @@ from .utils import get_param_grad, get_param_grad_compiled, update_param_, updat
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
-    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_kahan", "use_cautious", "use_torch_compile", "use_stochastic_rounding", "use_stochastic_buffers", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "offload_buffers", "offload_non_blocking", "offload_non_blocking_cpu"}
+    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_kahan", "use_cautious", "use_torch_compile", "use_stochastic_rounding", "use_stochastic_buffers", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_minimum_numel", "quantized_buffers_minimum_ndim", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "offload_buffers", "offload_non_blocking", "offload_non_blocking_cpu"}
     _extra_group_keys = {}
     _keep_in_fp32_keys = {}
     _group_keys = set.union(_base_group_keys, _extra_group_keys)
@@ -36,6 +36,8 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["use_stochastic_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_stochastic_buffers", True)
         group["use_quantized_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_quantized_buffers", False)
         group["quantized_buffers_dtype"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_dtype", "uint8")
+        group["quantized_buffers_minimum_numel"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_minimum_numel", 16384)
+        group["quantized_buffers_minimum_ndim"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_minimum_ndim", 2)
         group["quantized_buffers_group_size"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_group_size", 32)
         group["quantized_buffers_svd_rank"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_svd_rank", 32)
         group["use_svd_quantization"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_svd_quantization", False)

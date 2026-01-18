@@ -31,6 +31,7 @@ class CAME(SDNQOptimizer):
     @torch.no_grad()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
         grad_shape = param.grad.shape
+        use_quantized_buffers = group["use_quantized_buffers"] and param.grad.ndim >= group["quantized_buffers_minimum_ndim"] and param.grad.numel() >= group["quantized_buffers_minimum_numel"]
         if len(grad_shape) >= 2:
             state["exp_avg_sq_row"] = torch.zeros(grad_shape[:-1], dtype=torch.float32, device=param.device)
             state["exp_avg_sq_col"] = torch.zeros(grad_shape[:-2] + grad_shape[-1:], dtype=torch.float32, device=param.device)
@@ -38,7 +39,7 @@ class CAME(SDNQOptimizer):
             state["exp_avg_res_col"] = torch.zeros(grad_shape[:-2] + grad_shape[-1:], dtype=torch.float32, device=param.device)
         else:
             state["exp_avg_sq"] = torch.zeros_like(param, dtype=torch.float32)
-        if group["use_quantized_buffers"]:
+        if use_quantized_buffers:
             state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
         else:
             state["exp_avg"] = torch.zeros_like(param)

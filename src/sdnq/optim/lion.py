@@ -28,7 +28,8 @@ class Lion(SDNQOptimizer):
 
     @torch.no_grad()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
-        if group["use_quantized_buffers"]:
+        use_quantized_buffers = group["use_quantized_buffers"] and param.grad.ndim >= group["quantized_buffers_minimum_ndim"] and param.grad.numel() >= group["quantized_buffers_minimum_numel"]
+        if use_quantized_buffers:
             state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
         else:
             state["exp_avg"] = torch.zeros_like(param)
