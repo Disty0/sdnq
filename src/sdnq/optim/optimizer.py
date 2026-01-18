@@ -8,7 +8,7 @@ from itertools import chain
 import torch
 
 from ..training import SDNQTensor
-from .utils import get_param_grad, update_param_, send_buffers_to_device, send_buffers_to_cpu
+from .utils import get_param_grad, get_param_grad_compiled, update_param_, update_param_compiled_, send_buffers_to_device, send_buffers_to_cpu
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
@@ -80,7 +80,9 @@ class SDNQOptimizer(torch.optim.Optimizer):
 
                 state["step"] += 1
                 state = send_buffers_to_device(state, param.device, group["offload_non_blocking"])
-                param_fp32, grad = get_param_grad(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
+
+                get_param_grad_func = get_param_grad_compiled if group["use_torch_compile"] else get_param_grad
+                param_fp32, grad = get_param_grad_func(param, clip=group["clip_threshold"][0], grad_scale=grad_scale)
                 update = self.get_param_update(param_fp32, grad, group, state).to(dtype=torch.float32)
 
                 if group["offload_buffers"]:
@@ -88,7 +90,8 @@ class SDNQOptimizer(torch.optim.Optimizer):
                     if group["use_kahan"] and state["kahan_buffer"].device != param.device:
                         state["kahan_buffer"] = state["kahan_buffer"].to(param.device, non_blocking=group["offload_non_blocking"])
 
-                update_param_(
+                update_param_func_ = update_param_compiled_ if group["use_torch_compile"] else update_param_
+                update_param_func_(
                     param=param,
                     param_fp32=param_fp32,
                     grad=grad,

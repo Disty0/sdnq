@@ -2,7 +2,7 @@ from typing import Optional, Tuple, Union
 
 import torch
 
-from ..common import dtype_dict, torch_dtype_dict
+from ..common import compile_func, dtype_dict, torch_dtype_dict
 from ..training import SDNQTensor
 
 
@@ -159,3 +159,7 @@ def send_buffers_to_cpu(state: dict, non_blocking: bool) -> dict:
         if isinstance(value, torch.Tensor) and value.device.type != "cpu" and key != "kahan_buffer":
             state[key] = value.to("cpu", non_blocking=non_blocking)
     return state
+
+
+get_param_grad_compiled = compile_func(get_param_grad)
+update_param_compiled_ = compile_func(update_param_)
