@@ -111,7 +111,7 @@ def quantize_fp_mm_sr(input: torch.FloatTensor, dim: int = -1, matmul_dtype: str
     mantissa_difference = 1 << (23 - dtype_dict[matmul_dtype]["mantissa"])
     scale = torch.amax(input.abs(), dim=dim, keepdims=True).div_(dtype_dict[matmul_dtype]["max"])
     input = torch.div(input, scale).to(dtype=torch.float32).view(dtype=torch.int32)
-    input = input.add_(torch.randint_like(input, low=0, high=mantissa_difference, dtype=torch.int32)).view(dtype=torch.float32)
+    input = input.add_(torch.randint_like(input, low=0, high=mantissa_difference, dtype=torch.int32)).bitwise_and_(-mantissa_difference).view(dtype=torch.float32)
     input = input.nan_to_num_().clamp_(dtype_dict[matmul_dtype]["min"], dtype_dict[matmul_dtype]["max"]).to(dtype=dtype_dict[matmul_dtype]["torch_dtype"])
     return input, scale
 
