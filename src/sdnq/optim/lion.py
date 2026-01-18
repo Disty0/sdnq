@@ -3,6 +3,7 @@ from typing import Tuple, Iterator
 import torch
 
 from ..training import SDNQTensor
+from ..common import compile_func
 
 from .optimizer import SDNQOptimizer
 from .utils import lerp_buffer_stochastic_
@@ -35,7 +36,8 @@ class Lion(SDNQOptimizer):
 
     @torch.no_grad()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
-        return lion_update(
+        update_func = lion_update_compiled if group["use_torch_compile"] else lion_update
+        return update_func(
             grad=grad,
             exp_avg=state["exp_avg"],
             betas=group["betas"],
@@ -53,3 +55,6 @@ def lion_update(
     update = exp_avg.to(dtype=torch.float32).lerp(grad, 1 - beta1).sign_()
     lerp_buffer_stochastic_(exp_avg, grad, 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
     return update
+
+
+lion_update_compiled = compile_func(lion_update)

@@ -3,8 +3,8 @@ from typing import Callable, Tuple, Optional, Iterator
 import torch
 
 from ..training import SDNQTensor
-
 from ..common import compile_func, use_tensorwise_fp8_matmul
+
 from ..training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
 from ..training.layers.linear.linear_fp8_dynamic import fp8_matmul_dynamic
 from ..training.layers.linear.linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
@@ -12,7 +12,7 @@ from ..training.layers.linear.linear_fp16_dynamic import fp16_matmul_dynamic
 
 from .optimizer import SDNQOptimizer
 from .utils import lerp_buffer_stochastic_
-from .adamw import adam_update
+from .adamw import adam_update, adam_update_compiled
 
 
 class Muon(SDNQOptimizer):
@@ -115,7 +115,8 @@ class Muon(SDNQOptimizer):
     @torch.no_grad()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
         if group["use_muon"]:
-            return muon_update(
+            update_func = muon_update_compiled if group["use_torch_compile"] else muon_update
+            return update_func(
                 param=param_fp32,
                 grad=grad,
                 momentum_buffer=state["momentum_buffer"],
@@ -131,7 +132,8 @@ class Muon(SDNQOptimizer):
                 use_stochastic_buffers=group["use_stochastic_buffers"],
             )
         else:
-            return adam_update(
+            update_func = adam_update_compiled if group["use_torch_compile"] else adam_update
+            return update_func(
                 grad=grad,
                 exp_avg=state["exp_avg"],
                 exp_avg_sq=state["exp_avg_sq"],
@@ -275,5 +277,6 @@ def zeropower_via_newtonschulz5_fp8_matmul(X: torch.FloatTensor, steps: int = 5,
     return X
 
 
+muon_update_compiled = compile_func(muon_update)
 zeropower_via_newtonschulz5_quantized_matmul = compile_func(zeropower_via_newtonschulz5_quantized_matmul)
 zeropower_via_newtonschulz5_fp8_matmul = compile_func(zeropower_via_newtonschulz5_fp8_matmul)

@@ -3,6 +3,7 @@ from typing import Tuple, Optional, Iterator
 import torch
 
 from ..training import SDNQTensor
+from ..common import compile_func
 
 from .optimizer import SDNQOptimizer
 from .utils import lerp_buffer_stochastic_, apply_norm_to_update_
@@ -45,7 +46,8 @@ class CAME(SDNQOptimizer):
 
     @torch.no_grad()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
-        return came_update(
+        update_func = came_update_compiled if group["use_torch_compile"] else came_update
+        return update_func(
             grad=grad,
             param=param_fp32,
             exp_avg_sq_row=state.get("exp_avg_sq_row", None),
@@ -106,3 +108,6 @@ def came_update(
 
     update = update.nan_to_num_().clamp_(-clip,clip)
     return update
+
+
+came_update_compiled = compile_func(came_update)

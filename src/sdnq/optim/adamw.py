@@ -3,6 +3,7 @@ from typing import Tuple, Iterator
 import torch
 
 from ..training import SDNQTensor
+from ..common import compile_func
 
 from .optimizer import SDNQOptimizer
 from .utils import lerp_buffer_stochastic_
@@ -36,7 +37,8 @@ class AdamW(SDNQOptimizer):
 
     @torch.no_grad()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
-        return adam_update(
+        update_func = adam_update_compiled if group["use_torch_compile"] else adam_update
+        return update_func(
             grad=grad,
             exp_avg=state["exp_avg"],
             exp_avg_sq=state["exp_avg_sq"],
@@ -67,3 +69,6 @@ def adam_update(
     del exp_avg_sq_fp32
 
     return exp_avg_c.mul_(exp_avg_sq_c.rsqrt_()).nan_to_num_().clamp_(-clip,clip)
+
+
+adam_update_compiled = compile_func(adam_update)

@@ -12,7 +12,7 @@ from .utils import get_param_grad, update_param_, send_buffers_to_device, send_b
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
-    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_kahan", "use_cautious", "use_stochastic_rounding", "use_stochastic_buffers", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "offload_buffers", "offload_non_blocking", "offload_non_blocking_cpu"}
+    _base_group_keys = {"params", "lr", "betas", "weight_decay", "clip_threshold", "final_norm_mode", "use_kahan", "use_cautious", "use_torch_compile", "use_stochastic_rounding", "use_stochastic_buffers", "use_quantized_buffers", "quantized_buffers_dtype", "quantized_buffers_group_size", "quantized_buffers_svd_rank", "use_svd_quantization", "offload_buffers", "offload_non_blocking", "offload_non_blocking_cpu"}
     _extra_group_keys = {}
     _keep_in_fp32_keys = {}
     _group_keys = set.union(_base_group_keys, _extra_group_keys)
@@ -31,6 +31,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["final_norm_mode"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "final_norm_mode", "none")
         group["use_kahan"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_kahan", False)
         group["use_cautious"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_cautious", False)
+        group["use_torch_compile"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_torch_compile", False)
         group["use_stochastic_rounding"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_stochastic_rounding", True)
         group["use_stochastic_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_stochastic_buffers", True)
         group["use_quantized_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_quantized_buffers", False)

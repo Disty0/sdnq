@@ -3,6 +3,7 @@ from typing import Tuple, Optional, Iterator
 import torch
 
 from ..training import SDNQTensor
+from ..common import compile_func
 
 from .optimizer import SDNQOptimizer
 from .utils import lerp_buffer_stochastic_, apply_norm_to_update_
@@ -45,7 +46,8 @@ class Adafactor(SDNQOptimizer):
 
     @torch.no_grad()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
-        return adafactor_update(
+        update_func = adafactor_update_compiled if group["use_torch_compile"] else adafactor_update
+        return update_func(
             param=param_fp32,
             grad=grad,
             row_var=state.get("row_var", None),
@@ -102,3 +104,6 @@ def approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col):
         torch.div(exp_avg_sq_row, exp_avg_sq_row.mean(dim=-1, keepdim=True)).rsqrt_().unsqueeze(-1),
         exp_avg_sq_col.rsqrt().unsqueeze(-2),
     )
+
+
+adafactor_update_compiled = compile_func(adafactor_update)
