@@ -45,9 +45,9 @@ def fp8_matmul_tensorwise_backward_ckpt(
     input_shape[-1] = input.shape[-1]
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = fp8_matmul_tensorwise_dynamic(grad_output, dequantize_symmetric(weight, scale), svd_up=svd_up, svd_down=svd_down, output_shape=input.shape, do_input_reshape=False, use_sr=True)
+        grad_input = fp8_matmul_tensorwise_dynamic(grad_output, dequantize_symmetric(weight, scale), svd_up=svd_up, svd_down=svd_down, output_shape=input.shape, do_input_reshape=False)
     if do_grad_weight:
-        grad_weight = fp8_matmul_tensorwise(grad_output.t(), input, input_scale, output_shape=None, do_input_reshape=False, use_sr=True)
+        grad_weight = fp8_matmul_tensorwise(grad_output.t(), input, input_scale, output_shape=None, do_input_reshape=False)
     if do_grad_bias and bias is not None:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
