@@ -75,7 +75,8 @@ class SDNQOptimizer(torch.optim.Optimizer):
                     state["step"] = 0
                     state = self.init_state(param, group, state)
                     if group["use_kahan"]:
-                        if group["use_quantized_buffers"]:
+                        use_quantized_buffers = group["use_quantized_buffers"] and param.ndim >= group["quantized_buffers_minimum_ndim"] and param.numel() >= group["quantized_buffers_minimum_numel"]
+                        if use_quantized_buffers:
                             state["kahan_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
                         else:
                             state["kahan_buffer"] = torch.zeros_like(param)
