@@ -87,9 +87,9 @@ def copy_stochastic_(
 
     if dtype_dict[target_dtype]["is_integer"]:
         if source.dtype != torch.float32:
-            return target.copy_(source.to(dtype=torch.float32).add_(torch.rand_like(source, dtype=torch.float32), alpha=0.1).round_().clamp_(min_val,max_val))
+            return target.copy_(source.to(dtype=torch.float32).add_(torch.randn_like(source, dtype=torch.float32), alpha=0.1).round_().clamp_(min_val,max_val))
         else:
-            return target.copy_(source.add(torch.rand_like(source), alpha=0.1).round_().clamp_(min_val,max_val))
+            return target.copy_(source.add(torch.randn_like(source), alpha=0.1).round_().clamp_(min_val,max_val))
     else:
         mantissa_difference = 1 << (23 - dtype_dict[target_dtype]["mantissa"])
         return target.copy_(
