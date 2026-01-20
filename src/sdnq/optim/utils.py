@@ -124,7 +124,7 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
     else:
         clip, clip2 = clips[:2]
 
-    if norm_mode == "none":
+    if norm_mode == "clip":
         return update.nan_to_num_().clamp_(-clip,clip)
     elif norm_mode == "rms":
         update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)))
@@ -142,7 +142,7 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
         for shape in update.shape[1:]:
             input_shape *= shape
         update = update.mul_(max(1, output_shape / input_shape)**0.5)
-    else:
+    elif norm_mode != "none":
         raise NotImplementedError(f"Norm mode {norm_mode} is not implemented")
     return update.nan_to_num_().clamp_(-clip,clip)
 

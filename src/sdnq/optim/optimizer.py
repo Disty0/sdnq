@@ -28,7 +28,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["betas"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "betas", (0.9, 0.95))
         group["weight_decay"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "weight_decay", 0.01)
         group["clip_threshold"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "clip_threshold", (1.0, 1e-3, 1e-3))
-        group["final_norm_mode"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "final_norm_mode", "none")
+        group["final_norm_mode"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "final_norm_mode", "clip")
         group["use_kahan"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_kahan", False)
         group["use_cautious"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_cautious", False)
         group["use_torch_compile"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_torch_compile", False)
