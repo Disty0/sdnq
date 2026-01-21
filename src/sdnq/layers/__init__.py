@@ -5,10 +5,37 @@ class SDNQLayer(torch.nn.Module):
     def __init__(self, original_layer, forward_func):
         torch.nn.Module.__init__(self)
         for key, value in original_layer.__dict__.items():
-            if key not in {"forward", "forward_func", "original_class"}:
+            if key not in {"forward", "forward_func", "original_class", "state_dict", "load_state_dict"}:
                 setattr(self, key, value)
         self.original_class = original_layer.__class__
         self.forward_func = forward_func
+
+    def state_dict(self, *args, **kwargs):
+        state_dict = super().state_dict(*args, **kwargs)
+        if self.weight.__class__.__name__ == "SDNQTensor":
+            state_dict.update(
+                {
+                    "weight": state_dict["weight"].weight,
+                    "weight.scale": state_dict["weight"].scale,
+                    "weight.zero_point": state_dict["weight"].zero_point,
+                    "weight.svd_up": state_dict["weight"].svd_up,
+                    "weight.svd_down": state_dict["weight"].svd_down,
+                    "weight.sdnq_dequantizer": state_dict["weight"].sdnq_dequantizer,
+                }
+            )
+        return state_dict
+
+    def load_state_dict(self, state_dict, *args, **kwargs):
+        if self.weight.__class__.__name__ == "SDNQTensor":
+            self.weight.weight = state_dict.pop("weight")
+            self.weight.scale = state_dict.pop("weight.scale")
+            self.weight.zero_point = state_dict.pop("weight.zero_point", self.weight.zero_point)
+            self.weight.svd_up = state_dict.pop("weight.svd_up", self.weight.svd_up)
+            self.weight.svd_down = state_dict.pop("weight.svd_down", self.weight.svd_down)
+            self.weight.sdnq_dequantizer = state_dict.pop("weight.sdnq_dequantizer", self.weight.sdnq_dequantizer)
+            state_dict["weight"] = self.weight
+        return super().load_state_dict(state_dict, *args, **kwargs)
+
 
     def forward(self, *args, **kwargs) -> torch.Tensor:
         return self.forward_func(self, *args, **kwargs)
