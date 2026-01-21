@@ -9,6 +9,7 @@ from .sdnext import devices
 from .common import dtype_dict, compile_func, use_contiguous_mm, use_tensorwise_fp8_matmul
 from .packed_int import unpack_int_symetric, unpack_int_asymetric
 from .packed_float import unpack_float
+from .layers import SDNQLayer
 
 
 @devices.inference_context()
@@ -178,29 +179,15 @@ def re_quantize_matmul_packed_float_symmetric(weight: torch.ByteTensor, scale: t
 
 
 @devices.inference_context()
-def dequantize_layer_weight(self: torch.nn.Module, inplace: bool = False):
-    weight = torch.nn.Parameter(self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul), requires_grad=True)
-    forward = getattr(torch.nn, self.sdnq_dequantizer.layer_class_name).forward
-    if inplace:
-        self.weight = weight
-        self.forward = forward
-        self.forward = self.forward.__get__(self, self.__class__)
-        del self.sdnq_dequantizer, self.scale, self.zero_point, self.svd_up, self.svd_down
-        return self
-    else:
-        return weight, forward
-
-
-@devices.inference_context()
 def dequantize_sdnq_module(model: torch.nn.Module):
-    if hasattr(model, "sdnq_dequantizer"):
-        model = dequantize_layer_weight(model, inplace=True)
+    if isinstance(model, SDNQLayer):
+        model = model.dequantize()
     has_children = list(model.children())
     if not has_children:
         return model
     for module_name, module in model.named_children():
-        if hasattr(module, "sdnq_dequantizer"):
-            setattr(model, module_name, dequantize_layer_weight(module, inplace=True))
+        if isinstance(module, SDNQLayer):
+            setattr(model, module_name, module.dequantize())
         else:
             setattr(model, module_name, dequantize_sdnq_model(module))
     return model

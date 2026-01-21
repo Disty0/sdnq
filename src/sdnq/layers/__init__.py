@@ -37,12 +37,21 @@ class SDNQLayer(torch.nn.Module):
             )
         return super().load_state_dict(state_dict, *args, **kwargs)
 
+    def dequantize(self: torch.nn.Module):
+        if self.weight.__class__.__name__ == "SDNQTensor":
+            self.weight = torch.nn.Parameter(self.weight.dequantize(), requires_grad=True)
+        elif hasattr(self, "sdnq_dequantizer"):
+            self.weight = torch.nn.Parameter(self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul), requires_grad=True)
+            del self.sdnq_dequantizer, self.scale, self.zero_point, self.svd_up, self.svd_down
+        self.__class__ = self.original_class
+        del self.original_class, self.forward_func
+        return self
 
     def forward(self, *args, **kwargs) -> torch.Tensor:
         return self.forward_func(self, *args, **kwargs)
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(original_class={self.original_class.__name__} forward_func={self.forward_func} sdnq_dequantizer={repr(getattr(self, 'sdnq_dequantizer', None))})"
+        return f"{self.__class__.__name__}(original_class={self.original_class} forward_func={self.forward_func} sdnq_dequantizer={repr(getattr(self, 'sdnq_dequantizer', None))})"
 
 
 class SDNQLinear(SDNQLayer, torch.nn.Linear):
