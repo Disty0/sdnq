@@ -13,16 +13,13 @@ class SDNQLayer(torch.nn.Module):
     def state_dict(self, *args, **kwargs):
         state_dict = super().state_dict(*args, **kwargs)
         if self.weight.__class__.__name__ == "SDNQTensor":
-            state_dict.update(
-                {
-                    "weight": state_dict["weight"].weight,
-                    "weight.scale": state_dict["weight"].scale,
-                    "weight.zero_point": state_dict["weight"].zero_point,
-                    "weight.svd_up": state_dict["weight"].svd_up,
-                    "weight.svd_down": state_dict["weight"].svd_down,
-                    "weight.sdnq_dequantizer": state_dict["weight"].sdnq_dequantizer,
-                }
-            )
+            if state_dict["weight"].zero_point is not None:
+                state_dict.update({"weight.zero_point": state_dict["weight"].zero_point})
+            if state_dict["weight"].svd_up is not None:
+                state_dict.update({"weight.svd_up": state_dict["weight"].svd_up})
+            if state_dict["weight"].svd_down is not None:
+                state_dict.update({"weight.svd_down": state_dict["weight"].svd_down})
+            state_dict.update({"weight": state_dict["weight"].weight, "weight.scale": state_dict["weight"].scale})
         return state_dict
 
     def load_state_dict(self, state_dict, *args, **kwargs):
@@ -32,7 +29,6 @@ class SDNQLayer(torch.nn.Module):
             self.weight.zero_point = state_dict.pop("weight.zero_point", self.weight.zero_point)
             self.weight.svd_up = state_dict.pop("weight.svd_up", self.weight.svd_up)
             self.weight.svd_down = state_dict.pop("weight.svd_down", self.weight.svd_down)
-            self.weight.sdnq_dequantizer = state_dict.pop("weight.sdnq_dequantizer", self.weight.sdnq_dequantizer)
             state_dict["weight"] = self.weight
         return super().load_state_dict(state_dict, *args, **kwargs)
 
