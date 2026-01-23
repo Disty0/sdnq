@@ -115,11 +115,11 @@ class SDNQOptimizer(torch.optim.Optimizer):
         return loss
 
     def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict[Any, Any]], key: Hashable = None, device: torch.device = None) -> torch.Tensor:
-        if device is None:
-            device = param.device
         if key == "step":
             return value
-        elif param.dtype == torch.float32 or isinstance(value, SDNQTensor) or key in self._keep_in_fp32_keys:
+        if device is None:
+            device = param.device
+        if param.dtype == torch.float32 or isinstance(value, SDNQTensor) or key in self._keep_in_fp32_keys:
             # Sending in 16 bit to GPU and casting to FP32 in GPU is much faster than sending it directly in FP32
             return value.to(device=device).to(dtype=torch.float32)
         else:
@@ -161,7 +161,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
 
         # Update the state
         id_map = dict(zip(chain.from_iterable(g["params"] for g in saved_groups), chain.from_iterable(g["params"] for g in groups)))
-        device = "cpu" if any(group["offload_buffers"] for group in state_dict["param_groups"]) else None
+        device = torch.device("cpu") if any(group["offload_buffers"] for group in state_dict["param_groups"]) else None
 
         state: defaultdict[torch.Tensor, dict[Any, Any]] = defaultdict(dict)
         for k, v in state_dict["state"].items():
