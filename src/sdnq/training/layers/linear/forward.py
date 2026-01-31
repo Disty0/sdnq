@@ -6,10 +6,10 @@ from ....common import compile_func, use_contiguous_mm
 from ...tensor import SDNQTensor # noqa: TID252
 
 
-def check_mats(input: torch.Tensor, weight: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+def check_mats(input: torch.Tensor, weight: torch.Tensor, allow_contiguous_mm: bool = True) -> Tuple[torch.Tensor, torch.Tensor]:
     if input is not None:
         input = input.contiguous()
-    if use_contiguous_mm:
+    if allow_contiguous_mm and use_contiguous_mm:
         weight = weight.contiguous()
     elif weight.is_contiguous():
         weight = weight.t().contiguous().t()

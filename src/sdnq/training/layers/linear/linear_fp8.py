@@ -53,7 +53,7 @@ def fp8_matmul(
             _, svd_down = check_mats(None, svd_down)
             svd_bias = torch.mm(torch.mm(input, svd_up), svd_down)
     input, input_scale = quantize_fp_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
-    input, weight = check_mats(input, weight)
+    input, weight = check_mats(input, weight, allow_contiguous_mm=False)
     if bias is not None and bias.dtype != torch.bfloat16:
         bias = bias.to(dtype=torch.bfloat16)
     result = torch._scaled_mm(input, weight, scale_a=input_scale, scale_b=scale, bias=bias, out_dtype=torch.bfloat16).view(output_shape).to(return_dtype)
