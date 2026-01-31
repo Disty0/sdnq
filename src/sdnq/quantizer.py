@@ -68,7 +68,7 @@ def quantize_weight(weight: torch.FloatTensor, reduction_axes: Union[int, List[i
 
 
 @devices.inference_context()
-def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, niter: int = 8) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, niter: int = 8, dtype: torch.dtype = None) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     reshape_weight = False
     if weight.ndim > 2: # convs
         reshape_weight = True
@@ -78,6 +78,9 @@ def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, niter: int = 8) ->
     U, S, svd_down = torch.svd_lowrank(weight, q=rank, niter=niter)
     svd_up = torch.mul(U, S.unsqueeze(0))
     svd_down = svd_down.t_()
+    if dtype is not None:
+        svd_up = svd_up.to(dtype=dtype)
+        svd_down = svd_down.to(dtype=dtype)
     weight = weight.sub(torch.mm(svd_up, svd_down))
     if reshape_weight:
         weight = weight.unflatten(-1, (*weight_shape[1:],)) # pylint: disable=possibly-used-before-assignment
@@ -276,7 +279,7 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
 
     if use_svd:
         try:
-            weight, svd_up, svd_down = apply_svdquant(weight, rank=svd_rank, niter=svd_steps)
+            weight, svd_up, svd_down = apply_svdquant(weight, rank=svd_rank, niter=svd_steps, dtype=torch_dtype if not dequantize_fp32 else None)
             if use_quantized_matmul:
                 svd_up = svd_up.t_()
                 svd_down = svd_down.t_()
