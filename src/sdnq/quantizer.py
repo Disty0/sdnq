@@ -225,6 +225,8 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
     is_conv_transpose_type = False
     is_linear_type = False
     result_shape = None
+    scale_dtype = None
+
     original_shape = weight.shape
     original_stride = weight.stride()
     weight = weight.detach()
@@ -288,9 +290,20 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
         reduction_axes = -1
         use_quantized_matmul = False
 
+    if (
+        not dequantize_fp32
+        and dtype_dict[weights_dtype]["num_bits"] <= 8
+        and not (
+            use_quantized_matmul
+            and not dtype_dict[quantized_matmul_dtype]["is_integer"]
+            and (not use_tensorwise_fp8_matmul or dtype_dict[quantized_matmul_dtype]["num_bits"] == 16)
+        )
+    ):
+        scale_dtype = torch_dtype
+
     if use_svd:
         try:
-            weight, svd_up, svd_down = apply_svdquant(weight, rank=svd_rank, niter=svd_steps, dtype=torch_dtype if not dequantize_fp32 else None)
+            weight, svd_up, svd_down = apply_svdquant(weight, rank=svd_rank, niter=svd_steps, dtype=scale_dtype)
             if use_quantized_matmul:
                 svd_up = svd_up.t_()
                 svd_down = svd_down.t_()
@@ -350,29 +363,24 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
             group_size = -1
 
     weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype, use_stochastic_rounding=(use_stochastic_rounding and not skip_sr))
-    if (
-        not dequantize_fp32
-        and dtype_dict[weights_dtype]["num_bits"] <= 8
-        and not (
-            use_quantized_matmul
-            and not dtype_dict[quantized_matmul_dtype]["is_integer"]
-            and (not use_tensorwise_fp8_matmul or dtype_dict[quantized_matmul_dtype]["num_bits"] == 16)
-        )
-    ):
-        scale = scale.to(dtype=torch_dtype)
-        if zero_point is not None:
-            zero_point = zero_point.to(dtype=torch_dtype)
-        if svd_up is not None:
-            svd_up = svd_up.to(dtype=torch_dtype)
-            svd_down = svd_down.to(dtype=torch_dtype)
 
+    cast_scale = True
     re_quantize_for_matmul = re_quantize_for_matmul or num_of_groups > 1
     if use_quantized_matmul and not re_quantize_for_matmul and not dtype_dict[weights_dtype]["is_packed"]:
         scale.t_()
         weight.t_()
         weight = prepare_weight_for_matmul(weight)
         if not use_tensorwise_fp8_matmul and not dtype_dict[quantized_matmul_dtype]["is_integer"]:
-            scale = scale.to(dtype=torch.float32)
+            cast_scale = False
+
+    if scale_dtype is not None:
+        if cast_scale:
+            scale = scale.to(dtype=scale_dtype)
+        if zero_point is not None:
+            zero_point = zero_point.to(dtype=scale_dtype)
+        if svd_up is not None:
+            svd_up = svd_up.to(dtype=scale_dtype)
+            svd_down = svd_down.to(dtype=scale_dtype)
 
     sdnq_dequantizer = SDNQDequantizer(
         result_dtype=torch_dtype,
