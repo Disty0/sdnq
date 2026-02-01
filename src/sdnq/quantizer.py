@@ -43,16 +43,21 @@ def get_scale_symmetric(weight: torch.FloatTensor, reduction_axes: Union[int, Li
 
 
 @devices.inference_context()
-def quantize_weight(weight: torch.FloatTensor, reduction_axes: Union[int, List[int]], weights_dtype: str, use_stochastic_rounding: bool = False) -> Tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
+def quantize_weight(weight: torch.FloatTensor, reduction_axes: Union[int, List[int]], weights_dtype: str, dtype: torch.dtype = None, use_stochastic_rounding: bool = False) -> Tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     weight = weight.to(dtype=torch.float32)
 
     if dtype_dict[weights_dtype]["is_unsigned"]:
         scale, zero_point = get_scale_asymmetric(weight, reduction_axes, weights_dtype)
+        if dtype is not None:
+            scale = scale.to(dtype=dtype)
+            zero_point = zero_point.to(dtype=dtype)
         quantized_weight = torch.sub(weight, zero_point).div_(scale)
     else:
         scale = get_scale_symmetric(weight, reduction_axes, weights_dtype)
-        quantized_weight = torch.div(weight, scale)
         zero_point = None
+        if dtype is not None:
+            scale = scale.to(dtype=dtype)
+        quantized_weight = torch.div(weight, scale)
 
     if dtype_dict[weights_dtype]["is_integer"]:
         if use_stochastic_rounding:
@@ -362,25 +367,21 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
         else:
             group_size = -1
 
-    weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype, use_stochastic_rounding=(use_stochastic_rounding and not skip_sr))
 
     cast_scale = True
+    transpose_weights = False
     re_quantize_for_matmul = re_quantize_for_matmul or num_of_groups > 1
     if use_quantized_matmul and not re_quantize_for_matmul and not dtype_dict[weights_dtype]["is_packed"]:
-        scale.t_()
-        weight.t_()
-        weight = prepare_weight_for_matmul(weight)
+        transpose_weights = True
         if not use_tensorwise_fp8_matmul and not dtype_dict[quantized_matmul_dtype]["is_integer"]:
             cast_scale = False
 
-    if scale_dtype is not None:
-        if cast_scale:
-            scale = scale.to(dtype=scale_dtype)
-        if zero_point is not None:
-            zero_point = zero_point.to(dtype=scale_dtype)
-        if svd_up is not None:
-            svd_up = svd_up.to(dtype=scale_dtype)
-            svd_down = svd_down.to(dtype=scale_dtype)
+    weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype, dtype=(scale_dtype if cast_scale else None), use_stochastic_rounding=(use_stochastic_rounding and not skip_sr))
+
+    if transpose_weights:
+        scale.t_()
+        weight.t_()
+        weight = prepare_weight_for_matmul(weight)
 
     sdnq_dequantizer = SDNQDequantizer(
         result_dtype=torch_dtype,
