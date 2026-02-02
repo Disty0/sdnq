@@ -33,7 +33,7 @@ def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul
             param_name = module_name
         if module.__class__.__name__ == "Linear" and hasattr(module, "weight") and module.weight is not None:
             param_name = param_name + ".weight"
-            if check_param_name_in(param_name, modules_to_not_convert):
+            if check_param_name_in(param_name, modules_to_not_convert) is not None:
                 continue
             output_channel_size, channel_size = module.weight.shape
 
