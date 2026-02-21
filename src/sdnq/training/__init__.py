@@ -1,5 +1,3 @@
-from typing import Dict, List, Optional
-
 import copy
 import torch
 
@@ -106,10 +104,10 @@ def sdnq_training_post_load_quant(
     dequantize_fp32: bool = True,
     non_blocking: bool = False,
     add_skip_keys:bool = True,
-    quantization_device: Optional[torch.device] = None,
-    return_device: Optional[torch.device] = None,
-    modules_to_not_convert: List[str] = None,
-    modules_dtype_dict: Dict[str, List[str]] = None,
+    quantization_device: torch.device = None,
+    return_device: torch.device = None,
+    modules_to_not_convert: list[str] = None,
+    modules_dtype_dict: dict[str, list[str]] = None,
 ):
     if modules_to_not_convert is None:
         modules_to_not_convert = []

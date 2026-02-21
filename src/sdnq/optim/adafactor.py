@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, Iterator
+from collections.abc import Iterator
 
 import torch
 
@@ -68,11 +68,11 @@ def adafactor_update(
     grad: torch.FloatTensor,
     row_var: torch.FloatTensor,
     col_var: torch.FloatTensor,
-    variance: Optional[torch.FloatTensor],
-    exp_avg: Optional[torch.FloatTensor],
+    variance: torch.FloatTensor,
+    exp_avg: torch.FloatTensor,
     step: int,
-    betas: Tuple[float, float],
-    clips: Tuple[float, float],
+    betas: tuple[float, float],
+    clips: tuple[float, float],
     norm_mode: str = "relative",
     use_stochastic_buffers: bool = False,
 ) -> torch.FloatTensor:

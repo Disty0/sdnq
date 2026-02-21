@@ -1,5 +1,3 @@
-from typing import Tuple, Union
-
 import torch
 
 from ....common import compile_func, use_contiguous_mm
@@ -9,7 +7,7 @@ from ...tensor import SDNQTensor # noqa: TID252
 from .forward import check_mats, quantized_linear_with_backward
 
 
-def quantize_fp_mm_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True, use_sr: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
+def quantize_fp_mm_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     else:
@@ -70,7 +68,7 @@ def fp8_matmul_dynamic_backward(
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
-) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
@@ -84,7 +82,7 @@ def fp8_matmul_dynamic_backward(
 
 class FP8MatmulDynamicBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: torch.FloatTensor, weight: Union[torch.FloatTensor, SDNQTensor], bias: torch.FloatTensor = None) -> torch.FloatTensor:
+    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor = None) -> torch.FloatTensor:
         svd_up, svd_down = None, None
         if isinstance(weight, SDNQTensor):
             svd_up, svd_down = weight.svd_up, weight.svd_down
@@ -93,7 +91,7 @@ class FP8MatmulDynamicBackward(torch.autograd.Function):
         return fp8_matmul_dynamic_compiled(input, weight, bias=bias, svd_up=svd_up, svd_down=svd_down)
 
     @staticmethod
-    def backward(ctx, grad_output: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, bias, svd_up, svd_down = ctx.saved_tensors
         return fp8_matmul_dynamic_backward(grad_output, input, weight, bias=bias, svd_up=svd_up, svd_down=svd_down, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
 

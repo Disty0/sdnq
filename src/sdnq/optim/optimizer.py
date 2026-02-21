@@ -1,5 +1,3 @@
-from typing import Any
-
 from collections import defaultdict
 from collections.abc import Hashable, Iterable
 from copy import deepcopy
@@ -114,7 +112,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
 
         return loss
 
-    def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict[Any, Any]], key: Hashable = None, device: torch.device = None) -> torch.Tensor:
+    def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict], key: Hashable = None, device: torch.device = None) -> torch.Tensor:
         if key == "step":
             return value
         if device is None:
@@ -163,7 +161,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         id_map = dict(zip(chain.from_iterable(g["params"] for g in saved_groups), chain.from_iterable(g["params"] for g in groups)))
         device = torch.device("cpu") if any(group["offload_buffers"] for group in state_dict["param_groups"]) else None
 
-        state: defaultdict[torch.Tensor, dict[Any, Any]] = defaultdict(dict)
+        state: defaultdict[torch.Tensor, dict] = defaultdict(dict)
         for k, v in state_dict["state"].items():
             if k in id_map:
                 param = id_map[k]
@@ -172,7 +170,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
                 state[k] = v
 
         # Update parameter groups, setting their 'params' value
-        def update_group(group: dict[str, Any], new_group: dict[str, Any]) -> dict[str, Any]:
+        def update_group(group: dict[str], new_group: dict[str]) -> dict[str]:
             new_group["params"] = group["params"]
             if "param_names" in group and "param_names" not in new_group:
                 new_group["param_names"] = group["param_names"]

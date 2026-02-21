@@ -1,7 +1,5 @@
 # pylint: disable=relative-beyond-top-level,redefined-builtin,protected-access
 
-from typing import Tuple
-
 import torch
 
 from ...common import compile_func # noqa: TID252
@@ -11,7 +9,7 @@ from ...dequantizer import quantize_fp_mm, dequantize_symmetric, dequantize_symm
 from .forward import check_mats
 
 
-def quantize_fp_mm_input_tensorwise(input: torch.FloatTensor, scale: torch.FloatTensor, matmul_dtype: str = "float8_e4m3fn") -> Tuple[torch.Tensor, torch.FloatTensor]:
+def quantize_fp_mm_input_tensorwise(input: torch.FloatTensor, scale: torch.FloatTensor, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
     input = input.flatten(0,-2).to(dtype=scale.dtype)
     input, input_scale = quantize_fp_mm(input, dim=-1, matmul_dtype=matmul_dtype)
     scale = torch.mul(input_scale, scale)

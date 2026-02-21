@@ -1,5 +1,3 @@
-from typing import Tuple, Union
-
 import torch
 
 from ....common import compile_func
@@ -38,7 +36,7 @@ def fp16_matmul_dynamic_backward_ckpt(
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
-) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     grad_input = grad_weight = grad_bias = None
     input_shape = list(grad_output.shape)
     input_shape[-1] = input.shape[-1]
@@ -54,7 +52,7 @@ def fp16_matmul_dynamic_backward_ckpt(
 
 class FP16MatmulDynamicBackwardCKPT(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: torch.FloatTensor, weight: Union[torch.FloatTensor, SDNQTensor], bias: torch.FloatTensor = None) -> torch.FloatTensor:
+    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor = None) -> torch.FloatTensor:
         svd_up, svd_down = None, None
         if isinstance(weight, SDNQTensor):
             svd_up, svd_down = weight.svd_up, weight.svd_down
@@ -64,7 +62,7 @@ class FP16MatmulDynamicBackwardCKPT(torch.autograd.Function):
         return result
 
     @staticmethod
-    def backward(ctx, grad_output: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, input_scale, weight_scale, bias, svd_up, svd_down = ctx.saved_tensors
         return fp16_matmul_dynamic_backward_ckpt(grad_output, input, weight, input_scale, weight_scale, bias=bias, svd_up=svd_up, svd_down=svd_down, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
 

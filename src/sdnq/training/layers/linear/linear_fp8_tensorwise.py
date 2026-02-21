@@ -1,5 +1,3 @@
-from typing import Tuple, Optional
-
 import torch
 
 from ....common import compile_func, use_contiguous_mm
@@ -10,7 +8,7 @@ from .forward import check_mats, quantized_linear_with_backward
 from .linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
 
 
-def quantize_fp_mm_input_tensorwise(input: torch.FloatTensor, scale: Optional[torch.FloatTensor] = None, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False, matmul_dtype: str = "float8_e4m3fn") -> Tuple[torch.Tensor, torch.FloatTensor]:
+def quantize_fp_mm_input_tensorwise(input: torch.FloatTensor, scale: torch.FloatTensor = None, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     if use_sr:
@@ -81,7 +79,7 @@ def fp8_matmul_tensorwise_backward(
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
-) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
@@ -100,7 +98,7 @@ class FP8MatmulTensorWiseBackward(torch.autograd.Function):
         return fp8_matmul_tensorwise_compiled(input, weight.weight, weight.scale, bias=bias, svd_up=weight.svd_up, svd_down=weight.svd_down, do_transpose=True)
 
     @staticmethod
-    def backward(ctx, grad_output: torch.FloatTensor) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, bias = ctx.saved_tensors
         return fp8_matmul_tensorwise_backward(grad_output, input, weight.weight, weight.scale, bias=bias, svd_up=weight.svd_up, svd_down=weight.svd_down, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
 

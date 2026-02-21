@@ -1,5 +1,3 @@
-from typing import Optional, Union
-
 import time
 import torch
 from tqdm import tqdm
@@ -35,11 +33,11 @@ def benchmark_linear(name: str, linear: torch.nn.Linear, x: torch.Tensor, steps:
 def main(
     steps: int = 50,
     mnk: int = 8192,
-    dtype: Optional[Union[torch.dtype, str]] = None,
-    device: Optional[str] = None,
-    m: Optional[int] = None,
-    n: Optional[int] = None,
-    k: Optional[int] = None,
+    dtype: torch.dtype | str = None,
+    device: str = None,
+    m: int = None,
+    n: int = None,
+    k: int = None,
 ) -> None:
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else None

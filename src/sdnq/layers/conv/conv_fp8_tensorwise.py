@@ -1,7 +1,5 @@
 # pylint: disable=relative-beyond-top-level,redefined-builtin,protected-access
 
-from typing import List
-
 import torch
 
 from ...common import compile_func # noqa: TID252
@@ -18,10 +16,10 @@ def conv_fp8_matmul_tensorwise(
     weight: torch.Tensor,
     scale: torch.FloatTensor,
     result_shape: torch.Size,
-    reversed_padding_repeated_twice: List[int],
+    reversed_padding_repeated_twice: list[int],
     padding_mode: str, conv_type: int,
-    groups: int, stride: List[int],
-    padding: List[int], dilation: List[int],
+    groups: int, stride: list[int],
+    padding: list[int], dilation: list[int],
     bias: torch.FloatTensor = None,
     svd_up: torch.FloatTensor = None,
     svd_down: torch.FloatTensor = None,

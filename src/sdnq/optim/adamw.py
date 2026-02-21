@@ -1,4 +1,4 @@
-from typing import Tuple, Iterator
+from collections.abc import Iterator
 
 import torch
 
@@ -55,7 +55,7 @@ def adam_update(
     exp_avg: torch.FloatTensor,
     exp_avg_sq: torch.FloatTensor,
     step: int,
-    betas: Tuple[float, float],
+    betas: tuple[float, float],
     clip: float,
     use_stochastic_buffers: bool = False,
 ) -> torch.FloatTensor:

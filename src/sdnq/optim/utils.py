@@ -1,5 +1,3 @@
-from typing import Optional, Tuple, Union
-
 import torch
 
 from ..common import compile_func, dtype_dict, torch_dtype_dict
@@ -9,8 +7,8 @@ from ..training import SDNQTensor
 def get_param_grad(
     param: torch.nn.Parameter,
     clip: float = 1.0,
-    grad_scale: Optional[torch.FloatTensor] = None,
-) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+    grad_scale: torch.FloatTensor = None,
+) -> tuple[torch.FloatTensor, torch.FloatTensor]:
     grad = param.grad.nan_to_num_().to(dtype=torch.float32)
     if grad_scale is not None:
         grad.div_(grad_scale.to(dtype=torch.float32))
@@ -34,7 +32,7 @@ def update_param_(
     kahan_buffer: torch.FloatTensor,
     learning_rate: float,
     weight_decay: float,
-    clips: Tuple[float],
+    clips: tuple[float],
     final_norm_mode: str = "none",
     use_cautious: bool = False,
     use_stochastic_rounding: bool = True,
@@ -100,10 +98,10 @@ def copy_stochastic_(
 def lerp_buffer_stochastic_(
     buffer: torch.FloatTensor,
     update: torch.FloatTensor,
-    weight: Union[torch.FloatTensor, float],
+    weight: torch.FloatTensor | float,
     use_stochastic_rounding: bool = True,
     return_dequantized_buffer: bool = True,
-) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+) -> tuple[torch.FloatTensor, torch.FloatTensor]:
     if isinstance(buffer, SDNQTensor):
         buffer_fp32 = buffer.dequantize(dtype=torch.float32).lerp_(update, weight)
         buffer.copy_(buffer_fp32)
@@ -116,7 +114,7 @@ def lerp_buffer_stochastic_(
     return buffer, buffer_fp32
 
 
-def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, norm_mode: str, clips: Tuple[float]) -> torch.FloatTensor:
+def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, norm_mode: str, clips: tuple[float]) -> torch.FloatTensor:
     if isinstance(clips, float):
         clip, clip2 = clips, 0
     elif len(clips) == 1:

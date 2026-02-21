@@ -1,4 +1,4 @@
-from typing import Optional, Union, Callable
+from collections.abc import Callable
 
 import time
 import torch
@@ -58,11 +58,11 @@ def benchmark_linear(name: str, linear: Callable, x: torch.Tensor, y: torch.Tens
 def main(
     steps: int = 50,
     mnk: int = 8192,
-    dtype: Optional[Union[torch.dtype, str]] = None,
-    device: Optional[str] = None,
-    m: Optional[int] = None,
-    n: Optional[int] = None,
-    k: Optional[int] = None,
+    dtype: torch.dtype | str = None,
+    device: str = None,
+    m: int = None,
+    n: int = None,
+    k: int = None,
 ) -> None:
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else None

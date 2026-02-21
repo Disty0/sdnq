@@ -1,4 +1,4 @@
-from typing import Callable, Tuple, Optional, Iterator
+from collections.abc import Callable, Iterator
 
 import torch
 
@@ -149,9 +149,9 @@ def muon_update(
     param: torch.FloatTensor,
     grad: torch.FloatTensor,
     momentum_buffer: torch.FloatTensor,
-    v_buffer: Optional[torch.FloatTensor],
+    v_buffer: torch.FloatTensor,
     step: int,
-    betas: Tuple[float, float],
+    betas: tuple[float, float],
     clip: float,
     ns_steps: int = 5,
     nesterov: bool = True,

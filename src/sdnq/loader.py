@@ -72,14 +72,14 @@ def load_sdnq_model(model_path: str, model_cls: ModelMixin = None, file_name: st
 
         if model_config is None:
             if os.path.exists(model_config_path):
-                with open(model_config_path, "r", encoding="utf-8") as f:
+                with open(model_config_path, encoding="utf-8") as f:
                     model_config = json.load(f)
             else:
                 model_config = {}
 
         if quantization_config is None:
             if os.path.exists(quantization_config_path):
-                with open(quantization_config_path, "r", encoding="utf-8") as f:
+                with open(quantization_config_path, encoding="utf-8") as f:
                     quantization_config = json.load(f)
             else:
                 quantization_config = model_config.get("quantization_config", None)

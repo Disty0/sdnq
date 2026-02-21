@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, Iterator
+from collections.abc import Iterator
 
 import torch
 
@@ -72,11 +72,11 @@ def came_update(
     exp_avg_sq_col: torch.FloatTensor,
     exp_avg_res_row: torch.FloatTensor,
     exp_avg_res_col: torch.FloatTensor,
-    exp_avg_sq: Optional[torch.FloatTensor],
+    exp_avg_sq: torch.FloatTensor,
     exp_avg: torch.FloatTensor,
     step: int,
-    betas: Tuple[float, float, float],
-    clips: Tuple[float],
+    betas: tuple[float, float, float],
+    clips: tuple[float],
     norm_mode: str = "rms_clip",
     use_stochastic_buffers: bool = False,
 ) -> torch.FloatTensor:

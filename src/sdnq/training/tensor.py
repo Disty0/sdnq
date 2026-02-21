@@ -1,5 +1,3 @@
-from typing import Any, Dict, List, Tuple, Optional
-
 import copy
 import torch
 from torch.utils._python_dispatch import return_and_correct_aliasing
@@ -41,7 +39,7 @@ class SDNQTensor(torch.Tensor):
         else:
             return self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, svd_up, svd_down, dtype=dtype, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul)
 
-    def __tensor_flatten__(self) -> Tuple[List[str], Any]:
+    def __tensor_flatten__(self) -> tuple[list[str], SDNQDequantizer]:
         tensor_list = ["weight", "scale"]
         metadata = self.sdnq_dequantizer
         if self.zero_point is not None:
@@ -52,7 +50,7 @@ class SDNQTensor(torch.Tensor):
         return tensor_list, metadata
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict: Dict[str, torch.Tensor], sdnq_dequantizer: SDNQDequantizer, outer_size=None, outer_stride=None):
+    def __tensor_unflatten__(cls, tensor_data_dict: dict[str, torch.Tensor], sdnq_dequantizer: SDNQDequantizer, outer_size=None, outer_stride=None):
         return SDNQTensor(tensor_data_dict["weight"], tensor_data_dict["scale"], tensor_data_dict.get("zero_point", None), tensor_data_dict.get("svd_up", None), tensor_data_dict.get("svd_down", None), sdnq_dequantizer)
 
     def __repr__(self):
@@ -126,7 +124,7 @@ class SDNQTensor(torch.Tensor):
             tensor_list.append(self.svd_down)
         return tensor_list, self.sdnq_dequantizer
 
-    def fsdp_post_all_gather(self, all_gather_outputs: Tuple[torch.Tensor, ...], sdnq_dequantizer: SDNQDequantizer, param_dtype: torch.dtype, *, out: Optional[torch.Tensor] = None):
+    def fsdp_post_all_gather(self, all_gather_outputs: tuple[torch.Tensor, ...], sdnq_dequantizer: SDNQDequantizer, param_dtype: torch.dtype, *, out: torch.Tensor = None):
         zero_point, svd_up, svd_down = None, None, None
         if len(all_gather_outputs) == 2:
             weight, scale = all_gather_outputs
@@ -140,7 +138,7 @@ class SDNQTensor(torch.Tensor):
 
 
 op_implementations_dict = {}
-def register_op(ops: List[torch._ops.OpOverload]):
+def register_op(ops: list[torch._ops.OpOverload]):
     def impl_decorator(op_impl):
         global op_implementations_dict
         for op in ops:

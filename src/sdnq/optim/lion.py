@@ -1,4 +1,4 @@
-from typing import Tuple, Iterator
+from collections.abc import Iterator
 
 import torch
 
@@ -49,7 +49,7 @@ class Lion(SDNQOptimizer):
 def lion_update(
     grad: torch.FloatTensor,
     exp_avg: torch.FloatTensor,
-    betas: Tuple[float, float],
+    betas: tuple[float, float],
     use_stochastic_buffers: bool = False,
 ) -> torch.FloatTensor:
     beta1, beta2 = betas
