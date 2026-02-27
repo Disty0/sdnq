@@ -22,7 +22,7 @@ class Adafactor(SDNQOptimizer):
             param_groups = params
         for group in param_groups:
             group["lr"] = self.get_default_kwarg(group, kwargs, "lr", 1e-2)
-            group["betas"] = self.get_default_kwarg(group, kwargs, "betas", (-0.8, 0.95))
+            group["betas"] = self.get_default_kwarg(group, kwargs, "betas", (-0.8, 0.999))
             group["norm_mode"] = self.get_default_kwarg(group, kwargs, "norm_mode", "relative")
             group["use_first_moment"] = self.get_default_kwarg(group, kwargs, "use_first_moment", False)
             group = self.apply_group_defaults(group, **kwargs)

@@ -23,7 +23,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
     @staticmethod
     def apply_group_defaults(group: dict, **kwargs) -> dict:
         group["lr"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "lr", 1e-4)
-        group["betas"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "betas", (0.9, 0.95))
+        group["betas"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "betas", (0.9, 0.999))
         group["weight_decay"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "weight_decay", 0.01)
         group["clip_threshold"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "clip_threshold", (1.0, 1e-3, 1e-3))
         group["final_norm_mode"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "final_norm_mode", "clip")
