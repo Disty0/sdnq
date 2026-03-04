@@ -13,7 +13,7 @@ Pre-quantized models can be found here: https://huggingface.co/collections/Disty
 
 ```py
 from sdnq import SDNQConfig # import sdnq to register it into diffusers and transformers
-model = AutoModel.from_pretrained(model_path)
+pipe_or_quantized_model = AutoModel.from_pretrained(model_path)
 ```
 
 ### Example code for enabling or disabling quantized matmul with a pre-quantized model:  
@@ -30,8 +30,8 @@ from sdnq import SDNQConfig
 from sdnq.common import use_torch_compile as triton_is_available
 
 sdnq_config = SDNQConfig(
-    weights_dtype="int8",
-    group_size=0,
+    weights_dtype="int8", # Check out `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
+    group_size=0, # 0 means auto, -1 means disabled
     svd_rank=32,
     svd_steps=8,
     dynamic_loss_threshold=1e-2,
@@ -52,12 +52,22 @@ sdnq_config = SDNQConfig(
 quantized_model = AutoModel.from_pretrained(model_path, quantization_config=sdnq_config)
 ```
 
-### Example code for saving a quantized model:  
+### Example code for saving a quantized Diffusers or Transformers model:  
 
 ```py
-from sdnq.loader import save_sdnq_model
-# set is_pipeline to True if you want to save the entire diffusers pipeline instead of a single model.
-save_sdnq_model(pipe_or_quantized_model, "path_to_save_the_quantized_model", is_pipeline=False)
+pipe_or_quantized_model.save_pretrained("path_to_save_the_quantized_model")
+```
+
+
+### Example quantization code for post load quantization on any model:  
+
+```py
+from sdnq import sdnq_post_load_quant
+
+model = sdnq_post_load_quant(
+    model,
+    **kwargs_are_the_same_as_SDNQConfig,
+)
 ```
 
 
@@ -65,6 +75,7 @@ save_sdnq_model(pipe_or_quantized_model, "path_to_save_the_quantized_model", is_
 Note:  
  - Safetensors serialization is not supported with SDNQ training.  
    Either don't use Safetensors serialization or convert the quantized model to standard SDNQ model before saving.  
+   You can also use `scripts/dequantize_sdnq_training.py` to dequantize an SDNQ Training model saved to the disk.  
 
 ```py
 from sdnq.training import sdnq_training_post_load_quant
@@ -120,18 +131,24 @@ quantized_model = convert_training_model_to_sdnq(quantized_model)
 from sdnq.optim import Adafactor, AdamW, CAME, Lion, Muon
 optimizer = AdamW(
     parameters,
-    use_stochastic_rounding=True,
-    use_stochastic_buffers=True,
     use_quantized_buffers=True,
-    use_svd_quantization=False,
     quantized_buffers_dtype="uint8",
     quantized_buffers_group_size=32,
     quantized_buffers_svd_rank=32,
+    final_norm_mode="clip", # can be one of ["none", "clip", "rms", "rms_clip", "relative", "muon"]
+    use_kahan=False,
+    use_cautious=False,
+    use_stochastic_rounding=True,
+    use_stochastic_buffers=True,
+    use_svd_quantization=False,
+    use_torch_compile=False,
+    offload_buffers=False,
+    offload_non_blocking=True,
 )
 ```
 
 
-### Example code for quantized optimizer states for custom optimizers:  
+### Example code for quantized optimizer states for custom optimizers or Tensors:  
 
 ```py
 from sdnq.training import SDNQTensor

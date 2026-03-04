@@ -33,7 +33,7 @@ def update_param_(
     learning_rate: float,
     weight_decay: float,
     clips: tuple[float],
-    final_norm_mode: str = "none",
+    final_norm_mode: str = "clip",
     use_cautious: bool = False,
     use_stochastic_rounding: bool = True,
     use_stochastic_buffers: bool = True,
@@ -122,26 +122,30 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
     else:
         clip, clip2 = clips[:2]
 
-    if norm_mode == "clip":
-        return update.nan_to_num_().clamp_(-clip,clip)
-    elif norm_mode == "rms":
-        update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)))
-    elif norm_mode == "rms_clip":
-        update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
-    elif norm_mode in {"relative", "adafactor"}:
-        update = update.mul_(param.norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
-    elif norm_mode in {"rms_scaled", "adamuon"}:
-        return apply_norm_to_update_(update, param, "rms", clip * 0.2)
-    elif norm_mode in {"rms_clip_scaled", "adamuon_clip"}:
-        return apply_norm_to_update_(update, param, "rms_clip", clip * 0.2)
-    elif norm_mode == "muon":
-        output_shape = update.shape[0]
-        input_shape = 1
-        for shape in update.shape[1:]:
-            input_shape *= shape
-        update = update.mul_(max(1, output_shape / input_shape)**0.5)
-    elif norm_mode != "none":
-        raise NotImplementedError(f"Norm mode {norm_mode} is not implemented")
+    match norm_mode:
+        case "none":
+            return update.nan_to_num_()
+        case "clip":
+            return update.nan_to_num_().clamp_(-clip,clip)
+        case "rms":
+            update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)))
+        case "rms_clip":
+            update = update.mul_(torch.div((clip * update.numel()**0.5), update.norm(2)).clamp_(max=1))
+        case "relative":
+            update = update.mul_(param.norm(2).clamp_(min=clip2).div_(update.norm(2).clamp_(min=1/clip)))
+        case "rms_scaled":
+            return apply_norm_to_update_(update, param, "rms", clip * 0.2)
+        case "rms_clip_scaled":
+            return apply_norm_to_update_(update, param, "rms_clip", clip * 0.2)
+        case "muon":
+            output_shape = update.shape[0]
+            input_shape = 1
+            for shape in update.shape[1:]:
+                input_shape *= shape
+            update = update.mul_(max(1, output_shape / input_shape)**0.5)
+        case _:
+            raise NotImplementedError(f"Norm mode {norm_mode} is not implemented")
+
     return update.nan_to_num_().clamp_(-clip,clip)
 
 
