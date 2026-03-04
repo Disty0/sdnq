@@ -12,8 +12,9 @@ pip install sdnq
 Pre-quantized models can be found here: https://huggingface.co/collections/Disty0/sdnq  
 
 ```py
+import torch
 from sdnq import SDNQConfig # import sdnq to register it into diffusers and transformers
-pipe_or_quantized_model = AutoModel.from_pretrained(model_path)
+pipe_or_quantized_model = AutoModel.from_pretrained(model_path, torch_dtype=torch.bfloat16)
 ```
 
 ### Example code for enabling or disabling quantized matmul with a pre-quantized model:  
