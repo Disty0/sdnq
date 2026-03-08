@@ -1,5 +1,6 @@
 # SDNQ: SD.Next Quantization Engine
 
+SD.Next Quantization provides full cross-platform quantization to reduce memory usage and increase performance for any device.  
 For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
 ### Install command:  
