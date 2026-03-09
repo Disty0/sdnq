@@ -13,6 +13,9 @@ dtype_dict = {
     "int16": {"min": -32768, "max": 32767, "num_bits": 16, "sign": 1, "exponent": 0, "mantissa": 15, "target_dtype": torch.int16, "torch_dtype": torch.int16, "storage_dtype": torch.int16, "is_unsigned": False, "is_integer": True, "is_packed": False},
     "int8": {"min": -128, "max": 127, "num_bits": 8, "sign": 1, "exponent": 0, "mantissa": 7, "target_dtype": torch.int8, "torch_dtype": torch.int8, "storage_dtype": torch.int8, "is_unsigned": False, "is_integer": True, "is_packed": False},
     ### Custom Integers
+    "int14": {"min": -8192, "max": 8191, "num_bits": 14, "sign": 1, "exponent": 0, "mantissa": 13, "target_dtype": "int14", "torch_dtype": torch.int16, "storage_dtype": torch.int16, "is_unsigned": False, "is_integer": True, "is_packed": True},
+    "int12": {"min": -2048, "max": 2047, "num_bits": 12, "sign": 1, "exponent": 0, "mantissa": 11, "target_dtype": "int12", "torch_dtype": torch.int16, "storage_dtype": torch.int16, "is_unsigned": False, "is_integer": True, "is_packed": True},
+    "int10": {"min": -512, "max": 511, "num_bits": 10, "sign": 1, "exponent": 0, "mantissa": 9, "target_dtype": "int10", "torch_dtype": torch.int16, "storage_dtype": torch.int16, "is_unsigned": False, "is_integer": True, "is_packed": True},
     "int7": {"min": -64, "max": 63, "num_bits": 7, "sign": 1, "exponent": 0, "mantissa": 6, "target_dtype": "int7", "torch_dtype": torch.int8, "storage_dtype": torch.uint8, "is_unsigned": False, "is_integer": True, "is_packed": True},
     "int6": {"min": -32, "max": 31, "num_bits": 6, "sign": 1, "exponent": 0, "mantissa": 5, "target_dtype": "int6", "torch_dtype": torch.int8, "storage_dtype": torch.uint8, "is_unsigned": False, "is_integer": True, "is_packed": True},
     "int5": {"min": -16, "max": 15, "num_bits": 5, "sign": 1, "exponent": 0, "mantissa": 4, "target_dtype": "int5", "torch_dtype": torch.int8, "storage_dtype": torch.uint8, "is_unsigned": False, "is_integer": True, "is_packed": True},
@@ -24,6 +27,9 @@ dtype_dict = {
     "uint16": {"min": 0, "max": 65535, "num_bits": 16, "sign": 0, "exponent": 0, "mantissa": 16, "target_dtype": torch.uint16, "torch_dtype": torch.uint16, "storage_dtype": torch.uint16, "is_unsigned": True, "is_integer": True, "is_packed": False},
     "uint8": {"min": 0, "max": 255, "num_bits": 8, "sign": 0, "exponent": 0, "mantissa": 8, "target_dtype": torch.uint8, "torch_dtype": torch.uint8, "storage_dtype": torch.uint8, "is_unsigned": True, "is_integer": True, "is_packed": False},
     ### Custom Unsigned Integers
+    "uint14": {"min": 0, "max": 16384, "num_bits": 14, "sign": 0, "exponent": 0, "mantissa": 14, "target_dtype": "uint14", "torch_dtype": torch.int16, "storage_dtype": torch.int16, "is_unsigned": True, "is_integer": True, "is_packed": True},
+    "uint12": {"min": 0, "max": 4096, "num_bits": 12, "sign": 0, "exponent": 0, "mantissa": 12, "target_dtype": "uint12", "torch_dtype": torch.int16, "storage_dtype": torch.int16, "is_unsigned": True, "is_integer": True, "is_packed": True},
+    "uint10": {"min": 0, "max": 1024, "num_bits": 10, "sign": 0, "exponent": 0, "mantissa": 10, "target_dtype": "uint10", "torch_dtype": torch.int16, "storage_dtype": torch.int16, "is_unsigned": True, "is_integer": True, "is_packed": True},
     "uint7": {"min": 0, "max": 127, "num_bits": 7, "sign": 0, "exponent": 0, "mantissa": 7, "target_dtype": "uint7", "torch_dtype": torch.uint8, "storage_dtype": torch.uint8, "is_unsigned": True, "is_integer": True, "is_packed": True},
     "uint6": {"min": 0, "max": 63, "num_bits": 6, "sign": 0, "exponent": 0, "mantissa": 6, "target_dtype": "uint6", "torch_dtype": torch.uint8, "storage_dtype": torch.uint8, "is_unsigned": True, "is_integer": True, "is_packed": True},
     "uint5": {"min": 0, "max": 31, "num_bits": 5, "sign": 0, "exponent": 0, "mantissa": 5, "target_dtype": "uint5", "torch_dtype": torch.uint8, "storage_dtype": torch.uint8, "is_unsigned": True, "is_integer": True, "is_packed": True},
@@ -149,6 +155,9 @@ torch_dtype_dict = {
     torch.float8_e5m2: "float8_e5m2",
 }
 
+if hasattr(torch, "float8_e8m0fnu"):
+    dtype_dict["float8_e8m0fnu"] = {"min": -1.70141e+38, "max": 1.70141e+38, "num_bits": 8, "sign": 1, "exponent": 8, "mantissa": 0, "target_dtype": "fp8", "torch_dtype": torch.float8_e8m0fnu, "storage_dtype": torch.float8_e8m0fnu, "is_unsigned": False, "is_integer": False, "is_packed": False}
+    torch_dtype_dict[torch.float8_e8m0fnu] = "float8_e8m0fnu"
 if hasattr(torch, "float8_e4m3fnuz"):
     dtype_dict["float8_e4m3fnuz"] = {"min": -240.0, "max": 240.0, "num_bits": 8, "sign": 1, "exponent": 4, "mantissa": 3, "target_dtype": "fp8", "torch_dtype": torch.float8_e4m3fnuz, "storage_dtype": torch.float8_e4m3fnuz, "is_unsigned": False, "is_integer": False, "is_packed": False}
     torch_dtype_dict[torch.float8_e4m3fnuz] = "float8_e4m3fnuz"

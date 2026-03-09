@@ -1,7 +1,7 @@
 import torch
 
 from .common import dtype_dict
-from .packed_int import pack_int_asymetric, unpack_int_asymetric
+from .packed_int import pack_int, unpack_int
 
 
 float_bits_to_uint_dict = {
@@ -52,7 +52,7 @@ def pack_float(x: torch.FloatTensor, weights_dtype: str) -> torch.Tensor:
     ).view(torch.uint32)
 
     if total_bits < 8:
-        x = pack_int_asymetric(x, float_bits_to_uint_dict[total_bits])
+        x = pack_int(x, float_bits_to_uint_dict[total_bits])
     else:
         x = x.to(dtype=dtype_dict[weights_dtype]["storage_dtype"])
 
@@ -73,7 +73,7 @@ def unpack_float(x: torch.Tensor, shape: torch.Size, weights_dtype: str) -> torc
     exponent_difference = 8 - exponent_bits
 
     if total_bits < 8:
-        x = unpack_int_asymetric(x, shape, float_bits_to_uint_dict[total_bits])
+        x = unpack_int(x, float_bits_to_uint_dict[total_bits], shape)
 
     x = x.to(dtype=torch.uint32).view(torch.int32)
     x = torch.bitwise_left_shift(
