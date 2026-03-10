@@ -209,7 +209,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
                 svd_steps=sdnq_dequantizer.svd_steps,
                 use_svd=input.svd_up is not None,
                 use_stochastic_rounding=sdnq_dequantizer.use_stochastic_rounding,
-                dequantize_fp32=input.scale.dtype == torch.float32,
+                dequantize_fp32=input.scale.dtype in {torch.float32, torch.float64},
                 skip_sr=True,
             ) 
             for tensor in result
@@ -225,7 +225,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
             svd_steps=sdnq_dequantizer.svd_steps,
             use_svd=input.svd_up is not None,
             use_stochastic_rounding=sdnq_dequantizer.use_stochastic_rounding,
-            dequantize_fp32=input.scale.dtype == torch.float32,
+            dequantize_fp32=input.scale.dtype in {torch.float32, torch.float64},
             skip_sr=True,
         )
 
@@ -238,7 +238,7 @@ def sdnq_generic_multi_tensor_quantized(func, tensors, *args, **kwargs):
         if isinstance(tensor, SDNQTensor):
             sdnq_dequantizer = copy.deepcopy(tensor.sdnq_dequantizer)
             use_svd = tensor.svd_up is not None
-            dequantize_fp32 = tensor.scale.dtype == torch.float32
+            dequantize_fp32 = tensor.scale.dtype in {torch.float32, torch.float64}
             break
 
     return SDNQTensor.from_float(
@@ -291,7 +291,7 @@ def sdnq_copy_(func, x, y, *args, **kwargs):
                 svd_steps=x.sdnq_dequantizer.svd_steps,
                 use_svd=x.svd_up is not None,
                 use_stochastic_rounding=x.sdnq_dequantizer.use_stochastic_rounding,
-                dequantize_fp32=x.scale.dtype == torch.float32,
+                dequantize_fp32=x.scale.dtype in {torch.float32, torch.float64},
             )
         x.weight.copy_(y.weight, *args, **kwargs)
         x.scale.copy_(y.scale, *args, **kwargs)
@@ -312,7 +312,7 @@ def sdnq_to_copy(func, *args, **kwargs):
     sdnq_dequantizer = copy.deepcopy(args[0].sdnq_dequantizer)
     if dtype is not None:
         sdnq_dequantizer.result_dtype = dtype
-        if args[0].scale.dtype != torch.float32:
+        if args[0].scale.dtype not in {torch.float32, torch.float64}:
             cast_dtype = dtype
     out = SDNQTensor(
         func(args[0].weight, *args[1:], **kwargs),
