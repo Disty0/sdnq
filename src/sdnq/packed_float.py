@@ -62,7 +62,7 @@ def pack_float(x: torch.FloatTensor, weights_dtype: str) -> torch.Tensor:
     return x
 
 
-def unpack_float(x: torch.Tensor, shape: torch.Size, weights_dtype: str) -> torch.FloatTensor:
+def unpack_float(x: torch.Tensor, weights_dtype: str, shape: torch.Size) -> torch.FloatTensor:
     exponent_bits = dtype_dict[weights_dtype]["exponent"]
     mantissa_bits = dtype_dict[weights_dtype]["mantissa"]
     total_bits = dtype_dict[weights_dtype]["num_bits"]
