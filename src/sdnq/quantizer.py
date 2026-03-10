@@ -817,8 +817,8 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             if param_value is not None:
                 if tensor_name == "weight":
                     return_dtype = param_value.dtype
-                elif self.quantization_config.dequantize_fp32
-                    if param_value.dtype != torch.float64 and self.torch_dtype != torch.float64
+                elif self.quantization_config.dequantize_fp32:
+                    if param_value.dtype != torch.float64 and self.torch_dtype != torch.float64:
                         return_dtype = torch.float32
                     else:
                         return_dtype = torch.float64
