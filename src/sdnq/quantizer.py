@@ -242,7 +242,7 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
     if quantized_matmul_dtype is None:
         if dtype_dict[weights_dtype]["is_integer"]:
             quantized_matmul_dtype = "int8"
-        elif dtype_dict[weights_dtype]["num_bits"] <= 12:
+        elif dtype_dict[weights_dtype]["num_bits"] < 16:
             quantized_matmul_dtype = "float8_e4m3fn"
         else:
             quantized_matmul_dtype = "float16"
