@@ -33,6 +33,7 @@ from sdnq.common import use_torch_compile as triton_is_available
 
 sdnq_config = SDNQConfig(
     weights_dtype="int8", # Check out `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
+    quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.  
     group_size=0, # 0 means auto, -1 means disabled
     svd_rank=32,
     svd_steps=8,
@@ -42,7 +43,7 @@ sdnq_config = SDNQConfig(
     use_quantized_matmul=triton_is_available,
     use_quantized_matmul_conv=False,
     use_dynamic_quantization=False,
-    dequantize_fp32=False,
+    dequantize_fp32=True,
     non_blocking=False,
     add_skip_keys=True,
     quantization_device="cuda",
