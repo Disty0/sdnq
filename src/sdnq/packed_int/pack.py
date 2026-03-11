@@ -1,6 +1,37 @@
 import torch
 
 
+def pack_uint15(tensor: torch.Tensor) -> torch.Tensor:
+    packed_tensor = tensor.contiguous().view(-1, 16)
+    packed_tensor = torch.bitwise_or(
+        packed_tensor[:, :15],
+        torch.bitwise_and(
+            torch.stack(
+                (
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 1),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 2),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 3),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 4),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 5),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 6),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 7),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 8),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 9),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 10),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 11),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 12),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 13),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 14),
+                    torch.bitwise_left_shift(packed_tensor[:, 15], 15),
+                ),
+                dim=-1
+            ),
+            32768
+        ),
+    )
+    return packed_tensor
+
+
 def pack_uint14(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 8)
     packed_tensor = torch.bitwise_or(
@@ -19,6 +50,33 @@ def pack_uint14(tensor: torch.Tensor) -> torch.Tensor:
                 dim=-1
             ),
             49152
+        ),
+    )
+    return packed_tensor
+
+
+def pack_uint13(tensor: torch.Tensor) -> torch.Tensor:
+    packed_tensor = tensor.contiguous().view(-1, 16)
+    packed_tensor = torch.bitwise_or(
+        packed_tensor[:, :13],
+        torch.bitwise_and(
+            torch.cat(
+                (
+                    torch.bitwise_left_shift(packed_tensor[:, 13:], 13),
+                    torch.bitwise_left_shift(packed_tensor[:, 13:], 10),
+                    torch.bitwise_left_shift(packed_tensor[:, 13:], 7),
+                    torch.bitwise_left_shift(packed_tensor[:, 13:], 4),
+                    torch.bitwise_or(
+                        torch.bitwise_or(
+                            torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 13], 1), 8192),
+                            torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 14], 2), 16384),
+                        ),
+                        torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 15], 3), 32768),
+                    ).unsqueeze(-1),
+                ),
+                dim=-1,
+            ),
+            57344,
         ),
     )
     return packed_tensor
@@ -43,27 +101,89 @@ def pack_uint12(tensor: torch.Tensor) -> torch.Tensor:
     return packed_tensor
 
 
-def pack_uint10(tensor: torch.ByteTensor) -> torch.ByteTensor:
+def pack_uint11(tensor: torch.Tensor) -> torch.Tensor:
+    packed_tensor = tensor.contiguous().view(-1, 16)
+    packed_tensor = torch.cat(
+        (
+            torch.bitwise_or(packed_tensor[:, :8], torch.bitwise_left_shift(packed_tensor[:, 8:], 11)),
+            torch.bitwise_or(
+                torch.bitwise_or(
+                    torch.bitwise_and(torch.bitwise_right_shift(packed_tensor[:, 8:11], 5), 63),
+                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 11:14], 1), 4032),
+                ),
+                torch.cat(
+                    (
+                        torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 14:], 7), -4096),
+                        torch.bitwise_or(
+                            torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 14], 3), 12288),
+                            torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 15], 5), -16384),
+                        ).unsqueeze(-1),
+                    ),
+                    dim=-1,
+                ),
+            ),
+        ),
+        dim=-1,
+    )
+    return packed_tensor
+
+
+def pack_uint10(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 8)
     packed_tensor = torch.cat(
         (
             torch.bitwise_or(packed_tensor[:, :3], torch.bitwise_left_shift(packed_tensor[:, 5:8], 10)),
             torch.bitwise_or(
-                packed_tensor[:, 3],
+                packed_tensor[:, 3:5],
                 torch.bitwise_or(
-                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 5], 4), 15360),
-                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 7], 6), 49152),
+                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 5:7], 4), 15360),
+                    torch.bitwise_and(
+                        torch.stack(
+                            (
+                                torch.bitwise_left_shift(packed_tensor[:, 7], 6),
+                                torch.bitwise_left_shift(packed_tensor[:, 7], 8),
+                            ),
+                            dim=-1,
+                        ),
+                        49152
+                    ),
                 ),
-            ).unsqueeze(-1),
+            ),
+        ),
+        dim=-1
+    )
+    return packed_tensor
+
+
+def pack_uint9(tensor: torch.Tensor) -> torch.Tensor:
+    packed_tensor = tensor.contiguous().view(-1, 16)
+    packed_tensor = torch.cat(
+        (
+            torch.bitwise_or(packed_tensor[:, :8], torch.bitwise_left_shift(packed_tensor[:, 8:], 9)),
             torch.bitwise_or(
-                packed_tensor[:, 4],
                 torch.bitwise_or(
-                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 6], 4), 15360),
-                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 7], 8), 49152),
+                    torch.bitwise_or(
+                        torch.bitwise_and(torch.bitwise_right_shift(packed_tensor[:, 8], 7), 3),
+                        torch.bitwise_and(torch.bitwise_right_shift(packed_tensor[:, 9], 5), 12),
+                    ),
+                    torch.bitwise_or(
+                        torch.bitwise_and(torch.bitwise_right_shift(packed_tensor[:, 10], 3), 48),
+                        torch.bitwise_and(torch.bitwise_right_shift(packed_tensor[:, 11], 1), 192),
+                    ),
+                ),
+                torch.bitwise_or(
+                    torch.bitwise_or(
+                        torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 12], 1), 768),
+                        torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 13], 3), 3072),
+                    ),
+                    torch.bitwise_or(
+                        torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 14], 5), 12288),
+                        torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 15], 7), 49152),
+                    ),
                 ),
             ).unsqueeze(-1),
         ),
-        dim=-1
+        dim=-1,
     )
     return packed_tensor
 
@@ -116,19 +236,21 @@ def pack_uint5(tensor: torch.ByteTensor) -> torch.ByteTensor:
         (
             torch.bitwise_or(packed_tensor[:, :3], torch.bitwise_left_shift(packed_tensor[:, 5:8], 5)),
             torch.bitwise_or(
-                packed_tensor[:, 3],
+                packed_tensor[:, 3:5],
                 torch.bitwise_or(
-                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 5], 2), 96),
-                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 7], 3), 128),
+                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 5:7], 2), 96),
+                    torch.bitwise_and(
+                        torch.stack(
+                            (
+                                torch.bitwise_left_shift(packed_tensor[:, 7], 3),
+                                torch.bitwise_left_shift(packed_tensor[:, 7], 4),
+                            ),
+                            dim=-1,
+                        ),
+                        128,
+                    ),
                 ),
-            ).unsqueeze(-1),
-            torch.bitwise_or(
-                packed_tensor[:, 4],
-                torch.bitwise_or(
-                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 6], 2), 96),
-                    torch.bitwise_and(torch.bitwise_left_shift(packed_tensor[:, 7], 4), 128),
-                ),
-            ).unsqueeze(-1),
+            ),
         ),
         dim=-1
     )

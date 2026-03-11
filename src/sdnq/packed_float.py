@@ -12,9 +12,13 @@ float_bits_to_uint_dict = {
     5: "uint5",
     6: "uint6",
     7: "uint7",
+    9: "uint9",
     10: "uint10",
+    11: "uint11",
     12: "uint12",
+    13: "uint13",
     14: "uint14",
+    15: "uint15",
 }
 
 

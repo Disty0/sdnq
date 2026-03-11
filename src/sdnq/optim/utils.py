@@ -76,7 +76,7 @@ def copy_stochastic_(
     source: torch.FloatTensor,
     use_stochastic_rounding: bool = True,
 ) -> torch.FloatTensor:
-    if not use_stochastic_rounding or target.dtype == torch.float32 or isinstance(target, SDNQTensor):
+    if not use_stochastic_rounding or target.dtype in {torch.float32, torch.float64} or isinstance(target, SDNQTensor):
         return target.copy_(source)
 
     target_dtype = torch_dtype_dict[target.dtype]
