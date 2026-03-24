@@ -1019,8 +1019,8 @@ class SDNQConfig(QuantizationConfigMixin):
         svd_rank (`int`, *optional*, defaults to `32`):
             The rank size used for the SVDQuant algorithm.
         dynamic_loss_threshold (`float`, *optional*, defaults to `None`):
-            The target quantization mse loss threshold to use for dynamic quantization.  
-            The value `None` or negative values means auto select a threshold based on the weights_dtype.  
+            The target quantization mse loss threshold to use for dynamic quantization.
+            The value `None` or negative values means auto select a threshold based on the weights_dtype.
         svd_steps (`int`, *optional*, defaults to `8`):
             The number of iterations to use in svd lowrank estimation.
         use_svd (`bool`, *optional*, defaults to `False`):
