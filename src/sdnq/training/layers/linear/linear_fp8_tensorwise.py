@@ -8,7 +8,7 @@ from .forward import check_mats, quantized_linear_with_backward
 from .linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
 
 
-def quantize_fp_mm_input_tensorwise(input: torch.FloatTensor, scale: torch.FloatTensor = None, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
+def quantize_fp_mm_input_tensorwise(input: torch.FloatTensor, scale: torch.FloatTensor | None = None, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     if use_sr:
@@ -25,9 +25,9 @@ def fp8_matmul_tensorwise(
     input: torch.FloatTensor,
     weight: torch.Tensor,
     scale: torch.FloatTensor,
-    bias: torch.FloatTensor = None,
-    svd_up: torch.FloatTensor = None,
-    svd_down: torch.FloatTensor = None,
+    bias: torch.FloatTensor | None = None,
+    svd_up: torch.FloatTensor | None = None,
+    svd_down: torch.FloatTensor | None = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
     do_transpose: bool = False,
@@ -73,9 +73,9 @@ def fp8_matmul_tensorwise_backward(
     input: torch.FloatTensor,
     weight: torch.Tensor,
     scale: torch.FloatTensor,
-    bias: torch.FloatTensor = None,
-    svd_up: torch.FloatTensor = None,
-    svd_down: torch.FloatTensor = None,
+    bias: torch.FloatTensor | None = None,
+    svd_up: torch.FloatTensor | None = None,
+    svd_down: torch.FloatTensor | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -93,7 +93,7 @@ def fp8_matmul_tensorwise_backward(
 
 class FP8MatmulTensorWiseBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor = None) -> torch.FloatTensor:
+    def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
         ctx.save_for_backward(input, weight, bias)
         return fp8_matmul_tensorwise_compiled(input, weight.weight, weight.scale, bias=bias, svd_up=weight.svd_up, svd_down=weight.svd_down, do_transpose=True)
 

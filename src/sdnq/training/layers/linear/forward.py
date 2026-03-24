@@ -18,7 +18,7 @@ def linear_backward(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor,
     weight: torch.FloatTensor,
-    bias: torch.FloatTensor = None,
+    bias: torch.FloatTensor | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -36,7 +36,7 @@ def linear_backward(
 
 class QuantizedLinearBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor = None) -> torch.FloatTensor:
+    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
         if isinstance(weight, SDNQTensor):
             weight = weight.dequantize()
         ctx.save_for_backward(input, weight, bias)

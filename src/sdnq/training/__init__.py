@@ -92,7 +92,7 @@ def sdnq_training_post_load_quant(
     model: torch.nn.Module,
     weights_dtype: str = "uint8",
     quantized_matmul_dtype: str = "int8",
-    torch_dtype: torch.dtype = None,
+    torch_dtype: torch.dtype | None = None,
     group_size: int = 32,
     svd_rank: int = 32,
     svd_steps: int = 8,
@@ -104,10 +104,10 @@ def sdnq_training_post_load_quant(
     dequantize_fp32: bool = True,
     non_blocking: bool = False,
     add_skip_keys:bool = True,
-    quantization_device: torch.device = None,
-    return_device: torch.device = None,
-    modules_to_not_convert: list[str] = None,
-    modules_dtype_dict: dict[str, list[str]] = None,
+    quantization_device: torch.device | None = None,
+    return_device: torch.device | None = None,
+    modules_to_not_convert: list[str] | None = None,
+    modules_dtype_dict: dict[str, list[str]] | None = None,
 ):
     if modules_to_not_convert is None:
         modules_to_not_convert = []
@@ -256,7 +256,7 @@ def convert_sdnq_module_to_training(model: torch.nn.Module, quantized_matmul_dty
 
 
 @torch.no_grad()
-def convert_sdnq_model_to_training(model: torch.nn.Module, dtype: torch.dtype = None, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = True, dequantize_fp32: bool = True):
+def convert_sdnq_model_to_training(model: torch.nn.Module, dtype: torch.dtype | None = None, quantized_matmul_dtype: str = "int8", use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = True, dequantize_fp32: bool = True):
     if use_quantized_matmul and not check_torch_compile():
         raise RuntimeError("SDNQ Quantized MatMul requires a working Triton install.")
     model = apply_sdnq_options_to_model(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=False)
@@ -341,7 +341,7 @@ def convert_training_module_to_sdnq(model: torch.nn.Module):
 
 
 @torch.no_grad()
-def convert_training_model_to_sdnq(model: torch.nn.Module, dtype: torch.dtype = None, dequantize_fp32: bool = None, use_quantized_matmul: bool = None):
+def convert_training_model_to_sdnq(model: torch.nn.Module, dtype: torch.dtype | None = None, dequantize_fp32: bool | None = None, use_quantized_matmul: bool | None = None):
     if use_quantized_matmul and not check_torch_compile():
         raise RuntimeError("SDNQ Quantized MatMul requires a working Triton install.")
     model = convert_training_module_to_sdnq(model)

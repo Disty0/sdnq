@@ -112,7 +112,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
 
         return loss
 
-    def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict], key: Hashable = None, device: torch.device = None) -> torch.Tensor:
+    def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict], key: Hashable | None = None, device: torch.device | None = None) -> torch.Tensor:
         if key == "step":
             return value
         if device is None:

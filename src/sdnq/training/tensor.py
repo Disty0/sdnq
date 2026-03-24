@@ -27,7 +27,7 @@ class SDNQTensor(torch.Tensor):
         self.svd_up = svd_up
         self.svd_down = svd_down
 
-    def dequantize(self, dtype: torch.dtype = None, non_svd: bool = False):
+    def dequantize(self, dtype: torch.dtype | None = None, non_svd: bool = False):
         if non_svd:
             svd_up, svd_down = None, None
         else:
@@ -59,9 +59,9 @@ class SDNQTensor(torch.Tensor):
     @staticmethod
     def from_float(
         weight,
-        layer_class_name: str = None,
+        layer_class_name: str | None = None,
         weights_dtype: str = "int8",
-        torch_dtype: torch.dtype = None,
+        torch_dtype: torch.dtype | None = None,
         group_size: int = 32,
         svd_rank: int = 32,
         svd_steps: int = 8,
@@ -69,7 +69,7 @@ class SDNQTensor(torch.Tensor):
         use_stochastic_rounding: bool = True,
         dequantize_fp32: bool = True,
         skip_sr: bool = False,
-        param_name: str = None,
+        param_name: str | None = None,
     ):
         fake_mode = detect_fake_mode(weight)
         if fake_mode is not None:
@@ -124,7 +124,7 @@ class SDNQTensor(torch.Tensor):
             tensor_list.append(self.svd_down)
         return tensor_list, self.sdnq_dequantizer
 
-    def fsdp_post_all_gather(self, all_gather_outputs: tuple[torch.Tensor, ...], sdnq_dequantizer: SDNQDequantizer, param_dtype: torch.dtype, *, out: torch.Tensor = None):
+    def fsdp_post_all_gather(self, all_gather_outputs: tuple[torch.Tensor, ...], sdnq_dequantizer: SDNQDequantizer, param_dtype: torch.dtype, *, out: torch.Tensor | None = None):
         zero_point, svd_up, svd_down = None, None, None
         if len(all_gather_outputs) == 2:
             weight, scale = all_gather_outputs

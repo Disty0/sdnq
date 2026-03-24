@@ -24,9 +24,9 @@ def quantize_fp_mm_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, d
 def fp8_matmul_dynamic(
     input: torch.FloatTensor,
     weight: torch.Tensor,
-    bias: torch.FloatTensor = None,
-    svd_up: torch.FloatTensor = None,
-    svd_down: torch.FloatTensor = None,
+    bias: torch.FloatTensor | None = None,
+    svd_up: torch.FloatTensor | None = None,
+    svd_down: torch.FloatTensor | None = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
     use_sr: bool = False,
@@ -62,9 +62,9 @@ def fp8_matmul_dynamic_backward(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor,
     weight: torch.FloatTensor,
-    bias: torch.FloatTensor = None,
-    svd_up: torch.FloatTensor = None,
-    svd_down: torch.FloatTensor = None,
+    bias: torch.FloatTensor | None = None,
+    svd_up: torch.FloatTensor | None = None,
+    svd_down: torch.FloatTensor | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -82,7 +82,7 @@ def fp8_matmul_dynamic_backward(
 
 class FP8MatmulDynamicBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor = None) -> torch.FloatTensor:
+    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
         svd_up, svd_down = None, None
         if isinstance(weight, SDNQTensor):
             svd_up, svd_down = weight.svd_up, weight.svd_down
