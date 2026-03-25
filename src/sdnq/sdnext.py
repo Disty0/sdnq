@@ -17,7 +17,9 @@ class HIPAgent():
 # wrapper for modules.devices and modules.shared from SD.Next
 class Devices():
     def __init__(self):
+        self.inference_context = torch.no_grad
         self.cpu = torch.device("cpu")
+
         self.device = torch.device(
             os.environ.get("SDNQ_DEVICE",
                 "xpu" if hasattr(torch,"xpu") and torch.xpu.is_available()
@@ -26,13 +28,21 @@ class Devices():
                 else "cpu"
             ).lower()
         )
+
         self.backend = self.device.type
-        self.dtype = getattr(torch, os.environ.get("SDNQ_DTYPE", "bfloat16" if self.backend != "cpu" else "float32"))
-        self.inference_context = torch.no_grad
         if self.backend == "xpu":
             self.backend = "ipex"
         elif self.backend == "cuda" and torch.version.hip is not None:
             self.backend = "rocm"
+
+        if os.environ.get("SDNQ_DTYPE", None) is not None:
+            self.dtype = getattr(torch, os.environ.get("SDNQ_DTYPE"))
+        elif bool(self.backend == "rocm" and self.get_hip_agent().gfx_version < 0x1100): # rdna2
+            self.dtype = torch.float16
+        elif self.backend == "cpu":
+            self.dtype = torch.float32
+        else:
+            self.dtype = torch.bfloat16
 
     def normalize_device(self, dev):
         if torch.device(dev).type in {"cpu", "mps", "meta"}:

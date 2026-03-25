@@ -65,12 +65,12 @@ def main(
     k: int = None,
 ) -> None:
     if device is None:
-        device = "cuda" if torch.cuda.is_available() else "xpu" if hasattr(torch, "xpu") and torch.xpu.is_available() else None
-        if device is None:
-            raise RuntimeError("A GPU is required to run SDNQ Benchmark")
+        from sdnq.sdnext import devices
+        device = devices.device
 
     if dtype is None:
-        dtype = torch.bfloat16 if not sdnq.common.is_rdna2 else torch.float16
+        from sdnq.sdnext import devices
+        dtype = devices.dtype
     elif isinstance(dtype, str):
         dtype = getattr(torch, dtype)
 
