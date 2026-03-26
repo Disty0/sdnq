@@ -84,6 +84,8 @@ def main(
         sdnq.common.use_tensorwise_fp8_matmul = backup_tw_fp8
         sdnq.quantizer.use_tensorwise_fp8_matmul = backup_tw_fp8
         sdnq.forward.use_tensorwise_fp8_matmul = backup_tw_fp8
+    else:
+        print("Torch Compile is disabled, skipping quantized matmul tests.")
 
     sdnq_float_int16_tflops = benchmark_linear("SDNQ Float INT16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int16", torch_dtype=dtype, use_quantized_matmul=False)[0], x, steps)
     sdnq_float_int12_tflops = benchmark_linear("SDNQ Float INT12", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int12", torch_dtype=dtype, use_quantized_matmul=False)[0], x, steps)
