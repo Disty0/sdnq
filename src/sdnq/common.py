@@ -239,7 +239,6 @@ dtype_dict["fp5"] = dtype_dict["float5_e2m2fn"]
 dtype_dict["fp4"] = dtype_dict["float4_e2m1fn"]
 dtype_dict["fp3"] = dtype_dict["float3_e1m1fn"]
 dtype_dict["fp2"] = dtype_dict["float2_e1m0fn"]
-dtype_dict["fp1"] = dtype_dict["float1_e1m0fnu"]
 
 dtype_dict["ufp16"] = dtype_dict["float16_e5m11fnu"]
 dtype_dict["ufp15"] = dtype_dict["float15_e5m10fnu"]
@@ -256,10 +255,11 @@ dtype_dict["ufp5"] = dtype_dict["float5_e2m3fnu"]
 dtype_dict["ufp4"] = dtype_dict["float4_e2m2fnu"]
 dtype_dict["ufp3"] = dtype_dict["float3_e1m2fnu"]
 dtype_dict["ufp2"] = dtype_dict["float2_e1m1fnu"]
+dtype_dict["ufp1"] = dtype_dict["float1_e1m0fnu"]
 
-dtype_dict["ufp1"] = dtype_dict["fp1"]
-dtype_dict["bool"] = dtype_dict["uint1"]
+dtype_dict["fp1"] = dtype_dict["ufp1"]
 dtype_dict["int1"] = dtype_dict["uint1"]
+dtype_dict["bool"] = dtype_dict["uint1"]
 
 torch_dtype_dict = {
     torch.int32: "int32",
