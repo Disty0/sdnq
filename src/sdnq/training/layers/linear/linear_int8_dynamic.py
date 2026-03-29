@@ -38,7 +38,7 @@ def int8_matmul_dynamic(
     do_input_reshape: bool = True,
     use_sr: bool = False,
 ) -> torch.FloatTensor:
-    int_mm = triton_int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
+    int_mm = triton_int_mm if weight.device.type == "cuda" else int_mm_func
     return_dtype = input.dtype
     if output_shape is None:
         output_shape = list(input.shape)
