@@ -40,7 +40,7 @@ def int8_matmul(
     use_sr: bool = False,
 ) -> torch.FloatTensor:
     if is_backward_pass:
-        int_mm = triton_int_mm if weight.device.type == "cuda" else int_mm_func
+        int_mm = triton_int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
     else:
         int_mm = int_mm_func
     return_dtype = input.dtype
