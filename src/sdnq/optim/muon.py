@@ -350,7 +350,7 @@ def zeropower_via_newtonschulz5_quantized_matmul(
                     Q = torch.add(Z, I, alpha=a)
                 if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
                     RZ = mm_func(R, Z, bias=(R*a), do_input_reshape=False)
-                    RZ = mm_func(Z, RZ, bias=(RZ*a), do_input_reshape=False)
+                    R = mm_func(Z, RZ, bias=(RZ*a), do_input_reshape=False)
         del R, RZ, I, Z
         if reshape_grad:
             X = mm_func(X.t(), Q, do_input_reshape=False)
@@ -405,7 +405,7 @@ def zeropower_via_newtonschulz5_fp8_matmul(
                     Q = torch.add(Z, I, alpha=a)
                 if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
                     RZ = fp8_matmul_dynamic(R, Z, do_input_reshape=False).add_(R, alpha=a)
-                    RZ = fp8_matmul_dynamic(Z, RZ, do_input_reshape=False).add_(RZ, alpha=a)
+                    R = fp8_matmul_dynamic(Z, RZ, do_input_reshape=False).add_(RZ, alpha=a)
         del R, RZ, I, Z
         if reshape_grad:
             X = fp8_matmul_dynamic(X.t(), Q, do_input_reshape=False)
