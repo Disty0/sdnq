@@ -15,9 +15,28 @@ from .utils import lerp_buffer_stochastic_
 from .adamw import adam_update, adam_update_compiled
 
 
+default_ns_coefficients = (
+    (3.4445, -4.7750,  2.0315),
+    (3.4445, -4.7750,  2.0315),
+    (3.4445, -4.7750,  2.0315),
+    (3.4445, -4.7750,  2.0315),
+    (3.4445, -4.7750,  2.0315),
+)
+
+# https://github.com/Dao-AILab/gram-newton-schulz/blob/4b0a4049965dca41f97201585aba46968cfff296/gram_newton_schulz/coefficients.py#L25
+default_gram_ns_resets = (2,)
+default_gram_ns_coefficients = (
+    (7.892582874424408, -20.38301394587957, 13.555306149406924),
+    (3.911484868135431, -2.5464635929060884, 0.4268988319673074),
+    (3.760657955697423, -2.512819018216563, 0.4323647349070073),
+    (3.160399673686287, -2.149649518898498, 0.3996366907664389),
+    (2.1910971618617303, -1.441662010214663, 0.328146487623155),
+)
+
+
 class Muon(SDNQOptimizer):
     _extra_group_keys = [
-        {"use_muon", "ns_steps", "nesterov", "adaptive", "zeropower_dtype", "use_quantized_matmul", "quantized_matmul_dtype"},
+        {"use_muon", "nesterov", "adaptive", "final_norm_mode", "ns_dtype", "ns_coefficients", "use_gram_ns", "gram_ns_resets", "gram_ns_coefficients", "use_quantized_matmul", "quantized_matmul_dtype"},
         {"use_muon"},
     ]
     _keep_in_fp32_keys = {}
@@ -49,15 +68,18 @@ class Muon(SDNQOptimizer):
         for group in param_groups:
             if group["use_muon"]:
                 group["lr"] = self.get_default_kwarg(group, kwargs, "lr", 1e-3)
-                group["ns_steps"] = self.get_default_kwarg(group, kwargs, "ns_steps", 5)
                 group["nesterov"] = self.get_default_kwarg(group, kwargs, "nesterov", True)
                 group["adaptive"] = self.get_default_kwarg(group, kwargs, "adaptive", False)
                 group["final_norm_mode"] = self.get_default_kwarg(group, kwargs, "final_norm_mode", "rms_clip_scaled")
-                group["zeropower_dtype"] = self.get_default_kwarg(group, kwargs, "zeropower_dtype", "bfloat16")
+                group["ns_dtype"] = self.get_default_kwarg(group, kwargs, "ns_dtype", "bfloat16")
+                group["ns_coefficients"] = self.get_default_kwarg(group, kwargs, "gram_ns_coefficients", default_ns_coefficients)
+                group["use_gram_ns"] = self.get_default_kwarg(group, kwargs, "use_gram_ns", False)
+                group["gram_ns_resets"] = self.get_default_kwarg(group, kwargs, "gram_ns_resets", default_gram_ns_resets)
+                group["gram_ns_coefficients"] = self.get_default_kwarg(group, kwargs, "gram_ns_coefficients", default_gram_ns_coefficients)
                 group["use_quantized_matmul"] = self.get_default_kwarg(group, kwargs, "use_quantized_matmul", False)
                 group["quantized_matmul_dtype"] = self.get_default_kwarg(group, kwargs, "quantized_matmul_dtype", "int8")
-                if isinstance(group["zeropower_dtype"], str):
-                    group["zeropower_dtype"] = getattr(torch, group["zeropower_dtype"])
+                if isinstance(group["ns_dtype"], str):
+                    group["ns_dtype"] = getattr(torch, group["ns_dtype"])
                 group = self.apply_group_defaults(group, **kwargs)
                 assert set(group.keys()) == self._group_keys[0]
             else:
@@ -125,9 +147,12 @@ class Muon(SDNQOptimizer):
                 step=state["step"],
                 betas=group["betas"],
                 clip=group["clip_threshold"][0],
-                ns_steps=group["ns_steps"],
                 nesterov=group["nesterov"],
-                zeropower_dtype=group["zeropower_dtype"],
+                ns_dtype=group["ns_dtype"],
+                ns_coefficients=group["ns_coefficients"],
+                use_gram_ns=group["use_gram_ns"],
+                gram_ns_resets=group["gram_ns_resets"],
+                gram_ns_coefficients=group["gram_ns_coefficients"],
                 use_quantized_matmul=group["use_quantized_matmul"],
                 quantized_matmul_dtype=group["quantized_matmul_dtype"],
                 use_stochastic_buffers=group["use_stochastic_buffers"],
@@ -153,9 +178,12 @@ def muon_update(
     step: int,
     betas: tuple[float, float],
     clip: float,
-    ns_steps: int = 5,
     nesterov: bool = True,
-    zeropower_dtype: torch.dtype = torch.bfloat16,
+    ns_dtype: torch.dtype = torch.bfloat16,
+    ns_coefficients: tuple[tuple[int]] = default_ns_coefficients,
+    use_gram_ns: bool = False,
+    gram_ns_resets: tuple[int] = default_gram_ns_resets,
+    gram_ns_coefficients: tuple[tuple[int]] = default_gram_ns_coefficients,
     use_quantized_matmul: bool = False,
     quantized_matmul_dtype: str = "int8",
     use_stochastic_buffers: bool = False,
@@ -176,21 +204,48 @@ def muon_update(
 
     if use_quantized_matmul:
         if quantized_matmul_dtype == "int8":
-            update = zeropower_via_newtonschulz5_quantized_matmul(update, int8_matmul_dynamic, steps=ns_steps, clip=clip)
+            mm_func = int8_matmul_dynamic
         elif quantized_matmul_dtype in {"fp8", "float8_e4m3fn"}:
             if use_tensorwise_fp8_matmul:
-                update = zeropower_via_newtonschulz5_quantized_matmul(update, fp8_matmul_tensorwise_dynamic, steps=ns_steps, clip=clip)
+                mm_func = fp8_matmul_tensorwise_dynamic
             else:
-                update = zeropower_via_newtonschulz5_fp8_matmul(update, steps=ns_steps, clip=clip)
+                mm_func = None
+                update = zeropower_via_newtonschulz5_fp8_matmul(
+                    update,
+                    clip=clip,
+                    ns_coefficients=ns_coefficients,
+                    use_gram_ns=use_gram_ns,
+                    gram_ns_resets=gram_ns_resets,
+                    gram_ns_coefficients=gram_ns_coefficients,
+                )
         elif quantized_matmul_dtype in {"fp16", "float16"}:
-            update = zeropower_via_newtonschulz5_quantized_matmul(update, fp16_matmul_dynamic, steps=ns_steps, clip=clip)
+            mm_func = fp16_matmul_dynamic
         else:
             raise NotImplementedError(f"Quantization type {quantized_matmul_dtype} is not implemented")
+        if mm_func is not None:
+            update = zeropower_via_newtonschulz5_quantized_matmul(
+                update,
+                mm_func,
+                clip=clip,
+                ns_coefficients=ns_coefficients,
+                use_gram_ns=use_gram_ns,
+                gram_ns_resets=gram_ns_resets,
+                gram_ns_coefficients=gram_ns_coefficients,
+            )
     else:
-        update = zeropower_via_newtonschulz5(update, steps=ns_steps, clip=clip, dtype=zeropower_dtype)
+        update = zeropower_via_newtonschulz5(
+            update,
+            clip=clip,
+            ns_coefficients=ns_coefficients,
+            use_gram_ns=use_gram_ns,
+            gram_ns_resets=gram_ns_resets,
+            gram_ns_coefficients=gram_ns_coefficients,
+            dtype=ns_dtype,
+        )
 
     if reshape_grad:
         update = update.unflatten(-1, grad_shape[1:])
+    update = update.contiguous()
 
     if v_buffer is not None:
         v_buffer, v_buffer_fp32 = lerp_buffer_stochastic_(v_buffer, update.square(), 1 - beta2, use_stochastic_rounding=use_stochastic_buffers)
@@ -202,10 +257,16 @@ def muon_update(
     return update
 
 
-def zeropower_via_newtonschulz5(X: torch.FloatTensor, steps: int = 5, clip: float = 1.0, dtype: torch.dtype = torch.bfloat16) -> torch.FloatTensor:
-    a, b, c = (3.4445, -4.7750,  2.0315)
+def zeropower_via_newtonschulz5(
+    X: torch.FloatTensor,
+    clip: float = 1.0,
+    ns_coefficients: tuple[tuple[int]] = default_ns_coefficients,
+    use_gram_ns: bool = False,
+    gram_ns_resets: tuple[int] = default_gram_ns_resets,
+    gram_ns_coefficients: tuple[tuple[int]] = default_gram_ns_coefficients,
+    dtype: torch.dtype = torch.bfloat16,
+) -> torch.FloatTensor:
     return_dtype = X.dtype
-
     if X.shape[0] > X.shape[1]:
         reshape_grad = True
         X = X.t()
@@ -213,25 +274,56 @@ def zeropower_via_newtonschulz5(X: torch.FloatTensor, steps: int = 5, clip: floa
         reshape_grad = False
 
     X = X.to(dtype=torch.float32)
-    X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
+    X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip).to(dtype=dtype)
 
-    X = X.to(dtype=dtype)
-    for _ in range(steps):
-        A = torch.mm(X, X.t())
-        B = torch.addmm(A, A, A, beta=b, alpha=c)
-        X = torch.addmm(X, B, X, beta=a)
-    del A, B
+    if use_gram_ns and X.shape[0] != X.shape[1]:
+        gram_ns_coefficients_lenght = len(gram_ns_coefficients)
 
-    if reshape_grad:
-        X = X.t()
+        R = torch.mm(X, X.t())
+        I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype) # noqa:E741
+        Q = None
+        for i, (a, b, c) in enumerate(gram_ns_coefficients):
+                if i in gram_ns_resets and i != 0:
+                    X = torch.mm(Q, X)
+                    R = torch.mm(X, X.t())
+                    Q = None
+                Z = torch.addmm(R, R, R, beta=b, alpha=c)
+                if i != 0 and i not in gram_ns_resets:
+                    Q = torch.addmm(Q, Q, Z, beta=a)
+                else:
+                    Q = torch.add(Z, I, alpha=a)
+                if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
+                    RZ = torch.addmm(R, R, Z, beta=a)
+                    R = torch.addmm(RZ, Z, RZ, beta=a)
+        del R, RZ, I, Z
+        if reshape_grad:
+            X = torch.mm(X.t(), Q)
+        else:
+            X = torch.mm(Q, X)
+        del Q
+    else:
+        for a, b, c in ns_coefficients:
+            A = torch.mm(X, X.t())
+            B = torch.addmm(A, A, A, beta=b, alpha=c)
+            X = torch.addmm(X, B, X, beta=a)
+        del A, B
+        if reshape_grad:
+            X = X.t()
+
     X = X.to(dtype=return_dtype)
     return X
 
 
-def zeropower_via_newtonschulz5_quantized_matmul(X: torch.FloatTensor, mm_func: Callable, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
-    a, b, c = (3.4445, -4.7750,  2.0315)
+def zeropower_via_newtonschulz5_quantized_matmul(
+    X: torch.FloatTensor,
+    mm_func: Callable,
+    clip: float = 1.0,
+    ns_coefficients: tuple[tuple[int]] = default_ns_coefficients,
+    use_gram_ns: bool = False,
+    gram_ns_resets: tuple[int] = default_gram_ns_resets,
+    gram_ns_coefficients: tuple[tuple[int]] = default_gram_ns_coefficients,
+) -> torch.FloatTensor:
     return_dtype = X.dtype
-
     if X.shape[0] > X.shape[1]:
         reshape_grad = True
         X = X.t()
@@ -241,22 +333,52 @@ def zeropower_via_newtonschulz5_quantized_matmul(X: torch.FloatTensor, mm_func: 
     X = X.to(dtype=torch.float32)
     X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
 
-    for _ in range(steps):
-        A = mm_func(X, X, do_input_reshape=True)
-        B = mm_func((A*c), A, bias=(A*b), do_input_reshape=False)
-        X = mm_func(B, X, bias=(X*a), do_input_reshape=False)
-    del A, B
+    if use_gram_ns and X.shape[0] != X.shape[1]:
+        gram_ns_coefficients_lenght = len(gram_ns_coefficients)
+        R = mm_func(X, X, do_input_reshape=True)
+        I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype) # noqa:E741
+        Q = None
+        for i, (a, b, c) in enumerate(gram_ns_coefficients):
+                if i in gram_ns_resets and i != 0:
+                    X = mm_func(Q, X, do_input_reshape=False)
+                    R = mm_func(X, X, do_input_reshape=True)
+                    Q = None
+                Z = mm_func((R*c), R, bias=(R*b), do_input_reshape=False)
+                if i != 0 and i not in gram_ns_resets:
+                    Q = mm_func(Q, Z, bias=(Q*a), do_input_reshape=False)
+                else:
+                    Q = torch.add(Z, I, alpha=a)
+                if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
+                    RZ = mm_func(R, Z, bias=(R*a), do_input_reshape=False)
+                    RZ = mm_func(Z, RZ, bias=(RZ*a), do_input_reshape=False)
+        del R, RZ, I, Z
+        if reshape_grad:
+            X = mm_func(X.t(), Q, do_input_reshape=False)
+        else:
+            X = mm_func(Q, X, do_input_reshape=False)
+        del Q
+    else:
+        for a, b, c in ns_coefficients:
+            A = mm_func(X, X, do_input_reshape=True)
+            B = mm_func((A*c), A, bias=(A*b), do_input_reshape=False)
+            X = mm_func(B, X, bias=(X*a), do_input_reshape=False)
+        del A, B
+        if reshape_grad:
+            X = X.t()
 
-    if reshape_grad:
-        X = X.t()
     X = X.to(dtype=return_dtype)
     return X
 
 
-def zeropower_via_newtonschulz5_fp8_matmul(X: torch.FloatTensor, steps: int = 5, clip: float = 1.0) -> torch.FloatTensor:
-    a, b, c = (3.4445, -4.7750,  2.0315)
+def zeropower_via_newtonschulz5_fp8_matmul(
+    X: torch.FloatTensor,
+    clip: float = 1.0,
+    ns_coefficients: tuple[tuple[int]] = default_ns_coefficients,
+    use_gram_ns: bool = False,
+    gram_ns_resets: tuple[int] = default_gram_ns_resets,
+    gram_ns_coefficients: tuple[tuple[int]] = default_gram_ns_coefficients,
+) -> torch.FloatTensor:
     return_dtype = X.dtype
-
     if X.shape[0] > X.shape[1]:
         reshape_grad = True
         X = X.t()
@@ -266,14 +388,39 @@ def zeropower_via_newtonschulz5_fp8_matmul(X: torch.FloatTensor, steps: int = 5,
     X = X.to(dtype=torch.float32)
     X = torch.div(X, X.norm()).nan_to_num_().clamp_(-clip,clip)
 
-    for _ in range(steps):
-        A = fp8_matmul_dynamic(X, X, do_input_reshape=True)
-        B = fp8_matmul_dynamic((A*c), A, do_input_reshape=False).add_(A, alpha=b)
-        X = fp8_matmul_dynamic(B, X, do_input_reshape=False).add_(X, alpha=a)
-    del A, B
+    if use_gram_ns and X.shape[0] != X.shape[1]:
+        gram_ns_coefficients_lenght = len(gram_ns_coefficients)
+        R = fp8_matmul_dynamic(X, X, do_input_reshape=True)
+        I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype) # noqa:E741
+        Q = None
+        for i, (a, b, c) in enumerate(gram_ns_coefficients):
+                if i in gram_ns_resets and i != 0:
+                    X = fp8_matmul_dynamic(Q, X, do_input_reshape=False)
+                    R = fp8_matmul_dynamic(X, X, do_input_reshape=True)
+                    Q = None
+                Z = fp8_matmul_dynamic((R*c), R, do_input_reshape=False).add_(R, alpha=b)
+                if i != 0 and i not in gram_ns_resets:
+                    Q = fp8_matmul_dynamic(Q, Z, do_input_reshape=False).add_(Q, alpha=a)
+                else:
+                    Q = torch.add(Z, I, alpha=a)
+                if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
+                    RZ = fp8_matmul_dynamic(R, Z, do_input_reshape=False).add_(R, alpha=a)
+                    RZ = fp8_matmul_dynamic(Z, RZ, do_input_reshape=False).add_(RZ, alpha=a)
+        del R, RZ, I, Z
+        if reshape_grad:
+            X = fp8_matmul_dynamic(X.t(), Q, do_input_reshape=False)
+        else:
+            X = fp8_matmul_dynamic(Q, X, do_input_reshape=False)
+        del Q
+    else:
+        for a, b, c in ns_coefficients:
+            A = fp8_matmul_dynamic(X, X, do_input_reshape=True)
+            B = fp8_matmul_dynamic((A*c), A, do_input_reshape=False).add_(A, alpha=b)
+            X = fp8_matmul_dynamic(B, X, do_input_reshape=False).add_(X, alpha=a)
+        del A, B
+        if reshape_grad:
+            X = X.t()
 
-    if reshape_grad:
-        X = X.t()
     X = X.to(dtype=return_dtype)
     return X
 
