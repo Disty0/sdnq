@@ -8,17 +8,14 @@ from .forward import check_mats, quantized_linear_with_backward
 from .linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
 
 
-def quantize_fp_mm_input_tensorwise(input: torch.FloatTensor, scale: torch.FloatTensor | None = None, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
+def quantize_fp_mm_input_tensorwise(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     if use_sr:
         input, input_scale = quantize_fp_mm_sr(input.to(dtype=torch.float32), dim=dim, matmul_dtype=matmul_dtype)
     else:
         input, input_scale = quantize_fp_mm(input.to(dtype=torch.float32), dim=dim, matmul_dtype=matmul_dtype)
-    scale = torch.mul(input_scale, scale) if scale is not None else input_scale
-    if scale.dtype == torch.float16: # fp16 will overflow
-        scale = scale.to(dtype=torch.float32)
-    return input, scale
+    return input, input_scale
 
 
 def fp8_matmul_tensorwise(
@@ -60,12 +57,12 @@ def fp8_matmul_tensorwise(
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
     dummy_input_scale = torch.ones(1, device=input.device, dtype=torch.float32)
-    input, scale = quantize_fp_mm_input_tensorwise(input, scale=scale, do_input_reshape=do_input_reshape, use_sr=use_sr)
+    input, input_scale = quantize_fp_mm_input_tensorwise(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight, allow_contiguous_mm=False)
     if bias is not None:
-        return dequantize_symmetric_with_bias(torch._scaled_mm(input, weight, scale_a=dummy_input_scale, scale_b=dummy_input_scale, bias=None, out_dtype=scale.dtype), scale, bias, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric_with_bias(torch._scaled_mm(input, weight, scale_a=dummy_input_scale, scale_b=dummy_input_scale, bias=None, out_dtype=input_scale.dtype).mul_(input_scale), scale, bias, dtype=return_dtype, result_shape=output_shape)
     else:
-        return dequantize_symmetric(torch._scaled_mm(input, weight, scale_a=dummy_input_scale, scale_b=dummy_input_scale, bias=None, out_dtype=scale.dtype), scale, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric(torch._scaled_mm(input, weight, scale_a=dummy_input_scale, scale_b=dummy_input_scale, bias=None, out_dtype=input_scale.dtype).mul_(input_scale), scale, dtype=return_dtype, result_shape=output_shape)
 
 
 def fp8_matmul_tensorwise_backward(

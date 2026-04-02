@@ -19,8 +19,8 @@ def int8_matmul_dynamic_ckpt(
     do_input_reshape: bool = True,
 ) -> torch.FloatTensor:
     result = int8_matmul_dynamic(input, weight, bias=bias, svd_up=svd_up, svd_down=svd_down)
-    weight, scale = quantize_int_mm(weight, dim=0)
-    input, input_scale = quantize_int_mm(input.flatten(0,-2), dim=0)
+    weight, scale = quantize_int_mm(weight.to(dtype=torch.float32), dim=0)
+    input, input_scale = quantize_int_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0)
     return result, input, weight, input_scale, scale
 
 

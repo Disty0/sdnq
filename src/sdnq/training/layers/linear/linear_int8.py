@@ -13,17 +13,14 @@ except Exception:
     triton_int_mm = int_mm_func
 
 
-def quantize_int_mm_input(input: torch.FloatTensor, scale: torch.FloatTensor | None = None, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.CharTensor, torch.FloatTensor]:
+def quantize_int_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.CharTensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     if use_sr:
         input, input_scale = quantize_int_mm_sr(input.to(dtype=torch.float32), dim=dim)
     else:
         input, input_scale = quantize_int_mm(input.to(dtype=torch.float32), dim=dim)
-    scale = torch.mul(input_scale, scale) if scale is not None else input_scale
-    if scale.dtype == torch.float16: # fp16 will overflow
-        scale = scale.to(dtype=torch.float32)
-    return input, scale
+    return input, input_scale
 
 
 def int8_matmul(
@@ -70,12 +67,12 @@ def int8_matmul(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, scale = quantize_int_mm_input(input, scale=scale, do_input_reshape=do_input_reshape, use_sr=use_sr)
+    input, input_scale = quantize_int_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(int_mm(input, weight), scale, bias, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric_with_bias(int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale), scale, bias, dtype=return_dtype, result_shape=output_shape)
     else:
-        return dequantize_symmetric(int_mm(input, weight), scale, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric(int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale), scale, dtype=return_dtype, result_shape=output_shape)
 
 
 def int8_matmul_backward(

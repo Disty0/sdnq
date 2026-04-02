@@ -22,10 +22,7 @@ def quantize_int_mm_matmul(input: torch.FloatTensor, weight: torch.FloatTensor, 
         input, input_scale = quantize_int_mm_sr(input.to(dtype=torch.float32), dim=-1)
     else:
         input, input_scale = quantize_int_mm(input.to(dtype=torch.float32), dim=-1)
-    scale = torch.mul(input_scale, scale)
-    if scale.dtype == torch.float16: # fp16 will overflow
-        scale = scale.to(dtype=torch.float32)
-    return input, weight, scale
+    return input, weight, input_scale, scale
 
 
 def int8_matmul_dynamic(
@@ -62,12 +59,12 @@ def int8_matmul_dynamic(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, weight, scale = quantize_int_mm_matmul(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
+    input, weight, input_scale, scale = quantize_int_mm_matmul(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(int_mm(input, weight), scale, bias, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric_with_bias(int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale), scale, bias, dtype=return_dtype, result_shape=output_shape)
     else:
-        return dequantize_symmetric(int_mm(input, weight), scale, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric(int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale), scale, dtype=return_dtype, result_shape=output_shape)
 
 
 def int8_matmul_dynamic_backward(

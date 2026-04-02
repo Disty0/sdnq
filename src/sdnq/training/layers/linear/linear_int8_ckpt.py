@@ -21,7 +21,7 @@ def int8_matmul_ckpt(
     do_transpose: bool = False,
 ) -> torch.FloatTensor:
     result = int8_matmul(input, weight, scale, bias=bias, svd_up=svd_up, svd_down=svd_down, output_shape=output_shape, do_input_reshape=do_input_reshape, do_transpose=do_transpose)
-    input, input_scale = quantize_int_mm(input.flatten(0,-2), dim=0)
+    input, input_scale = quantize_int_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0)
     return result, input, input_scale
 
 

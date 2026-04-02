@@ -18,10 +18,7 @@ def quantize_fp_mm_tensorwise(input: torch.FloatTensor, weight: torch.FloatTenso
         input, input_scale = quantize_fp_mm_sr(input.to(dtype=torch.float32), dim=-1, matmul_dtype=matmul_dtype)
     else:
         input, input_scale = quantize_fp_mm(input.to(dtype=torch.float32), dim=-1, matmul_dtype=matmul_dtype)
-    scale = torch.mul(input_scale, scale)
-    if scale.dtype == torch.float16: # fp16 will overflow
-        scale = scale.to(dtype=torch.float32)
-    return input, weight, scale
+    return input, weight, input_scale, scale
 
 
 def fp8_matmul_tensorwise_dynamic(
@@ -58,12 +55,12 @@ def fp8_matmul_tensorwise_dynamic(
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
     dummy_input_scale = torch.ones(1, device=input.device, dtype=torch.float32)
-    input, weight, scale = quantize_fp_mm_tensorwise(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
+    input, weight, input_scale, scale = quantize_fp_mm_tensorwise(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight, allow_contiguous_mm=False)
     if bias is not None:
-        return dequantize_symmetric_with_bias(torch._scaled_mm(input, weight, scale_a=dummy_input_scale, scale_b=dummy_input_scale, bias=None, out_dtype=scale.dtype), scale, bias, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric_with_bias(torch._scaled_mm(input, weight, scale_a=dummy_input_scale, scale_b=dummy_input_scale, bias=None, out_dtype=input_scale.dtype).mul_(input_scale), scale, bias, dtype=return_dtype, result_shape=output_shape)
     else:
-        return dequantize_symmetric(torch._scaled_mm(input, weight, scale_a=dummy_input_scale, scale_b=dummy_input_scale, bias=None, out_dtype=scale.dtype), scale, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric(torch._scaled_mm(input, weight, scale_a=dummy_input_scale, scale_b=dummy_input_scale, bias=None, out_dtype=input_scale.dtype).mul_(input_scale), scale, dtype=return_dtype, result_shape=output_shape)
 
 
 def fp8_matmul_tensorwise_dynamic_backward(

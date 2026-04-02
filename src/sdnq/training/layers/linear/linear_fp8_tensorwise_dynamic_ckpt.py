@@ -19,8 +19,8 @@ def fp8_matmul_tensorwise_dynamic_ckpt(
     do_input_reshape: bool = True,
 ) -> torch.FloatTensor:
     result = fp8_matmul_tensorwise_dynamic(input, weight, bias=bias, svd_up=svd_up, svd_down=svd_down)
-    new_weight, weight_scale = quantize_fp_mm(weight, dim=0)
-    new_input, input_scale = quantize_fp_mm(input.flatten(0,-2), dim=0)
+    new_weight, weight_scale = quantize_fp_mm(weight.to(dtype=torch.float32), dim=0)
+    new_input, input_scale = quantize_fp_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0)
     return result, new_input, new_weight, input_scale, weight_scale
 
 

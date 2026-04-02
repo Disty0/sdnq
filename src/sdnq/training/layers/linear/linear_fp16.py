@@ -47,13 +47,13 @@ def fp16_matmul(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, scale = quantize_fp_mm_input_tensorwise(input, scale=scale, do_input_reshape=do_input_reshape, use_sr=use_sr, matmul_dtype="float16")
+    input, input_scale = quantize_fp_mm_input_tensorwise(input, do_input_reshape=do_input_reshape, use_sr=use_sr, matmul_dtype="float16")
     weight = weight.to(dtype=torch.float16) # fp8 weights
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(fp_mm_func(input, weight), scale, bias, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric_with_bias(fp_mm_func(input, weight).to(dtype=input_scale.dtype).mul_(input_scale), scale, bias, dtype=return_dtype, result_shape=output_shape)
     else:
-        return dequantize_symmetric(fp_mm_func(input, weight), scale, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric(fp_mm_func(input, weight).to(dtype=input_scale.dtype).mul_(input_scale), scale, dtype=return_dtype, result_shape=output_shape)
 
 
 def fp16_matmul_backward(
