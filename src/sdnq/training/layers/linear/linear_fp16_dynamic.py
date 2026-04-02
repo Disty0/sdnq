@@ -5,7 +5,7 @@ from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
 from ...tensor import SDNQTensor # noqa: TID252
 
 from .forward import check_mats, quantized_linear_with_backward
-from .linear_fp8_tensorwise_dynamic import quantize_fp_mm_tensorwise
+from .linear_fp8_tensorwise_dynamic import quantize_fp_mm_matmul_tensorwise
 
 
 def fp16_matmul_dynamic(
@@ -41,7 +41,7 @@ def fp16_matmul_dynamic(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, weight, input_scale, scale = quantize_fp_mm_tensorwise(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr, matmul_dtype="float16")
+    input, weight, input_scale, scale = quantize_fp_mm_matmul_tensorwise(input, weight, do_input_reshape=do_input_reshape, use_sr=use_sr, matmul_dtype="float16")
     input, weight = check_mats(input, weight)
     if bias is not None:
         return dequantize_symmetric_with_bias(fp_mm_func(input, weight).to(dtype=input_scale.dtype).mul_(input_scale), scale, bias, dtype=return_dtype, result_shape=output_shape)
