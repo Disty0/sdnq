@@ -1,8 +1,9 @@
 """
 Modified from Triton MatMul example.
-PyTorch torch._int_mm is broken on backward pass with Nvidia.
-AMD RDNA2 doesn't support torch._int_mm, so we use int_mm via Triton.
-PyTorch doesn't support FP32 output type with FP16 MM so we use Triton for it too.
+PyTorch torch._int_mm is broken on backward pass with Nvidia, so we use Triton on the backward pass with Nvidia.
+AMD RDNA2 doesn't support torch._int_mm as it requires INT8 WMMA, so we use INT8 DP4A via Triton.
+PyTorch doesn't support FP32 output type with FP16 MM, so we use Triton for FP16 MM too.
+matmul_configs we use takes AMD into consideration too, SDNQ Triton configs can outperfrom RocBLAS with large matrices.
 """
 
 import torch
