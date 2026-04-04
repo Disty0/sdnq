@@ -18,11 +18,11 @@ def benchmark_linear(name: str, linear: torch.nn.Linear, x: torch.Tensor, steps:
         print(name)
         sync_func = getattr(torch, x.device.type).synchronize
         z = linear(x)
-        sync_func()
+        sync_func(x.device)
         t0 = time.time()
         for i in tqdm(range(steps)):
             z = linear(x)
-            sync_func()
+            sync_func(x.device)
         t1 = time.time()
         return get_tflops(steps/(t1 - t0), x.shape[0],z.shape[1],x.shape[1])
     except Exception:

@@ -41,13 +41,13 @@ def benchmark_linear(name: str, linear: Callable, x: torch.Tensor, y: torch.Tens
         z = linear(x, y, b)
         loss = z.mean()
         loss.backward()
-        sync_func()
+        sync_func(x.device)
         t0 = time.time()
         for i in tqdm(range(steps)):
             z = linear(x, y, b)
             loss = z.mean()
             loss.backward()
-            sync_func()
+            sync_func(x.device)
         t1 = time.time()
         return get_tflops(steps/(t1 - t0), x.shape[0],z.shape[1],x.shape[1])
     except Exception:
