@@ -128,6 +128,7 @@ def sdnq_training_post_load_quant(
         use_svd=use_svd,
         use_grad_ckpt=use_grad_ckpt,
         quant_conv=False,
+        quant_embedding=False,
         use_quantized_matmul=use_quantized_matmul,
         use_quantized_matmul_conv=False,
         use_static_quantization=use_static_quantization,
