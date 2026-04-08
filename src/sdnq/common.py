@@ -484,6 +484,10 @@ module_skip_keys_dict = {
         ["lm_head", "correction_coefs", "prediction_coefs", "embedding_projection"],
         {}
     ],
+    "Gemma4ForConditionalGeneration": [
+        ["lm_head", "embed_audio", "embed_vision", "patch_embedder", "embed_tokens", "embed_tokens_per_layer", "per_layer_model_projection", "subsample_conv_projection", "output_proj"],
+        {}
+    ],
     "MoondreamModel": [
         ["lm_head", "region", "wte", "post_ln", "proj_mlp", "patch_emb", "pos_emb"],
         {}
