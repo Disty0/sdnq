@@ -2,17 +2,64 @@
 
 import torch
 
+from ...common import dtype_dict, compile_func
+from ...packed_int import unpack_int
+from ...packed_float import unpack_float
+from ...dequantizer import dequantize_symmetric, dequantize_asymmetric
 
-def quantized_embedding_forward(self, input: torch.FloatTensor) -> torch.FloatTensor:
-    result = torch.nn.functional.embedding(
-        input,
-        self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down),
-        self.padding_idx,
-        self.max_norm,
-        self.norm_type,
-        self.scale_grad_by_freq,
-        self.sparse,
-    )
-    if hasattr(self, "embed_scale"):
-        result.mul_(self.embed_scale)
+
+def quantized_embedding(
+    input: torch.Tensor,
+    weight: torch.Tensor,
+    scale: torch.FloatTensor,
+    zero_point: torch.FloatTensor | None = None,
+    svd_up: torch.FloatTensor | None = None,
+    svd_down: torch.FloatTensor | None = None,
+    result_dtype: torch.dtype | None = None,
+    weight_shape: torch.Size | None = None,
+    quantized_weight_shape: torch.Size | None = None,
+    weights_dtype: str | None = None,
+    padding_idx: int | None = None,
+    embed_scale: float | torch.FloatTensor | None = None,
+) -> torch.FloatTensor:
+    return_shape = list(input.shape) + [weight_shape[-1] if weight_shape is not None else weight.shape[-1]]
+    input = input.flatten()
+
+    if weights_dtype is not None and dtype_dict[weights_dtype]["is_packed"]:
+        if dtype_dict[weights_dtype]["is_integer"]:
+            weight = unpack_int(weight, weights_dtype, quantized_weight_shape)
+        else:
+            weight = unpack_float(weight, weights_dtype, quantized_weight_shape)
+
+    result = torch.nn.functional.embedding(input, weight.flatten(1,-1), padding_idx=padding_idx).unflatten(-1, weight.shape[1:])
+    if zero_point is not None:
+        result = dequantize_asymmetric(result, scale[input], zero_point[input], svd_up=svd_up[input] if svd_up is not None else svd_up, svd_down=svd_down, dtype=result_dtype)
+    else:
+        result = dequantize_symmetric(result, scale[input], svd_up=svd_up[input] if svd_up is not None else svd_up, svd_down=svd_down, dtype=result_dtype)
+    result = result.view(return_shape).contiguous()
+
+    if embed_scale is not None:
+        result.mul_(embed_scale)
+
     return result
+
+
+
+def quantized_embedding_forward(self: torch.nn.Module, input: torch.Tensor) -> torch.FloatTensor:
+    return quantized_embedding(
+        input,
+        self.weight,
+        self.scale,
+        zero_point=self.zero_point,
+        svd_up=self.svd_up,
+        svd_down=self.svd_down,
+        result_dtype=self.sdnq_dequantizer.result_dtype,
+        weight_shape=self.sdnq_dequantizer.result_shape,
+        quantized_weight_shape=self.sdnq_dequantizer.quantized_weight_shape,
+        weights_dtype=self.sdnq_dequantizer.weights_dtype,
+        padding_idx=self.padding_idx,
+        embed_scale=getattr(self, "embed_scale", None)
+    )
+
+
+quantized_embedding = compile_func(quantized_embedding)
