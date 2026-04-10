@@ -15,7 +15,7 @@ def quantized_embedding(
     zero_point: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
-    embed_scale: torch.FloatTensor | None = None,
+    embed_scale: torch.FloatTensor | float | None = None,
     result_dtype: torch.dtype | None = None,
     weight_shape: torch.Size | None = None,
     quantized_weight_shape: torch.Size | None = None,
@@ -38,7 +38,7 @@ def quantized_embedding(
 
     result = result.view(return_shape).contiguous()
     if embed_scale is not None:
-        result.mul_(embed_scale)
+        result = result.mul_(embed_scale)
 
     return result
 
@@ -52,7 +52,7 @@ def quantized_embedding_forward(self: torch.nn.Module, input: torch.Tensor) -> t
         zero_point=self.zero_point,
         svd_up=self.svd_up,
         svd_down=self.svd_down,
-        embed_scale=getattr(self, "embed_scale", None),
+        embed_scale=getattr(self, "scalar_embed_scale", None),
         result_dtype=self.sdnq_dequantizer.result_dtype,
         weight_shape=self.sdnq_dequantizer.result_shape,
         quantized_weight_shape=self.sdnq_dequantizer.quantized_weight_shape,
