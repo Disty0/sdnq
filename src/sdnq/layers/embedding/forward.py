@@ -34,8 +34,9 @@ def quantized_embedding(
         result = dequantize_asymmetric(weight[input], scale[input], zero_point[input], svd_up=svd_up[input] if svd_up is not None else svd_up, svd_down=svd_down, dtype=result_dtype)
     else:
         result = dequantize_symmetric(weight[input], scale[input], svd_up=svd_up[input] if svd_up is not None else svd_up, svd_down=svd_down, dtype=result_dtype)
-    result = result.view(return_shape).contiguous()
+    del input
 
+    result = result.view(return_shape).contiguous()
     if embed_scale is not None:
         result.mul_(embed_scale)
 
