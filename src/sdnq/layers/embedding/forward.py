@@ -21,7 +21,7 @@ def quantized_embedding(
     quantized_weight_shape: torch.Size | None = None,
     weights_dtype: str | None = None,
 ) -> torch.FloatTensor:
-    return_shape = list(input.shape) + [weight_shape[-1] if weight_shape is not None else weight.shape[-1]]
+    return_shape = list(input.shape) + [weight_shape[-1] if weight_shape is not None else quantized_weight_shape[-1] if quantized_weight_shape is not None else weight.shape[-1]]
     input = input.flatten()
 
     if weights_dtype is not None and dtype_dict[weights_dtype]["is_packed"]:
