@@ -853,12 +853,6 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             return
 
         torch_dtype = kwargs.get("dtype", param_value.dtype if self.torch_dtype is None else self.torch_dtype)
-        if self.quantization_config.return_device is not None:
-            return_device = self.quantization_config.return_device
-        else:
-            return_device = target_device
-        if self.quantization_config.quantization_device is not None:
-            target_device = self.quantization_config.quantization_device
 
         quant_kwargs = {
             "weights_dtype": self.quantization_config.weights_dtype,
@@ -879,11 +873,17 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             "non_blocking": self.quantization_config.non_blocking,
             "modules_to_not_convert": self.quantization_config.modules_to_not_convert,
             "modules_dtype_dict": self.quantization_config.modules_dtype_dict,
-            "quantization_device": None,
-            "return_device": return_device,
+            "quantization_device": self.quantization_config.quantization_device,
+            "return_device": self.quantization_config.return_device,
             "param_name": param_name,
         }
         quant_kwargs = get_quant_kwargs(quant_kwargs, self.quantization_config.modules_quant_config)
+
+        if quant_kwargs["return_device"] is None:
+            quant_kwargs["return_device"] = target_device
+        if quant_kwargs["quantization_device"] is not None:
+            target_device = quant_kwargs["quantization_device"]
+            quant_kwargs["quantization_device"] = None
 
         if param_value.dtype in {torch.float32, torch.float64} and devices.same_device(param_value.device, target_device):
             param_value = param_value.clone()
