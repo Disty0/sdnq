@@ -4,7 +4,7 @@ import torch
 
 
 def quantized_embedding_forward(self, input: torch.FloatTensor) -> torch.FloatTensor:
-    return torch.nn.functional.embedding(
+    result = torch.nn.functional.embedding(
         input,
         self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down),
         self.padding_idx,
@@ -13,3 +13,6 @@ def quantized_embedding_forward(self, input: torch.FloatTensor) -> torch.FloatTe
         self.scale_grad_by_freq,
         self.sparse,
     )
+    if hasattr(self, "embed_scale"):
+        result.mul_(self.embed_scale)
+    return result

@@ -286,7 +286,7 @@ if hasattr(torch, "float8_e5m2fnuz"):
     torch_dtype_dict[torch.float8_e5m2fnuz] = "float8_e5m2fnuz"
 
 linear_types = {"Linear", "SDNQLinear"}
-embedding_types = {"Embedding", "SDNQEmbedding"}
+embedding_types = {"Embedding", "SDNQEmbedding", "Gemma4TextScaledWordEmbedding"}
 conv_types = {"Conv1d", "Conv2d", "Conv3d", "SDNQConv1d", "SDNQConv2d", "SDNQConv3d"}
 conv_transpose_types = {"ConvTranspose1d", "ConvTranspose2d", "ConvTranspose3d", "SDNQConvTranspose1d", "SDNQConvTranspose2d", "SDNQConvTranspose3d"}
 allowed_types = set.union(linear_types, embedding_types, conv_types, conv_transpose_types)
@@ -486,7 +486,7 @@ module_skip_keys_dict = {
         {}
     ],
     "Gemma4ForConditionalGeneration": [
-        ["lm_head", "embed_audio", "embed_vision", "patch_embedder", "embed_tokens", "embed_tokens_per_layer", "per_layer_model_projection", "subsample_conv_projection", "output_proj"],
+        ["lm_head", "embed_audio", "embed_vision", "patch_embedder", "embed_tokens", "subsample_conv_projection", "output_proj"],
         {}
     ],
     "MoondreamModel": [

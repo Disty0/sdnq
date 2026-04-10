@@ -534,7 +534,6 @@ def sdnq_quantize_layer(layer, weights_dtype="int8", quantized_matmul_dtype=None
         if layer.svd_up is not None:
             layer.svd_up = torch.nn.Parameter(layer.svd_up.to(return_device, non_blocking=non_blocking), requires_grad=False)
             layer.svd_down = torch.nn.Parameter(layer.svd_down.to(return_device, non_blocking=non_blocking), requires_grad=False)
-        layer = layer.to(return_device, non_blocking=non_blocking)
 
         if use_dynamic_quantization:
             if modules_dtype_dict is None:
@@ -544,7 +543,7 @@ def sdnq_quantize_layer(layer, weights_dtype="int8", quantized_matmul_dtype=None
             else:
                 modules_dtype_dict[layer.sdnq_dequantizer.weights_dtype].append(param_name)
     else:
-        layer = layer.to(return_device, dtype=torch_dtype, non_blocking=non_blocking)
+        layer.weight = layer.weight.to(return_device, dtype=torch_dtype, non_blocking=non_blocking)
         if use_dynamic_quantization:
             if modules_to_not_convert is None:
                 modules_to_not_convert = []

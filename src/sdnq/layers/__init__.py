@@ -58,6 +58,7 @@ class SDNQConvTranspose3d(SDNQLayer, torch.nn.ConvTranspose3d):
 
 torch.serialization.add_safe_globals([SDNQLayer])
 torch.serialization.add_safe_globals([SDNQLinear])
+torch.serialization.add_safe_globals([SDNQEmbedding])
 torch.serialization.add_safe_globals([SDNQConv1d])
 torch.serialization.add_safe_globals([SDNQConv2d])
 torch.serialization.add_safe_globals([SDNQConv3d])
@@ -71,6 +72,8 @@ def get_sdnq_wrapper_class(original_layer, forward_func):
         case "Linear":
             return SDNQLinear(original_layer, forward_func)
         case "Embedding":
+            return SDNQEmbedding(original_layer, forward_func)
+        case "Gemma4TextScaledWordEmbedding":
             return SDNQEmbedding(original_layer, forward_func)
         case "Conv1d":
             return SDNQConv1d(original_layer, forward_func)
