@@ -40,6 +40,7 @@ sdnq_config = SDNQConfig(
     dynamic_loss_threshold=1e-2,
     use_svd=False,
     quant_conv=False,
+    quant_embedding=False,
     use_quantized_matmul=triton_is_available,
     use_quantized_matmul_conv=False,
     use_dynamic_quantization=False,
@@ -50,6 +51,7 @@ sdnq_config = SDNQConfig(
     return_device="cuda",
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
     modules_dtype_dict={"int8": ["lm_head"]},
+    modules_quant_config={"embed_tokens_per_layer": {"quantization_device": "cpu"}},
 )
 
 quantized_model = AutoModel.from_pretrained(model_path, quantization_config=sdnq_config)
