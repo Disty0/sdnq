@@ -1,6 +1,10 @@
 # SDNQ: SD.Next Quantization Engine
 
 SD.Next Quantization provides full cross-platform quantization to reduce memory usage and increase performance for any device.  
+SDNQ is written fully in PyTorch and can be compiled with torch.compile into different backends such as Inductor and OpenVINO.  
+SDNQ can run on any device (MPS (Apple Mac), CPU, ARM, Android etc.) with PyTorch Eager fallback mode.  
+CUDA (Nvidia), ROCm (AMD) and XPU (Intel) devices utilizes the faster Inductor backend by default if Triton is available.  
+
 For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
 ### Install command:  
@@ -160,3 +164,25 @@ from sdnq.training import SDNQTensor
 
 state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p), weights_dtype="uint8", group_size=32, use_stochastic_rounding=True)
 ```
+
+
+### Environment Variables
+
+- **SDNQ_USE_TORCH_COMPILE**: Overrides the default Triton and torch.compile test done by SDNQ.  
+  Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_USE_TENSORWISE_FP8_MM**: Force the use of software row-wise quantization via tensorwise kernels on unsupported hardware.  
+  Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_USE_CONTIGUOUS_MM**: Force the use of contiguous matmul instead of regular transposed matmul.  
+  Some devices can perform much better with contiguous matmul.  
+  Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_USE_TRITON_MM**: Force the use of Triton MM kernels for INT8 MM instead of torch._int_mm.  
+  AMD RDNA2 GPUs requires Triton MM kernels for INT8 MM support.  
+  Triton MM kernels can outperform torch._int_mm on Intel and AMD GPUs.  
+  Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_COMPILE_KWARGS**: A dict of kwargs to override the kwargs used on torch.compile for SDNQ.  
+  `SDNQ_COMPILE_KWARGS` is an advanced option, don't touch this if you don't know exactly what you are doing.  
+  Must be json string such as `{"fullgraph": true}`. Default is None (auto-detect)  
+- **SDNQ_DEVICE**: A device to override the default SDNQ device detection.  
+  Must be name of a torch.device such as `mps`. Default is None (auto-detect)  
+- **SDNQ_DTYPE**: A dtype to override the default SDNQ dtype detection based on the detected device.  
+  Must be name of a torch.dtype such as `bfloat16`. Default is None (auto-detect)  

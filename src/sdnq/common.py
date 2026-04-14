@@ -6,7 +6,7 @@ import torch
 
 from .sdnext import shared, devices
 
-sdnq_version = "0.1.7"
+sdnq_version = "0.1.8"
 
 dtype_dict = {
     ### Integers
