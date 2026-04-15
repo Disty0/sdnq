@@ -335,6 +335,17 @@ def check_torch_compile(): # dynamo can be disabled after startup
     return use_torch_compile and not torch._dynamo.config.disable # pylint: disable=protected-access
 
 
+if os.environ.get("SDNQ_ALLOW_FP8_MM", None) is None:
+    if devices.backend == "cuda":
+        is_fp8_mm_supported = bool(torch.cuda.get_device_capability(devices.device) >= (8,9))
+    elif devices.backend == "rocm":
+        gfx_version = devices.get_hip_agent().gfx_version
+        is_fp8_mm_supported = bool(gfx_version >= 0x1200 or (gfx_version >= 0x940 and gfx_version < 0x1000))
+    else:
+        is_fp8_mm_supported = False
+else:
+    is_fp8_mm_supported = os.environ.get("SDNQ_ALLOW_FP8_MM", "0").lower() not in {"0", "false", "no"}
+
 if os.environ.get("SDNQ_USE_TENSORWISE_FP8_MM", None) is None:
     # row-wise FP8 only exist on H100 hardware, sdnq will use software row-wise with tensorwise hardware with this setting
     use_tensorwise_fp8_matmul = bool(devices.backend != "cuda" or (devices.backend == "cuda" and torch.cuda.get_device_capability(devices.device) < (9,0)))

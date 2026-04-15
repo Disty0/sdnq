@@ -170,6 +170,9 @@ state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p), weights_dtype="uin
 
 - **SDNQ_USE_TORCH_COMPILE**: Overrides the default Triton and torch.compile test done by SDNQ.  
   Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_ALLOW_FP8_MM**: Overrides the default FP8 matmul support test done by SDNQ.  
+  This option is used with the `use_dynamic_quantization` option and within the `apply_sdnq_options_to_module` function.  
+  Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_USE_TENSORWISE_FP8_MM**: Force the use of software row-wise quantization via tensorwise kernels on unsupported hardware.  
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_USE_CONTIGUOUS_MM**: Force the use of contiguous matmul instead of regular transposed matmul.  
