@@ -5,6 +5,9 @@ SDNQ is written fully in PyTorch and can be compiled with torch.compile into dif
 SDNQ can run on any device (MPS (Apple Mac), CPU, ARM, Android etc.) with PyTorch Eager fallback mode.  
 CUDA (Nvidia), ROCm (AMD) and XPU (Intel) devices utilizes the faster Inductor backend by default if Triton is available.  
 
+SDNQ supports INT8, FP8 and FP16 quantized matmul on supported GPUs for inference and training.  
+SDNQ also supports full parameter quantized training with quantized weights and / or quantized matmul.  
+
 For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
 ### Install command:  
@@ -92,14 +95,14 @@ from sdnq.common import use_torch_compile as triton_is_available
 
 quantized_model = sdnq_training_post_load_quant(
     model,
-    weights_dtype="uint8",
-    quantized_matmul_dtype="int8",
+    weights_dtype="uint8", # Check out `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
+    quantized_matmul_dtype="int8", # can be int8, fp8 or fp16
     group_size=32, # 0 means auto, -1 means disabled
     svd_rank=32,
     svd_steps=8,
     use_svd=False,
     use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
-    use_quantized_matmul=triton_is_available,
+    use_quantized_matmul=triton_is_available, # use quantized matmul on the forward pass and the backward pass
     use_static_quantization=True, # quantize the model weights
     use_stochastic_rounding=True,
     dequantize_fp32=True,
