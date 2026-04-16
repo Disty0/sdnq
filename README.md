@@ -5,7 +5,7 @@ SDNQ is written fully in PyTorch and can be compiled with torch.compile into dif
 SDNQ can run on any device (MPS (Apple Mac), CPU, ARM, Android etc.) with PyTorch Eager fallback mode.  
 CUDA (Nvidia), ROCm (AMD) and XPU (Intel) devices utilizes the faster Inductor backend by default if Triton is available.  
 
-SDNQ supports INT8, FP8 and FP16 quantized matmul on supported Nvidia, AMD and Intel GPUs for inference and training.  
+SDNQ also supports INT8, FP8 and FP16 quantized matmul on supported Nvidia, AMD and Intel GPUs for inference and training with any quantized weights type.  
 SDNQ also supports full parameter quantized training with quantized weights and / or quantized matmul and also offers quantized optimizers for training.  
 
 For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
