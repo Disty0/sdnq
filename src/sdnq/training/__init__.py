@@ -1,7 +1,8 @@
 import copy
 import torch
 
-from ..quantizer import SDNQConfig, QuantizationMethod, check_param_name_in, get_minimum_dtype, add_module_skip_keys
+from ..quantizer import SDNQConfig, QuantizationMethod
+from ..utils import check_param_name_in, get_minimum_dtype, add_module_skip_keys
 from ..loader import apply_sdnq_options_to_model
 from ..common import linear_types, check_torch_compile
 from ..layers import SDNQLayer, get_sdnq_wrapper_class
