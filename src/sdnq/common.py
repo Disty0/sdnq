@@ -6,7 +6,7 @@ import torch
 
 from .sdnext import shared, devices
 
-sdnq_version = "0.1.8"
+sdnq_version = "0.1.9"
 
 dtype_dict = {
     ### Integers
@@ -511,6 +511,10 @@ module_skip_keys_dict = {
     ],
     "NaDiT": [
         [".emb_in", ".txt_in", ".vid_in", ".emb_scale", ".vid_out", ".vid_out_norm", ".vid_out_ada"],
+        {}
+    ],
+    "HiDreamO1Qwen3VLTransformer": [
+        ["lm_head", "embed_tokens", "x_embedder", "t_embedder1", "final_layer2", "patch_embed", "pos_embed"],
         {}
     ],
 }

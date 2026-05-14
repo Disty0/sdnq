@@ -25,6 +25,31 @@ def unset_config_on_save(quantization_config: SDNQConfig) -> SDNQConfig:
     return quantization_config
 
 
+def normalize_tied_weights_keys_for_save(model: ModelMixin, is_pipeline: bool = False) -> list[tuple[torch.nn.Module, object]]:
+    normalized_modules = []
+    modules_to_walk = []
+    if is_pipeline:
+        for module_name in get_module_names(model):
+            module = getattr(model, module_name, None)
+            if isinstance(module, torch.nn.Module):
+                modules_to_walk.append(module)
+    elif isinstance(model, torch.nn.Module):
+        modules_to_walk.append(model)
+
+    for root_module in modules_to_walk:
+        for submodule in root_module.modules():
+            tied_weights_keys = getattr(submodule, "_tied_weights_keys", None)
+            if isinstance(tied_weights_keys, list):
+                normalized_modules.append((submodule, tied_weights_keys))
+                submodule._tied_weights_keys = {key: key for key in tied_weights_keys} # pylint: disable=protected-access
+    return normalized_modules
+
+
+def restore_tied_weights_keys_after_save(normalized_modules: list[tuple[torch.nn.Module, object]]) -> None:
+    for submodule, tied_weights_keys in normalized_modules:
+        submodule._tied_weights_keys = tied_weights_keys # pylint: disable=protected-access
+
+
 def save_sdnq_model(model: ModelMixin, model_path: str, max_shard_size: str = "5GB", is_pipeline: bool = False, sdnq_config: SDNQConfig | None = None) -> None:
     if is_pipeline:
         for module_name in get_module_names(model):
@@ -39,7 +64,11 @@ def save_sdnq_model(model: ModelMixin, model_path: str, max_shard_size: str = "5
         if hasattr(model, "quantization_config") and isinstance(model.quantization_config, SDNQConfig):
             model.quantization_config = unset_config_on_save(model.quantization_config)
 
-    model.save_pretrained(model_path, max_shard_size=max_shard_size) # actual save
+    normalized_modules = normalize_tied_weights_keys_for_save(model, is_pipeline=is_pipeline)
+    try:
+        model.save_pretrained(model_path, max_shard_size=max_shard_size) # actual save
+    finally:
+        restore_tied_weights_keys_after_save(normalized_modules)
 
     quantization_config_path = os.path.join(model_path, "quantization_config.json")
     if sdnq_config is not None: # if provided, save global config
