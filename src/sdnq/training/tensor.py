@@ -74,7 +74,7 @@ class SDNQTensor(torch.Tensor):
         fake_mode = detect_fake_mode(weight)
         if fake_mode is not None:
             with fake_mode:
-                weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer = sdnq_quantize_layer_weight(
+                sdnq_dequantizer, weight_data = sdnq_quantize_layer_weight(
                     weight,
                     layer_class_name=layer_class_name,
                     weights_dtype=weights_dtype,
@@ -90,7 +90,7 @@ class SDNQTensor(torch.Tensor):
                     param_name=param_name,
                 )
         else:
-            weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer = sdnq_quantize_layer_weight_compiled(
+            sdnq_dequantizer, weight_data = sdnq_quantize_layer_weight_compiled(
                 weight,
                 layer_class_name=layer_class_name,
                 weights_dtype=weights_dtype,
@@ -105,7 +105,7 @@ class SDNQTensor(torch.Tensor):
                 skip_sr=skip_sr,
                 param_name=param_name,
             )
-        return SDNQTensor(weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer)
+        return SDNQTensor(weight_data["weight"], weight_data["scale"], weight_data["zero_point"], weight_data["svd_up"], weight_data["svd_down"], sdnq_dequantizer)
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args, kwargs):

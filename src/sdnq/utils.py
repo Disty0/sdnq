@@ -1,7 +1,7 @@
 import re
 import torch
 
-from .common import dtype_dict, common_skip_keys, module_skip_keys_dict, linear_types, conv_types, is_fp8_mm_supported
+from .common import dtype_dict, common_skip_keys, module_skip_keys_dict, conv_types, conv_transpose_types
 
 
 def check_param_name_in(param_name: str, param_list: list[str]) -> str:
@@ -69,65 +69,94 @@ def get_minimum_dtype(weights_dtype: str, param_name: str, modules_dtype_dict: d
     return weights_dtype
 
 
-def get_quant_kwargs(quant_kwargs: dict, modules_quant_config: dict[str, dict]) -> dict:
-    param_key = check_param_name_in(quant_kwargs["param_name"], modules_quant_config.keys())
+def get_quant_kwargs(layer: torch.nn.Module, quantization_config, torch_dtype: torch.dtype | None = None, param_name: str = "", **kwargs) -> dict:
+    from .quantizer import SDNQConfig
+    if not isinstance(quantization_config, SDNQConfig):
+        quantization_config = SDNQConfig(**quantization_config)
+    layer_class_name = layer.__class__.__name__
+
+    quant_kwargs = {
+        "weights_dtype": quantization_config.weights_dtype,
+        "quantized_matmul_dtype": quantization_config.quantized_matmul_dtype,
+        "group_size": quantization_config.group_size,
+        "svd_rank": quantization_config.svd_rank,
+        "svd_steps": quantization_config.svd_steps,
+        "dynamic_loss_threshold": quantization_config.dynamic_loss_threshold,
+        "use_svd": quantization_config.use_svd,
+        "use_quantized_matmul": quantization_config.use_quantized_matmul,
+        "use_quantized_matmul_conv": quantization_config.use_quantized_matmul_conv,
+        "use_dynamic_quantization": quantization_config.use_dynamic_quantization,
+        "use_stochastic_rounding": quantization_config.use_stochastic_rounding,
+        "dequantize_fp32": quantization_config.dequantize_fp32,
+        "non_blocking": quantization_config.non_blocking,
+        "quantization_device": quantization_config.quantization_device,
+        "return_device": quantization_config.return_device,
+        "layer_class_name": layer_class_name,
+        "torch_dtype": torch_dtype,
+        "param_name": param_name,
+    }
+
+    for key, value in kwargs.items():
+        quant_kwargs[key] = value
+
+    param_key = check_param_name_in(quant_kwargs["param_name"], quantization_config.modules_quant_config.keys())
     if param_key is not None:
-        for key, value in modules_quant_config[param_key].items():
+        for key, value in quantization_config.modules_quant_config[param_key].items():
             quant_kwargs[key] = value
-    quant_kwargs["weights_dtype"] = get_minimum_dtype(quant_kwargs["weights_dtype"], quant_kwargs["param_name"], quant_kwargs["modules_dtype_dict"])
+
+    if layer_class_name in conv_transpose_types or layer_class_name in conv_types:
+        quant_kwargs["use_quantized_matmul"] = quant_kwargs.pop("use_quantized_matmul_conv")
+    else:
+        quant_kwargs.pop("use_quantized_matmul_conv")
+
+    if not quant_kwargs["use_dynamic_quantization"]:
+        quant_kwargs.pop("dynamic_loss_threshold")
+
+    quant_kwargs["weights_dtype"] = get_minimum_dtype(quant_kwargs["weights_dtype"], quant_kwargs["param_name"], quantization_config.modules_dtype_dict)
+    if check_param_name_in(quant_kwargs["param_name"], quantization_config.modules_to_not_use_matmul) is not None:
+        quant_kwargs["use_quantized_matmul"] = False
+
     return quant_kwargs
 
 
-def update_modules_quant_config(quant_kwargs: dict, modules_quant_config: dict[str, dict], layer: torch.nn.Module) -> dict[str, dict]:
-    layer_class_name = layer.__class__.__name__
-    if layer_class_name in conv_types:
-        use_quantized_matmul_key = "use_quantized_matmul_conv"
-    else:
-        use_quantized_matmul_key = "use_quantized_matmul"
-    if (
-        hasattr(layer, "sdnq_dequantizer")
-        and (layer_class_name in linear_types or layer_class_name in conv_types)
-        and quant_kwargs["use_dynamic_quantization"] and quant_kwargs[use_quantized_matmul_key]
-        and quant_kwargs["quantized_matmul_dtype"] is None and not is_fp8_mm_supported
-        and not dtype_dict[layer.sdnq_dequantizer.weights_dtype]["is_integer"] and dtype_dict[layer.sdnq_dequantizer.weights_dtype]["num_bits"] < 16
-        and not layer.sdnq_dequantizer.use_quantized_matmul
-    ):
-        if quant_kwargs["param_name"] not in modules_quant_config.keys():
-            modules_quant_config[quant_kwargs["param_name"]] = {}
-        modules_quant_config[quant_kwargs["param_name"]][use_quantized_matmul_key] = False
-    return modules_quant_config
-
-
-def add_module_skip_keys(model, modules_to_not_convert: list[str] | None = None, modules_dtype_dict: dict[str, list[str]] | None = None):
-    if modules_to_not_convert is None:
-        modules_to_not_convert = []
-    if modules_dtype_dict is None:
-        modules_dtype_dict = {}
+def add_module_skip_keys(model: torch.nn.Module, quantization_config):
     if getattr(model, "_keep_in_fp32_modules", None) is not None:
-        modules_to_not_convert.extend(model._keep_in_fp32_modules) # pylint: disable=protected-access
+        quantization_config.modules_to_not_convert.extend(model._keep_in_fp32_modules) # pylint: disable=protected-access
     if getattr(model, "_tied_weights_keys", None) is not None:
         if isinstance(model._tied_weights_keys, dict): # pylint: disable=protected-access
-            modules_to_not_convert.extend(model._tied_weights_keys.keys()) # pylint: disable=protected-access
-            modules_to_not_convert.extend(model._tied_weights_keys.values()) # pylint: disable=protected-access
+            quantization_config.modules_to_not_convert.extend(model._tied_weights_keys.keys()) # pylint: disable=protected-access
+            quantization_config.modules_to_not_convert.extend(model._tied_weights_keys.values()) # pylint: disable=protected-access
         else:
-            modules_to_not_convert.extend(model._tied_weights_keys) # pylint: disable=protected-access
+            quantization_config.modules_to_not_convert.extend(model._tied_weights_keys) # pylint: disable=protected-access
 
     skip_key_list = module_skip_keys_dict.get(model.__class__.__name__, None)
     if skip_key_list is not None:
-        modules_to_not_convert.extend(skip_key_list[0])
+        quantization_config.modules_to_not_convert.extend(skip_key_list[0])
         for key, value in skip_key_list[1].items():
-            if key in modules_dtype_dict.keys():
-                modules_dtype_dict[key].extend(value)
+            if key in quantization_config.modules_dtype_dict.keys():
+                quantization_config.modules_dtype_dict[key].extend(value)
             else:
-                modules_dtype_dict[key] = value
+                quantization_config.modules_dtype_dict[key] = value
+
+        if quantization_config.quantized_matmul_dtype is None:
+            if dtype_dict[quantization_config.weights_dtype]["is_integer"]:
+                quantized_matmul_dtype = "int8"
+            elif dtype_dict[quantization_config.weights_dtype]["num_bits"] < 16:
+                quantized_matmul_dtype = "float8_e4m3fn"
+            else:
+                quantized_matmul_dtype = "float16"
+        else:
+            quantized_matmul_dtype = quantization_config.quantized_matmul_dtype
+        quantization_config.modules_to_not_use_matmul.extend(skip_key_list[2].get(quantized_matmul_dtype, []))
     else:
-        modules_to_not_convert.extend(common_skip_keys)
+        quantization_config.modules_to_not_convert.extend(common_skip_keys)
         if getattr(model, "_skip_layerwise_casting_patterns", None) is not None:
-            modules_to_not_convert.extend(model._skip_layerwise_casting_patterns) # pylint: disable=protected-access
+            quantization_config.modules_to_not_convert.extend(model._skip_layerwise_casting_patterns) # pylint: disable=protected-access
 
     # dedupe
-    modules_to_not_convert = list(set(modules_to_not_convert))
-    for key, value in modules_dtype_dict.items():
-        modules_dtype_dict[key] = list(set(value))
+    quantization_config.modules_to_not_convert = list(set(quantization_config.modules_to_not_convert))
+    quantization_config.modules_to_not_use_matmul = list(set(quantization_config.modules_to_not_use_matmul))
+    for key, value in quantization_config.modules_dtype_dict.items():
+        quantization_config.modules_dtype_dict[key] = list(set(value))
 
-    return model, modules_to_not_convert, modules_dtype_dict
+    return model, quantization_config
