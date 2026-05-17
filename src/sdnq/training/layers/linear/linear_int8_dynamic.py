@@ -1,7 +1,8 @@
 import torch
 
 from ....common import compile_func, int_mm_func, use_contiguous_mm
-from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias, quantize_int_mm, quantize_int_mm_sr
+from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
+from ....quant_utils import quantize_int_mm, quantize_int_mm_sr
 from ...tensor import SDNQTensor # noqa: TID252
 
 from .forward import check_mats, quantized_linear_with_backward

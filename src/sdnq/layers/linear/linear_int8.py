@@ -3,7 +3,8 @@
 import torch
 
 from ...common import compile_func, int_mm_func # noqa: TID252
-from ...dequantizer import quantize_int_mm, dequantize_symmetric, dequantize_symmetric_with_bias # noqa: TID252
+from ...dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias # noqa: TID252
+from ...quant_utils import quantize_int_mm # noqa: TID252
 from ...packed_int import unpack_int # noqa: TID252
 
 from .forward import check_mats

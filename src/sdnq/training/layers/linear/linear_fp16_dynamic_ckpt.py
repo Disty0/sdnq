@@ -1,7 +1,7 @@
 import torch
 
 from ....common import compile_func
-from ....dequantizer import quantize_fp_mm
+from ....quant_utils import quantize_fp_mm
 from ...tensor import SDNQTensor # noqa: TID252
 
 from .forward import quantized_linear_with_backward
