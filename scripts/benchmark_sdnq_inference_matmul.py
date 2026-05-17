@@ -4,8 +4,7 @@ from tqdm import tqdm
 
 import sdnq.common
 import sdnq.quantizer
-from sdnq import sdnq_quantize_layer
-
+from sdnq import SDNQConfig, sdnq_quantize_layer
 
 
 def get_tflops(it_s: float, m: int, n: int, k: int) -> float:
@@ -60,25 +59,25 @@ def main(
     x = torch.randn(m,k, device=device, dtype=dtype).requires_grad_(False)
 
     pytorch_float_tflops = benchmark_linear("PyTorch Float", torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), x, steps)
-    sdnq_int8_tflops = benchmark_linear("SDNQ INT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1)[0], x, steps)
-    sdnq_int8_svd_tflops = benchmark_linear("SDNQ INT8 SVD", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_svd=True)[0], x, steps)
+    sdnq_int8_tflops = benchmark_linear("SDNQ INT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_int8_svd_tflops = benchmark_linear("SDNQ INT8 SVD", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_svd=True))[0], x, steps)
 
-    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1)[0], x, steps)
-    sdnq_fp16_svd_tflops = benchmark_linear("SDNQ FP16 SVD", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_svd=True)[0], x, steps)
+    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_fp16_svd_tflops = benchmark_linear("SDNQ FP16 SVD", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_svd=True))[0], x, steps)
 
     backup_tw_fp8 = sdnq.common.use_tensorwise_fp8_matmul
 
     sdnq.common.use_tensorwise_fp8_matmul = False
     sdnq.quantizer.use_tensorwise_fp8_matmul = False
     sdnq.forward.use_tensorwise_fp8_matmul = False
-    sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1)[0], x, steps)
-    sdnq_fp8_svd_tflops = benchmark_linear("SDNQ FP8 SVD", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_svd=True)[0], x, steps)
+    sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_fp8_svd_tflops = benchmark_linear("SDNQ FP8 SVD", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_svd=True))[0], x, steps)
 
     sdnq.common.use_tensorwise_fp8_matmul = True
     sdnq.quantizer.use_tensorwise_fp8_matmul = True
     sdnq.forward.use_tensorwise_fp8_matmul = True
-    sdnq_fp8_tw_tflops = benchmark_linear("SDNQ FP8 TW", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1)[0], x, steps)
-    sdnq_fp8_tw_svd_tflops = benchmark_linear("SDNQ FP8 TW SVD", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_svd=True)[0], x, steps)
+    sdnq_fp8_tw_tflops = benchmark_linear("SDNQ FP8 TW", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_fp8_tw_svd_tflops = benchmark_linear("SDNQ FP8 TW SVD", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_svd=True))[0], x, steps)
 
     sdnq.common.use_tensorwise_fp8_matmul = backup_tw_fp8
     sdnq.quantizer.use_tensorwise_fp8_matmul = backup_tw_fp8
