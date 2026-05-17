@@ -6,6 +6,7 @@ import torch
 
 from .sdnext import devices
 from .common import dtype_dict, compile_func, use_contiguous_mm, use_tensorwise_fp8_matmul
+from .quant_utils import quantize_int_mm, quantize_fp_mm
 from .packed_int import unpack_int
 from .packed_float import unpack_float
 from .layers import SDNQLayer
