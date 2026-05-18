@@ -111,7 +111,7 @@ def sdnq_quantize_layer_weight(weight, layer_class_name=None, weights_dtype="int
 
     if use_hadamard:
         if channel_size % hadamard_group_size != 0:
-            hadamard_pow2 = math.log2(hadamard_group_size)
+            hadamard_pow2 = int(math.log2(hadamard_group_size))
             while channel_size % hadamard_group_size != 0:
                 hadamard_pow2 -= 1
                 hadamard_group_size = 2 ** hadamard_pow2
@@ -329,7 +329,7 @@ def sdnq_quantize_layer(layer, quantization_config: "SDNQConfig", torch_dtype: t
         for key, value in weight_data.items():
             if isinstance(value, (torch.Tensor, torch.nn.Parameter)):
                 setattr(layer, key, torch.nn.Parameter(value.to(return_device, non_blocking=non_blocking), requires_grad=False))
-                setattr(getattr(layer, key), "_is_hf_initialized", True)
+                setattr(getattr(layer, key), "_is_hf_initialized", True) # noqa: B010
             else:
                 setattr(layer, key, value)
         del weight_data
