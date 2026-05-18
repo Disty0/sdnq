@@ -27,7 +27,7 @@ class SDNQTensor(torch.Tensor):
         self.svd_up = svd_up
         self.svd_down = svd_down
 
-    def dequantize(self, dtype: torch.dtype | None = None, non_svd: bool = False):
+    def dequantize(self, dtype: torch.dtype | None = None, non_svd: bool = False, non_hadamard: bool = False):
         if non_svd:
             svd_up, svd_down = None, None
         else:
@@ -35,9 +35,20 @@ class SDNQTensor(torch.Tensor):
         fake_mode = detect_fake_mode((self.weight, self.scale, self.zero_point, svd_up, svd_down))
         if fake_mode is not None:
             with fake_mode:
-                return self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, svd_up, svd_down, dtype=dtype, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul, skip_compile=True)
+                return self.sdnq_dequantizer(
+                    self.weight, self.scale, self.zero_point, svd_up, svd_down,
+                    skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul,
+                    non_hadamard=non_hadamard,
+                    skip_compile=True,
+                    dtype=dtype,
+                )
         else:
-            return self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, svd_up, svd_down, dtype=dtype, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul)
+            return self.sdnq_dequantizer(
+                self.weight, self.scale, self.zero_point, svd_up, svd_down,
+                skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul,
+                non_hadamard=non_hadamard,
+                dtype=dtype,
+            )
 
     def __tensor_flatten__(self) -> tuple[list[str], SDNQDequantizer]:
         tensor_list = ["weight", "scale"]
@@ -61,15 +72,17 @@ class SDNQTensor(torch.Tensor):
         weight,
         layer_class_name: str | None = None,
         weights_dtype: str = "int8",
-        torch_dtype: torch.dtype | None = None,
+        hadamard_group_size: int = 128,
         group_size: int = 32,
         svd_rank: int = 32,
         svd_steps: int = 8,
         use_svd: bool = False,
+        use_hadamard: bool = False,
         use_stochastic_rounding: bool = True,
         dequantize_fp32: bool = True,
         skip_sr: bool = False,
         param_name: str | None = None,
+        torch_dtype: torch.dtype | None = None,
     ):
         fake_mode = detect_fake_mode(weight)
         if fake_mode is not None:
@@ -78,15 +91,17 @@ class SDNQTensor(torch.Tensor):
                     weight,
                     layer_class_name=layer_class_name,
                     weights_dtype=weights_dtype,
-                    torch_dtype=torch_dtype,
+                    hadamard_group_size=hadamard_group_size,
                     group_size=group_size,
                     svd_rank=svd_rank,
                     svd_steps=svd_steps,
                     use_svd=use_svd,
+                    use_hadamard=use_hadamard,
                     use_quantized_matmul=False,
                     use_stochastic_rounding=use_stochastic_rounding,
                     dequantize_fp32=dequantize_fp32,
                     skip_sr=skip_sr,
+                    torch_dtype=torch_dtype,
                     param_name=param_name,
                 )
         else:
@@ -94,15 +109,17 @@ class SDNQTensor(torch.Tensor):
                 weight,
                 layer_class_name=layer_class_name,
                 weights_dtype=weights_dtype,
-                torch_dtype=torch_dtype,
+                hadamard_group_size=hadamard_group_size,
                 group_size=group_size,
                 svd_rank=svd_rank,
                 svd_steps=svd_steps,
                 use_svd=use_svd,
+                use_hadamard=use_hadamard,
                 use_quantized_matmul=False,
                 use_stochastic_rounding=use_stochastic_rounding,
                 dequantize_fp32=dequantize_fp32,
                 skip_sr=skip_sr,
+                torch_dtype=torch_dtype,
                 param_name=param_name,
             )
         return SDNQTensor(weight_data["weight"], weight_data["scale"], weight_data["zero_point"], weight_data["svd_up"], weight_data["svd_down"], sdnq_dequantizer)
@@ -203,13 +220,15 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
                 tensor,
                 layer_class_name=sdnq_dequantizer.layer_class_name if tensor.ndim != 1 else None,
                 weights_dtype=sdnq_dequantizer.weights_dtype,
-                torch_dtype=sdnq_dequantizer.result_dtype,
+                hadamard_group_size=sdnq_dequantizer.hadamard_group_size,
                 group_size=sdnq_dequantizer.group_size,
                 svd_rank=sdnq_dequantizer.svd_rank,
                 svd_steps=sdnq_dequantizer.svd_steps,
                 use_svd=input.svd_up is not None,
+                use_hadamard=sdnq_dequantizer.use_hadamard,
                 use_stochastic_rounding=sdnq_dequantizer.use_stochastic_rounding,
                 dequantize_fp32=input.scale.dtype in {torch.float32, torch.float64},
+                torch_dtype=sdnq_dequantizer.result_dtype,
                 skip_sr=True,
             ) 
             for tensor in result
@@ -219,13 +238,15 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
             result,
             layer_class_name=sdnq_dequantizer.layer_class_name if result.ndim != 1 else None,
             weights_dtype=sdnq_dequantizer.weights_dtype,
-            torch_dtype=sdnq_dequantizer.result_dtype,
+            hadamard_group_size=sdnq_dequantizer.hadamard_group_size,
             group_size=sdnq_dequantizer.group_size,
             svd_rank=sdnq_dequantizer.svd_rank,
             svd_steps=sdnq_dequantizer.svd_steps,
             use_svd=input.svd_up is not None,
+            use_hadamard=sdnq_dequantizer.use_hadamard,
             use_stochastic_rounding=sdnq_dequantizer.use_stochastic_rounding,
             dequantize_fp32=input.scale.dtype in {torch.float32, torch.float64},
+            torch_dtype=sdnq_dequantizer.result_dtype,
             skip_sr=True,
         )
 
@@ -245,13 +266,15 @@ def sdnq_generic_multi_tensor_quantized(func, tensors, *args, **kwargs):
         func([x.dequantize() if isinstance(x, SDNQTensor) else x for x in tensors], *args, **kwargs),
         layer_class_name=sdnq_dequantizer.layer_class_name,
         weights_dtype=sdnq_dequantizer.weights_dtype,
-        torch_dtype=sdnq_dequantizer.result_dtype,
+        hadamard_group_size=sdnq_dequantizer.hadamard_group_size,
         group_size=sdnq_dequantizer.group_size,
         svd_rank=sdnq_dequantizer.svd_rank,
         svd_steps=sdnq_dequantizer.svd_steps,
         use_svd=use_svd,
+        use_hadamard=sdnq_dequantizer.use_hadamard,
         use_stochastic_rounding=sdnq_dequantizer.use_stochastic_rounding,
         dequantize_fp32=dequantize_fp32,
+        torch_dtype=sdnq_dequantizer.result_dtype,
         skip_sr=True,
     )
 
@@ -285,13 +308,15 @@ def sdnq_copy_(func, x, y, *args, **kwargs):
                 y,
                 layer_class_name=x.sdnq_dequantizer.layer_class_name,
                 weights_dtype=x.sdnq_dequantizer.weights_dtype,
-                torch_dtype=x.sdnq_dequantizer.result_dtype,
+                hadamard_group_size=x.sdnq_dequantizer.hadamard_group_size,
                 group_size=x.sdnq_dequantizer.group_size,
                 svd_rank=x.sdnq_dequantizer.svd_rank,
                 svd_steps=x.sdnq_dequantizer.svd_steps,
                 use_svd=x.svd_up is not None,
+                use_hadamard=x.sdnq_dequantizer.use_hadamard,
                 use_stochastic_rounding=x.sdnq_dequantizer.use_stochastic_rounding,
                 dequantize_fp32=x.scale.dtype in {torch.float32, torch.float64},
+                torch_dtype=x.sdnq_dequantizer.result_dtype,
             )
         x.weight.copy_(y.weight, *args, **kwargs)
         x.scale.copy_(y.scale, *args, **kwargs)
@@ -355,7 +380,10 @@ def sdnq_mul(func, x, y):
             zero_point = torch.mul(input.zero_point, other)
         if input.svd_up is not None:
             svd_up, svd_down = torch.mul(input.svd_up, other), input.svd_down
-        return input.sdnq_dequantizer(input.weight, torch.mul(input.scale, other), zero_point, svd_up, svd_down, skip_quantized_matmul=input.sdnq_dequantizer.use_quantized_matmul)
+        return input.sdnq_dequantizer(
+            input.weight, torch.mul(input.scale, other), zero_point, svd_up, svd_down,
+            skip_quantized_matmul=input.sdnq_dequantizer.use_quantized_matmul,
+        )
     else:
         return input.dequantize().mul_(other)
 
@@ -395,7 +423,10 @@ def sdnq_div(func, x, y):
         if input.svd_up is not None:
             svd_down = input.svd_down
             svd_up = torch.div(input.svd_up, other) if sdnq_first else torch.div(other, input.svd_up)
-        return input.sdnq_dequantizer(input.weight, scale, zero_point, svd_up, svd_down, skip_quantized_matmul=input.sdnq_dequantizer.use_quantized_matmul)
+        return input.sdnq_dequantizer(
+            input.weight, scale, zero_point, svd_up, svd_down,
+            skip_quantized_matmul=input.sdnq_dequantizer.use_quantized_matmul,
+        )
     else:
         if sdnq_first:
             return input.dequantize().div_(other)

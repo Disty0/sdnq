@@ -2,8 +2,8 @@ import torch
 
 from ....common import compile_func, int_mm_func, use_contiguous_mm
 from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
-from ....quant_utils import quantize_int_mm, quantize_int_mm_sr
-from ...tensor import SDNQTensor # noqa: TID252
+from ....quant_utils import quantize_int_mm, quantize_int_mm_sr, rotate_hadamard
+from ...tensor import SDNQTensor
 
 from .linear_int8_dynamic import int8_matmul_dynamic
 from .forward import check_mats, quantized_linear_with_backward
@@ -31,9 +31,11 @@ def int8_matmul(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
+    use_hadamard: bool = False,
+    hadamard_group_size: int = 128,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
-    do_transpose: bool = False,
+    do_transpose: bool = True,
     is_backward_pass: bool = False,
     use_sr: bool = False,
 ) -> torch.FloatTensor:
@@ -44,11 +46,12 @@ def int8_matmul(
     return_dtype = input.dtype
     if do_transpose:
         weight = weight.t()
-        if scale is not None:
-            scale = scale.t()
+        scale = scale.t()
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[-1]
+    if use_hadamard and do_transpose:
+        input = rotate_hadamard(input, group_size=hadamard_group_size)
     if svd_up is not None:
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
@@ -71,9 +74,23 @@ def int8_matmul(
     input, input_scale = quantize_int_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale), scale, bias, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric_with_bias(
+            int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
+            scale, bias,
+            use_hadamard=bool(use_hadamard and not do_transpose),
+            hadamard_group_size=hadamard_group_size,
+            dtype=return_dtype,
+            result_shape=output_shape,
+        )
     else:
-        return dequantize_symmetric(int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale), scale, dtype=return_dtype, result_shape=output_shape)
+        return dequantize_symmetric(
+            int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
+            scale,
+            use_hadamard=bool(use_hadamard and not do_transpose),
+            hadamard_group_size=hadamard_group_size,
+            dtype=return_dtype,
+            result_shape=output_shape,
+        )
 
 
 def int8_matmul_backward(
@@ -84,6 +101,8 @@ def int8_matmul_backward(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
+    use_hadamard: bool = False,
+    hadamard_group_size: int = 128,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -91,9 +110,26 @@ def int8_matmul_backward(
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = int8_matmul_dynamic(grad_output, dequantize_symmetric(weight, scale), svd_up=svd_up, svd_down=svd_down, output_shape=input.shape, do_input_reshape=False)
+        grad_input = int8_matmul_dynamic(
+            grad_output,
+            dequantize_symmetric(weight, scale),
+            svd_up=svd_up,
+            svd_down=svd_down,
+            use_hadamard=use_hadamard,
+            hadamard_group_size=hadamard_group_size,
+            output_shape=input.shape,
+            do_input_reshape=False,
+        )
     if do_grad_weight:
-        grad_weight = int8_matmul_dynamic(grad_output.t(), input.flatten(0,-2), output_shape=None, do_input_reshape=False)
+        grad_weight = int8_matmul_dynamic(
+            grad_output.t(),
+            input.flatten(0,-2),
+            use_hadamard=use_hadamard,
+            rotate_weight=use_hadamard,
+            hadamard_group_size=hadamard_group_size,
+            output_shape=None,
+            do_input_reshape=False,
+        )
     if do_grad_bias and bias is not None:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
@@ -103,12 +139,30 @@ class INT8MatmulBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
         ctx.save_for_backward(input, weight, bias)
-        return int8_matmul_compiled(input, weight.weight, weight.scale, bias=bias, svd_up=weight.svd_up, svd_down=weight.svd_down, do_transpose=True)
+        return int8_matmul_compiled(
+            input, weight.weight, weight.scale,
+            bias=bias,
+            svd_up=weight.svd_up,
+            svd_down=weight.svd_down,
+            use_hadamard=weight.sdnq_dequantizer.use_hadamard,
+            hadamard_group_size=weight.sdnq_dequantizer.hadamard_group_size,
+            do_transpose=True,
+        )
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, bias = ctx.saved_tensors
-        return int8_matmul_backward(grad_output, input, weight.weight, weight.scale, bias=bias, svd_up=weight.svd_up, svd_down=weight.svd_down, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
+        return int8_matmul_backward(
+            grad_output, input, weight.weight, weight.scale,
+            bias=bias,
+            svd_up=weight.svd_up,
+            svd_down=weight.svd_down,
+            use_hadamard=weight.sdnq_dequantizer.use_hadamard,
+            hadamard_group_size=weight.sdnq_dequantizer.hadamard_group_size,
+            do_grad_input=ctx.needs_input_grad[0],
+            do_grad_weight=ctx.needs_input_grad[1],
+            do_grad_bias=ctx.needs_input_grad[2],
+        )
 
 
 def quantized_linear_forward_int8_matmul(self, input: torch.FloatTensor) -> torch.FloatTensor:

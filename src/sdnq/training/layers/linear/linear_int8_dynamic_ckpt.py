@@ -2,7 +2,7 @@ import torch
 
 from ....common import compile_func
 from ....quant_utils import quantize_int_mm
-from ...tensor import SDNQTensor # noqa: TID252
+from ...tensor import SDNQTensor
 
 from .forward import quantized_linear_with_backward
 from .linear_int8 import int8_matmul
@@ -15,12 +15,26 @@ def int8_matmul_dynamic_ckpt(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
+    use_hadamard: bool = False,
+    hadamard_group_size: int = 128,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
 ) -> torch.FloatTensor:
-    result = int8_matmul_dynamic(input, weight, bias=bias, svd_up=svd_up, svd_down=svd_down)
+    result = int8_matmul_dynamic(
+        input, weight,
+        bias=bias,
+        svd_up=svd_up,
+        svd_down=svd_down,
+        use_hadamard=use_hadamard,
+        hadamard_group_size=hadamard_group_size,
+    )
     weight, scale = quantize_int_mm(weight.to(dtype=torch.float32), dim=0)
-    input, input_scale = quantize_int_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0)
+    input, input_scale = quantize_int_mm(
+        input.flatten(0,-2).to(dtype=torch.float32),
+        dim=0,
+        rotate_weight=use_hadamard,
+        hadamard_group_size=hadamard_group_size,
+    )
     return result, input, weight, input_scale, scale
 
 
@@ -33,6 +47,8 @@ def int8_matmul_dynamic_backward_ckpt(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
+    use_hadamard: bool = False,
+    hadamard_group_size: int = 128,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -42,9 +58,29 @@ def int8_matmul_dynamic_backward_ckpt(
     input_shape[-1] = input.shape[-1]
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = int8_matmul(grad_output, weight, weight_scale, svd_up=svd_up, svd_down=svd_down, output_shape=input_shape, do_input_reshape=False, is_backward_pass=True)
+        grad_input = int8_matmul(
+            grad_output,
+            weight, weight_scale,
+            svd_up=svd_up,
+            svd_down=svd_down,
+            use_hadamard=use_hadamard,
+            hadamard_group_size=hadamard_group_size,
+            output_shape=input_shape,
+            do_input_reshape=False,
+            do_transpose=False,
+            is_backward_pass=True,
+        )
     if do_grad_weight:
-        grad_weight = int8_matmul(grad_output.t(), input, input_scale, output_shape=None, do_input_reshape=False, is_backward_pass=True)
+        grad_weight = int8_matmul(
+            grad_output.t(),
+            input, input_scale,
+            use_hadamard=use_hadamard,
+            hadamard_group_size=hadamard_group_size,
+            output_shape=None,
+            do_input_reshape=False,
+            do_transpose=False,
+            is_backward_pass=True,
+        )
     if do_grad_bias and bias is not None:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
@@ -53,18 +89,41 @@ def int8_matmul_dynamic_backward_ckpt(
 class INT8MatmulDynamicBackwardCKPT(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
-        svd_up, svd_down = None, None
         if isinstance(weight, SDNQTensor):
             svd_up, svd_down = weight.svd_up, weight.svd_down
-            weight = weight.dequantize(non_svd=True)
-        result, new_input, new_weight, input_scale, weight_scale = int8_matmul_dynamic_ckpt_compiled(input, weight, bias=bias, svd_up=svd_up, svd_down=svd_down)
+            ctx.use_hadamard = weight.sdnq_dequantizer.use_hadamard
+            ctx.hadamard_group_size = weight.sdnq_dequantizer.hadamard_group_size
+            weight = weight.dequantize(non_svd=True, non_hadamard=True)
+        else:
+            svd_up, svd_down = None, None
+            ctx.use_hadamard = False
+            ctx.hadamard_group_size = 128
+        result, new_input, new_weight, input_scale, weight_scale = int8_matmul_dynamic_ckpt_compiled(
+            input, weight,
+            bias=bias,
+            svd_up=svd_up,
+            svd_down=svd_down,
+            use_hadamard=ctx.use_hadamard,
+            hadamard_group_size=ctx.hadamard_group_size,
+        )
         ctx.save_for_backward(new_input, new_weight, input_scale, weight_scale, bias, svd_up, svd_down)
         return result
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, input_scale, weight_scale, bias, svd_up, svd_down = ctx.saved_tensors
-        return int8_matmul_dynamic_backward_ckpt(grad_output, input, weight, input_scale, weight_scale, bias=bias, svd_up=svd_up, svd_down=svd_down, do_grad_input=ctx.needs_input_grad[0], do_grad_weight=ctx.needs_input_grad[1], do_grad_bias=ctx.needs_input_grad[2])
+        return int8_matmul_dynamic_backward_ckpt(
+            grad_output, input, weight,
+            input_scale, weight_scale,
+            bias=bias,
+            svd_up=svd_up,
+            svd_down=svd_down,
+            use_hadamard=ctx.use_hadamard,
+            hadamard_group_size=ctx.hadamard_group_size,
+            do_grad_input=ctx.needs_input_grad[0],
+            do_grad_weight=ctx.needs_input_grad[1],
+            do_grad_bias=ctx.needs_input_grad[2],
+        )
 
 
 def quantized_linear_forward_int8_matmul_dynamic_ckpt(self, input: torch.FloatTensor) -> torch.FloatTensor:

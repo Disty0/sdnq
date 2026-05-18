@@ -13,7 +13,7 @@ from .tensor import SDNQTensor
 
 
 @torch.no_grad()
-def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", torch_dtype=None, group_size=32, svd_rank=32, svd_steps=8, use_svd=False, use_grad_ckpt=True, use_quantized_matmul=False, use_static_quantization=True, use_stochastic_rounding=True, dequantize_fp32=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, full_param_name=""):
+def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", hadamard_group_size=128, group_size=32, svd_rank=32, svd_steps=8, use_svd=False, use_hadamard=False, use_grad_ckpt=True, use_quantized_matmul=False, use_static_quantization=True, use_stochastic_rounding=True, dequantize_fp32=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, torch_dtype=None, full_param_name=""):
     if not use_quantized_matmul and not use_static_quantization:
         return model
     if modules_to_not_convert is None:
@@ -48,13 +48,15 @@ def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul
                             module.weight.to(quantization_device, non_blocking=non_blocking),
                             layer_class_name="Linear",
                             weights_dtype=param_weights_dtype,
-                            torch_dtype=torch_dtype,
+                            hadamard_group_size=hadamard_group_size,
                             group_size=group_size,
                             svd_rank=svd_rank,
                             svd_steps=svd_steps,
                             use_svd=use_svd,
+                            use_hadamard=use_hadamard,
                             use_stochastic_rounding=use_stochastic_rounding,
                             dequantize_fp32=dequantize_fp32,
+                            torch_dtype=torch_dtype,
                         ).to(return_device, non_blocking=non_blocking),
                         requires_grad=module.weight.requires_grad,
                     )
@@ -73,16 +75,23 @@ def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul
             module,
             weights_dtype=weights_dtype,
             quantized_matmul_dtype=quantized_matmul_dtype,
+            hadamard_group_size=hadamard_group_size,
             group_size=group_size,
             svd_rank=svd_rank,
+            svd_steps=svd_steps,
             use_svd=use_svd,
+            use_hadamard=use_hadamard,
             use_grad_ckpt=use_grad_ckpt,
             use_quantized_matmul=use_quantized_matmul,
             use_static_quantization=use_static_quantization,
             use_stochastic_rounding=use_stochastic_rounding,
+            dequantize_fp32=dequantize_fp32,
+            non_blocking=non_blocking,
             quantization_device=quantization_device,
             return_device=return_device,
             modules_to_not_convert=modules_to_not_convert,
+            modules_dtype_dict=modules_dtype_dict,
+            torch_dtype=torch_dtype,
             full_param_name=param_name,
         ))
     return model
@@ -93,11 +102,12 @@ def sdnq_training_post_load_quant(
     model: torch.nn.Module,
     weights_dtype: str = "uint8",
     quantized_matmul_dtype: str = "int8",
-    torch_dtype: torch.dtype | None = None,
+    hadamard_group_size: int = 128,
     group_size: int = 32,
     svd_rank: int = 32,
     svd_steps: int = 8,
     use_svd: bool = False,
+    use_hadamard: bool = False,
     use_grad_ckpt: bool = True,
     use_quantized_matmul: bool = False,
     use_static_quantization: bool = True,
@@ -109,6 +119,7 @@ def sdnq_training_post_load_quant(
     return_device: torch.device | None = None,
     modules_to_not_convert: list[str] | None = None,
     modules_dtype_dict: dict[str, list[str]] | None = None,
+    torch_dtype: torch.dtype | None = None,
 ):
     if modules_to_not_convert is None:
         modules_to_not_convert = []
@@ -123,10 +134,12 @@ def sdnq_training_post_load_quant(
     quantization_config = SDNQConfig(
         weights_dtype=weights_dtype,
         quantized_matmul_dtype=quantized_matmul_dtype,
+        hadamard_group_size=hadamard_group_size,
         group_size=group_size,
         svd_rank=svd_rank,
         svd_steps=svd_steps,
         use_svd=use_svd,
+        use_hadamard=use_hadamard,
         use_grad_ckpt=use_grad_ckpt,
         quant_conv=False,
         quant_embedding=False,
@@ -148,11 +161,12 @@ def sdnq_training_post_load_quant(
         model,
         weights_dtype=weights_dtype,
         quantized_matmul_dtype=quantized_matmul_dtype,
-        torch_dtype=torch_dtype,
+        hadamard_group_size=hadamard_group_size,
         group_size=group_size,
         svd_rank=svd_rank,
         svd_steps=svd_steps,
         use_svd=use_svd,
+        use_hadamard=use_hadamard,
         use_grad_ckpt=use_grad_ckpt,
         use_quantized_matmul=use_quantized_matmul,
         use_static_quantization=use_static_quantization,
@@ -163,6 +177,7 @@ def sdnq_training_post_load_quant(
         return_device=return_device,
         modules_to_not_convert=modules_to_not_convert,
         modules_dtype_dict=modules_dtype_dict,
+        torch_dtype=torch_dtype,
     )
 
     model.quantization_config = quantization_config
