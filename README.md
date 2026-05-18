@@ -59,6 +59,7 @@ sdnq_config = SDNQConfig(
     quantization_device="cuda",
     return_device="cuda",
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
+    modules_to_not_use_matmul=["x_embedder"],
     modules_dtype_dict={"int8": ["lm_head"]},
     modules_quant_config={"embed_tokens_per_layer": {"quantization_device": "cpu"}},
 )
@@ -149,6 +150,7 @@ optimizer = AdamW(
     parameters,
     use_quantized_buffers=True,
     quantized_buffers_dtype="uint8",
+    quantized_buffers_hadamard_group_size=128,
     quantized_buffers_group_size=32,
     quantized_buffers_svd_rank=32,
     final_norm_mode="clip", # can be one of ["none", "clip", "rms", "rms_clip", "relative", "muon"]
@@ -156,7 +158,8 @@ optimizer = AdamW(
     use_cautious=False,
     use_stochastic_rounding=True,
     use_stochastic_buffers=True,
-    use_svd_quantization=False,
+    quantized_buffers_use_svd=False,
+    quantized_buffers_use_hadamard=False,
     use_torch_compile=False,
     offload_buffers=False,
     offload_non_blocking=True,
@@ -169,7 +172,19 @@ optimizer = AdamW(
 ```py
 from sdnq.training import SDNQTensor
 
-state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(p), weights_dtype="uint8", group_size=32, use_stochastic_rounding=True)
+state["exp_avg"] = SDNQTensor.from_float(
+    torch.zeros_like(p),
+    weights_dtype="int8",
+    hadamard_group_size=128,
+    group_size=32,
+    svd_rank=32,
+    svd_steps=8,
+    use_svd=False,
+    use_hadamard=False,
+    use_stochastic_rounding=True,
+    dequantize_fp32=True,
+    layer_class_name=None, # can be "Linear", "Conv2d" etc.
+)
 ```
 
 
