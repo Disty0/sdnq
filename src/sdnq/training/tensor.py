@@ -36,7 +36,10 @@ class SDNQTensor(torch.Tensor):
         if fake_mode is not None:
             with fake_mode:
                 return self.sdnq_dequantizer(
-                    self.weight, self.scale, self.zero_point, svd_up, svd_down,
+                    self.weight, self.scale,
+                    zero_point=self.zero_point,
+                    svd_up=svd_up,
+                    svd_down=svd_down,
                     skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul,
                     non_hadamard=non_hadamard,
                     skip_compile=True,
@@ -44,7 +47,10 @@ class SDNQTensor(torch.Tensor):
                 )
         else:
             return self.sdnq_dequantizer(
-                self.weight, self.scale, self.zero_point, svd_up, svd_down,
+                self.weight, self.scale,
+                zero_point=self.zero_point,
+                svd_up=svd_up,
+                svd_down=svd_down,
                 skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul,
                 non_hadamard=non_hadamard,
                 dtype=dtype,
@@ -381,7 +387,10 @@ def sdnq_mul(func, x, y):
         if input.svd_up is not None:
             svd_up, svd_down = torch.mul(input.svd_up, other), input.svd_down
         return input.sdnq_dequantizer(
-            input.weight, torch.mul(input.scale, other), zero_point, svd_up, svd_down,
+            input.weight, torch.mul(input.scale, other),
+            zero_point=zero_point,
+            svd_up=svd_up,
+            svd_down=svd_down,
             skip_quantized_matmul=input.sdnq_dequantizer.use_quantized_matmul,
         )
     else:
@@ -424,7 +433,10 @@ def sdnq_div(func, x, y):
             svd_down = input.svd_down
             svd_up = torch.div(input.svd_up, other) if sdnq_first else torch.div(other, input.svd_up)
         return input.sdnq_dequantizer(
-            input.weight, scale, zero_point, svd_up, svd_down,
+            input.weight, scale,
+            zero_point=zero_point,
+            svd_up=svd_up,
+            svd_down=svd_down,
             skip_quantized_matmul=input.sdnq_dequantizer.use_quantized_matmul,
         )
     else:

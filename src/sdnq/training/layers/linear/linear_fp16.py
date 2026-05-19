@@ -2,7 +2,7 @@ import torch
 
 from ....common import compile_func, fp_mm_func, use_contiguous_mm
 from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
-from ....quant_utils import rotate_hadamard
+from ....quant_utils import rotate_hadamard, get_hadamard
 from ...tensor import SDNQTensor
 
 from .forward import check_mats, quantized_linear_with_backward
@@ -17,8 +17,7 @@ def fp16_matmul(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
-    use_hadamard: bool = False,
-    hadamard_group_size: int = 128,
+    hadamard: torch.FloatTensor | None = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
     do_transpose: bool = True,
@@ -32,9 +31,9 @@ def fp16_matmul(
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[-1]
-    if use_hadamard:
+    if hadamard is not None:
         if do_transpose:
-            input = rotate_hadamard(input, group_size=hadamard_group_size)
+            input = rotate_hadamard(input, hadamard=hadamard)
         else:
             bias_to_add_after = bias
             bias = None
@@ -74,8 +73,8 @@ def fp16_matmul(
             dtype=return_dtype,
             result_shape=output_shape,
         )
-    if use_hadamard and not do_input_reshape:
-        result = rotate_hadamard(result, group_size=hadamard_group_size)
+    if hadamard is not None and not do_transpose:
+        result = rotate_hadamard(result, hadamard=hadamard)
     if bias_to_add_after is not None:
         result.add_(bias_to_add_after)
     return result
@@ -89,8 +88,7 @@ def fp16_matmul_backward(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
-    use_hadamard: bool = False,
-    hadamard_group_size: int = 128,
+    hadamard: torch.FloatTensor | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -103,8 +101,7 @@ def fp16_matmul_backward(
             dequantize_symmetric(weight, scale),
             svd_up=svd_up,
             svd_down=svd_down,
-            use_hadamard=use_hadamard,
-            hadamard_group_size=hadamard_group_size,
+            hadamard=hadamard,
             output_shape=input.shape,
             do_input_reshape=False,
         )
@@ -112,9 +109,8 @@ def fp16_matmul_backward(
         grad_weight = fp16_matmul_dynamic(
             grad_output.t(),
             input.flatten(0,-2),
-            use_hadamard=use_hadamard,
-            rotate_weight=use_hadamard,
-            hadamard_group_size=hadamard_group_size,
+            hadamard=hadamard,
+            rotate_weight=bool(hadamard is not None),
             output_shape=None,
             do_input_reshape=False,
         )
@@ -127,26 +123,34 @@ class FP16MatmulBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
         ctx.save_for_backward(input, weight, bias)
+        if weight.sdnq_dequantizer.use_hadamard:
+            hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=input.dtype, device=input.device)
+        else:
+            hadamard = None
+
         return fp16_matmul_compiled(
             input, weight.weight, weight.scale,
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
-            use_hadamard=weight.sdnq_dequantizer.use_hadamard,
-            hadamard_group_size=weight.sdnq_dequantizer.hadamard_group_size,
+            hadamard=hadamard,
             do_transpose=True,
         )
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, bias = ctx.saved_tensors
+        if weight.sdnq_dequantizer.use_hadamard:
+            hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
+        else:
+            hadamard = None
+
         return fp16_matmul_backward(
             grad_output, input, weight.weight, weight.scale,
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
-            use_hadamard=weight.sdnq_dequantizer.use_hadamard,
-            hadamard_group_size=weight.sdnq_dequantizer.hadamard_group_size,
+            hadamard=hadamard,
             do_grad_input=ctx.needs_input_grad[0],
             do_grad_weight=ctx.needs_input_grad[1],
             do_grad_bias=ctx.needs_input_grad[2],

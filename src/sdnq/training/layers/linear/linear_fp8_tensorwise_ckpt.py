@@ -2,7 +2,7 @@ import torch
 
 from ....common import compile_func
 from ....dequantizer import dequantize_symmetric
-from ....quant_utils import quantize_fp_mm
+from ....quant_utils import quantize_fp_mm, get_hadamard
 from ...tensor import SDNQTensor
 
 from .forward import quantized_linear_with_backward
@@ -17,8 +17,7 @@ def fp8_matmul_tensorwise_ckpt(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
-    use_hadamard: bool = False,
-    hadamard_group_size: int = 128,
+    hadamard: torch.FloatTensor | None = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
     do_transpose: bool = True,
@@ -28,8 +27,7 @@ def fp8_matmul_tensorwise_ckpt(
         bias=bias,
         svd_up=svd_up,
         svd_down=svd_down,
-        use_hadamard=use_hadamard,
-        hadamard_group_size=hadamard_group_size,
+        hadamard=hadamard,
         output_shape=output_shape,
         do_input_reshape=do_input_reshape,
         do_transpose=do_transpose,
@@ -37,8 +35,7 @@ def fp8_matmul_tensorwise_ckpt(
     new_input, input_scale = quantize_fp_mm(
         input.flatten(0,-2).to(dtype=torch.float32),
         dim=0,
-        rotate_weight=use_hadamard,
-        hadamard_group_size=hadamard_group_size,
+        hadamard=hadamard,
     )
     return result, new_input, input_scale
 
@@ -52,8 +49,7 @@ def fp8_matmul_tensorwise_backward_ckpt(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
-    use_hadamard: bool = False,
-    hadamard_group_size: int = 128,
+    hadamard: torch.FloatTensor | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -68,8 +64,7 @@ def fp8_matmul_tensorwise_backward_ckpt(
             dequantize_symmetric(weight, scale),
             svd_up=svd_up,
             svd_down=svd_down,
-            use_hadamard=use_hadamard,
-            hadamard_group_size=hadamard_group_size,
+            hadamard=hadamard,
             output_shape=input_shape,
             do_input_reshape=False,
         )
@@ -77,8 +72,7 @@ def fp8_matmul_tensorwise_backward_ckpt(
         grad_weight = fp8_matmul_tensorwise(
             grad_output.t(),
             input, input_scale,
-            use_hadamard=use_hadamard,
-            hadamard_group_size=hadamard_group_size,
+            hadamard=hadamard,
             output_shape=None,
             do_input_reshape=False,
             do_transpose=False,
@@ -91,13 +85,17 @@ def fp8_matmul_tensorwise_backward_ckpt(
 class FP8MatmulTensorWiseBackwardCKPT(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
+        if weight.sdnq_dequantizer.use_hadamard:
+            hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=input.dtype, device=input.device)
+        else:
+            hadamard = None
+
         result, new_input, input_scale = fp8_matmul_tensorwise_ckpt_compiled(
             input, weight.weight, weight.scale,
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
-            use_hadamard=weight.sdnq_dequantizer.use_hadamard,
-            hadamard_group_size=weight.sdnq_dequantizer.hadamard_group_size,
+            hadamard=hadamard,
             do_transpose=True,
         )
         ctx.save_for_backward(new_input, weight, input_scale, bias)
@@ -106,13 +104,17 @@ class FP8MatmulTensorWiseBackwardCKPT(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, input_scale, bias = ctx.saved_tensors
+        if weight.sdnq_dequantizer.use_hadamard:
+            hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
+        else:
+            hadamard = None
+
         return fp8_matmul_tensorwise_backward_ckpt(
             grad_output, input, weight.weight, weight.scale, input_scale,
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
-            use_hadamard=weight.sdnq_dequantizer.use_hadamard,
-            hadamard_group_size=weight.sdnq_dequantizer.hadamard_group_size,
+            hadamard=hadamard,
             do_grad_input=ctx.needs_input_grad[0],
             do_grad_weight=ctx.needs_input_grad[1],
             do_grad_bias=ctx.needs_input_grad[2],

@@ -1,7 +1,7 @@
 import torch
 
 from ....common import compile_func
-from ....quant_utils import quantize_fp_mm
+from ....quant_utils import quantize_fp_mm, get_hadamard
 from ...tensor import SDNQTensor
 
 from .forward import quantized_linear_with_backward
@@ -15,8 +15,7 @@ def fp16_matmul_dynamic_ckpt(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
-    use_hadamard: bool = False,
-    hadamard_group_size: int = 128,
+    hadamard: torch.FloatTensor | None = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
 ) -> torch.FloatTensor:
@@ -25,15 +24,14 @@ def fp16_matmul_dynamic_ckpt(
         bias=bias,
         svd_up=svd_up,
         svd_down=svd_down,
-        use_hadamard=use_hadamard,
-        hadamard_group_size=hadamard_group_size,
+        hadamard=hadamard,
     )
-    new_weight, weight_scale = quantize_fp_mm(weight.to(dtype=torch.float32), dim=0)
+    new_weight, weight_scale = quantize_fp_mm(weight.to(dtype=torch.float32), dim=0, matmul_dtype="float16")
     new_input, input_scale = quantize_fp_mm(
         input.flatten(0,-2).to(dtype=torch.float32),
         dim=0,
-        rotate_weight=use_hadamard,
-        hadamard_group_size=hadamard_group_size,
+        hadamard=hadamard,
+        matmul_dtype="float16",
     )
     return result, new_input, new_weight, input_scale, weight_scale
 
@@ -47,8 +45,7 @@ def fp16_matmul_dynamic_backward_ckpt(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
-    use_hadamard: bool = False,
-    hadamard_group_size: int = 128,
+    hadamard: torch.FloatTensor | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -63,8 +60,7 @@ def fp16_matmul_dynamic_backward_ckpt(
             weight, weight_scale,
             svd_up=svd_up,
             svd_down=svd_down,
-            use_hadamard=use_hadamard,
-            hadamard_group_size=hadamard_group_size,
+            hadamard=hadamard,
             output_shape=input_shape,
             do_input_reshape=False,
             do_transpose=False,
@@ -73,8 +69,7 @@ def fp16_matmul_dynamic_backward_ckpt(
         grad_weight = fp16_matmul(
             grad_output.t(),
             input, input_scale,
-            use_hadamard=use_hadamard,
-            hadamard_group_size=hadamard_group_size,
+            hadamard=hadamard,
             output_shape=None,
             do_input_reshape=False,
             do_transpose=False,
@@ -96,13 +91,17 @@ class FP16MatmulDynamicBackwardCKPT(torch.autograd.Function):
             svd_up, svd_down = None, None
             ctx.use_hadamard = False
             ctx.hadamard_group_size = 128
+        if ctx.use_hadamard:
+            hadamard = get_hadamard(ctx.hadamard_group_size, dtype=input.dtype, device=input.device)
+        else:
+            hadamard = None
+
         result, new_input, new_weight, input_scale, weight_scale = fp16_matmul_dynamic_ckpt_compiled(
             input, weight,
             bias=bias,
             svd_up=svd_up,
             svd_down=svd_down,
-            use_hadamard=ctx.use_hadamard,
-            hadamard_group_size=ctx.hadamard_group_size,
+            hadamard=hadamard,
         )
         ctx.save_for_backward(new_input, new_weight, input_scale, weight_scale, bias, svd_up, svd_down)
         return result
@@ -110,13 +109,17 @@ class FP16MatmulDynamicBackwardCKPT(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, input_scale, weight_scale, bias, svd_up, svd_down = ctx.saved_tensors
+        if ctx.use_hadamard:
+            hadamard = get_hadamard(ctx.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
+        else:
+            hadamard = None
+
         return fp16_matmul_dynamic_backward_ckpt(
             grad_output, input, weight, input_scale, weight_scale,
             bias=bias,
             svd_up=svd_up,
             svd_down=svd_down,
-            use_hadamard=ctx.use_hadamard,
-            hadamard_group_size=ctx.hadamard_group_size,
+            hadamard=hadamard,
             do_grad_input=ctx.needs_input_grad[0],
             do_grad_weight=ctx.needs_input_grad[1],
             do_grad_bias=ctx.needs_input_grad[2],

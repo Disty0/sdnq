@@ -2,7 +2,7 @@ import torch
 
 from ....common import compile_func, use_contiguous_mm
 from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
-from ....quant_utils import quantize_fp_mm, quantize_fp_mm_sr, rotate_hadamard
+from ....quant_utils import quantize_fp_mm, quantize_fp_mm_sr, rotate_hadamard, get_hadamard
 from ...tensor import SDNQTensor
 
 from .forward import check_mats, quantized_linear_with_backward
@@ -11,14 +11,13 @@ from .forward import check_mats, quantized_linear_with_backward
 def quantize_fp_mm_matmul_tensorwise(
     input: torch.FloatTensor,
     weight: torch.FloatTensor,
+    hadamard: torch.FloatTensor | None = None,
     do_input_reshape: bool = True,
-    rotate_weight: bool = False,
-    hadamard_group_size: int = 128,
     use_sr: bool = False,
     matmul_dtype: str = "float8_e4m3fn",
 ) -> tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
-    if rotate_weight:
-        weight = rotate_hadamard(weight, group_size=hadamard_group_size)
+    if hadamard is not None:
+        weight = rotate_hadamard(weight, hadamard=hadamard)
     if do_input_reshape:
         input = input.flatten(0,-2)
     else:
@@ -38,11 +37,10 @@ def fp8_matmul_tensorwise_dynamic(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
-    use_hadamard: bool = False,
-    rotate_weight: bool = False,
-    hadamard_group_size: int = 128,
+    hadamard: torch.FloatTensor | None = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
+    rotate_weight: bool = False,
     use_sr: bool = False,
 ) -> torch.FloatTensor:
     return_dtype = input.dtype
@@ -50,9 +48,9 @@ def fp8_matmul_tensorwise_dynamic(
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[0] if do_input_reshape else weight.shape[-1]
-    if use_hadamard:
+    if hadamard is not None:
         if do_input_reshape:
-            input = rotate_hadamard(input, group_size=hadamard_group_size)
+            input = rotate_hadamard(input, hadamard=hadamard)
         else:
             bias_to_add_after = bias
             bias = None
@@ -79,8 +77,7 @@ def fp8_matmul_tensorwise_dynamic(
     input, weight, input_scale, scale = quantize_fp_mm_matmul_tensorwise(
         input, weight,
         do_input_reshape=do_input_reshape,
-        rotate_weight=rotate_weight,
-        hadamard_group_size=hadamard_group_size,
+        hadamard=hadamard if rotate_weight else None,
         use_sr=use_sr,
     )
     input, weight = check_mats(input, weight, allow_contiguous_mm=False)
@@ -110,8 +107,8 @@ def fp8_matmul_tensorwise_dynamic(
             dtype=return_dtype,
             result_shape=output_shape,
         )
-    if use_hadamard and not do_input_reshape:
-        result = rotate_hadamard(result, group_size=hadamard_group_size)
+    if hadamard is not None and not do_input_reshape:
+        result = rotate_hadamard(result, hadamard=hadamard)
     if bias_to_add_after is not None:
         result.add_(bias_to_add_after)
     return result
@@ -124,8 +121,7 @@ def fp8_matmul_tensorwise_dynamic_backward(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
-    use_hadamard: bool = False,
-    hadamard_group_size: int = 128,
+    hadamard: torch.FloatTensor | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -138,8 +134,7 @@ def fp8_matmul_tensorwise_dynamic_backward(
             weight,
             svd_up=svd_up,
             svd_down=svd_down,
-            use_hadamard=use_hadamard,
-            hadamard_group_size=hadamard_group_size,
+            hadamard=hadamard,
             output_shape=input.shape,
             do_input_reshape=False,
         )
@@ -147,9 +142,8 @@ def fp8_matmul_tensorwise_dynamic_backward(
         grad_weight = fp8_matmul_tensorwise_dynamic(
             grad_output.t(),
             input.flatten(0,-2),
-            use_hadamard=use_hadamard,
-            rotate_weight=use_hadamard,
-            hadamard_group_size=hadamard_group_size,
+            hadamard=hadamard,
+            rotate_weight=bool(hadamard is not None),
             output_shape=None,
             do_input_reshape=False,
         )
@@ -170,26 +164,34 @@ class FP8MatmulTensorWiseDynamicBackward(torch.autograd.Function):
             svd_up, svd_down = None, None
             ctx.use_hadamard = False
             ctx.hadamard_group_size = 128
+        if ctx.use_hadamard:
+            hadamard = get_hadamard(ctx.hadamard_group_size, dtype=input.dtype, device=input.device)
+        else:
+            hadamard = None
+
         ctx.save_for_backward(input, weight, bias, svd_up, svd_down)
         return fp8_matmul_tensorwise_dynamic_compiled(
             input, weight,
             bias=bias,
             svd_up=svd_up,
             svd_down=svd_down,
-            use_hadamard=ctx.use_hadamard,
-            hadamard_group_size=ctx.hadamard_group_size,
+            hadamard=hadamard,
         )
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
         input, weight, bias, svd_up, svd_down = ctx.saved_tensors
+        if ctx.use_hadamard:
+            hadamard = get_hadamard(ctx.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
+        else:
+            hadamard = None
+
         return fp8_matmul_tensorwise_dynamic_backward(
             grad_output, input, weight,
             bias=bias,
             svd_up=svd_up,
             svd_down=svd_down,
-            use_hadamard=ctx.use_hadamard,
-            hadamard_group_size=ctx.hadamard_group_size,
+            hadamard=hadamard,
             do_grad_input=ctx.needs_input_grad[0],
             do_grad_weight=ctx.needs_input_grad[1],
             do_grad_bias=ctx.needs_input_grad[2],
