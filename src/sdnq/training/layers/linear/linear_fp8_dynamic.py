@@ -83,13 +83,14 @@ def fp8_matmul_dynamic(
         scale_b=scale,
         bias=bias,
         out_dtype=torch.bfloat16,
-    ).view(output_shape).to(return_dtype)
+    ).to(return_dtype)
     if svd_up is not None:
         result = result.add_(svd_bias)
     if use_hadamard and not do_input_reshape:
         result = rotate_hadamard(result, group_size=hadamard_group_size)
     if bias_to_add_after is not None:
         result.add_(bias_to_add_after)
+    result = result.view(output_shape)
     return result
 
 
