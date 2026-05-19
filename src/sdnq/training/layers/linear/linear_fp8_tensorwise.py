@@ -34,14 +34,19 @@ def fp8_matmul_tensorwise(
     use_sr: bool = False,
 ) -> torch.FloatTensor:
     return_dtype = input.dtype
+    bias_to_add_after = None
     if do_transpose:
         weight = weight.t()
         scale = scale.t()
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[-1]
-    if use_hadamard and do_transpose:
-        input = rotate_hadamard(input, group_size=hadamard_group_size)
+    if use_hadamard:
+        if do_transpose:
+            input = rotate_hadamard(input, group_size=hadamard_group_size)
+        else:
+            bias_to_add_after = bias
+            bias = None
     if svd_up is not None:
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
@@ -65,7 +70,7 @@ def fp8_matmul_tensorwise(
     input, input_scale = quantize_fp_mm_input_tensorwise(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight, allow_contiguous_mm=False)
     if bias is not None:
-        return dequantize_symmetric_with_bias(
+        result = dequantize_symmetric_with_bias(
             torch._scaled_mm(
                 input, weight,
                 scale_a=dummy_input_scale,
@@ -74,13 +79,11 @@ def fp8_matmul_tensorwise(
                 out_dtype=input_scale.dtype,
             ).mul_(input_scale),
             scale, bias,
-            use_hadamard=bool(use_hadamard and not do_transpose),
-            hadamard_group_size=hadamard_group_size,
             dtype=return_dtype,
             result_shape=output_shape,
         )
     else:
-        return dequantize_symmetric(
+        result = dequantize_symmetric(
             torch._scaled_mm(
                 input, weight,
                 scale_a=dummy_input_scale,
@@ -89,11 +92,14 @@ def fp8_matmul_tensorwise(
                 out_dtype=input_scale.dtype,
             ).mul_(input_scale),
             scale,
-            use_hadamard=bool(use_hadamard and not do_transpose),
-            hadamard_group_size=hadamard_group_size,
             dtype=return_dtype,
             result_shape=output_shape,
         )
+    if use_hadamard and not do_transpose:
+        result = rotate_hadamard(result, group_size=hadamard_group_size)
+    if bias_to_add_after is not None:
+        result.add_(bias_to_add_after)
+    return result
 
 
 def fp8_matmul_tensorwise_backward(

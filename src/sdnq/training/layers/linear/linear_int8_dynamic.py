@@ -50,11 +50,16 @@ def int8_matmul_dynamic(
 ) -> torch.FloatTensor:
     int_mm = triton_int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
     return_dtype = input.dtype
+    bias_to_add_after = None
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[0] if do_input_reshape else weight.shape[-1]
-    if use_hadamard and do_input_reshape:
-        input = rotate_hadamard(input, group_size=hadamard_group_size)
+    if use_hadamard:
+        if do_input_reshape:
+            input = rotate_hadamard(input, group_size=hadamard_group_size)
+        else:
+            bias_to_add_after = bias
+            bias = None
     if svd_up is not None:
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
@@ -83,23 +88,24 @@ def int8_matmul_dynamic(
     )
     input, weight = check_mats(input, weight)
     if bias is not None:
-        return dequantize_symmetric_with_bias(
+        result = dequantize_symmetric_with_bias(
             int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
             scale, bias,
-            use_hadamard=bool(use_hadamard and not do_input_reshape),
-            hadamard_group_size=hadamard_group_size,
             dtype=return_dtype,
             result_shape=output_shape,
         )
     else:
-        return dequantize_symmetric(
+        result = dequantize_symmetric(
             int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
             scale,
-            use_hadamard=bool(use_hadamard and not do_input_reshape),
-            hadamard_group_size=hadamard_group_size,
             dtype=return_dtype,
             result_shape=output_shape,
         )
+    if use_hadamard and not do_input_reshape:
+        result = rotate_hadamard(result, group_size=hadamard_group_size)
+    if bias_to_add_after is not None:
+        result.add_(bias_to_add_after)
+    return result
 
 
 def int8_matmul_dynamic_backward(

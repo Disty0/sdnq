@@ -44,11 +44,16 @@ def fp8_matmul_dynamic(
     use_sr: bool = False,
 ) -> torch.FloatTensor:
     return_dtype = input.dtype
+    bias_to_add_after = None
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[0] if do_input_reshape else weight.shape[-1]
-    if use_hadamard and do_input_reshape:
-        input = rotate_hadamard(input, group_size=hadamard_group_size)
+    if use_hadamard:
+        if do_input_reshape:
+            input = rotate_hadamard(input, group_size=hadamard_group_size)
+        else:
+            bias_to_add_after = bias
+            bias = None
     if svd_up is not None:
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
@@ -76,15 +81,15 @@ def fp8_matmul_dynamic(
         input, weight,
         scale_a=input_scale,
         scale_b=scale,
-        bias=bias if not (use_hadamard and not do_input_reshape) else None,
+        bias=bias,
         out_dtype=torch.bfloat16,
     ).view(output_shape).to(return_dtype)
     if svd_up is not None:
         result = result.add_(svd_bias)
     if use_hadamard and not do_input_reshape:
         result = rotate_hadamard(result, group_size=hadamard_group_size)
-        if bias is not None:
-            result.add_(bias)
+    if bias_to_add_after is not None:
+        result.add_(bias_to_add_after)
     return result
 
 

@@ -34,14 +34,19 @@ def fp8_matmul(
     use_sr: bool = False,
 ) -> torch.FloatTensor:
     return_dtype = input.dtype
+    bias_to_add_after = None
     if do_transpose:
         weight = weight.t()
         scale = scale.t()
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[-1]
-    if use_hadamard and do_transpose:
-        input = rotate_hadamard(input, group_size=hadamard_group_size)
+    if use_hadamard:
+        if do_transpose:
+            input = rotate_hadamard(input, group_size=hadamard_group_size)
+        else:
+            bias_to_add_after = bias
+            bias = None
     if svd_up is not None:
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
@@ -63,15 +68,15 @@ def fp8_matmul(
         input, weight,
         scale_a=input_scale,
         scale_b=scale,
-        bias=bias if not (use_hadamard and not do_transpose) else None,
+        bias=bias,
         out_dtype=torch.bfloat16,
     ).view(output_shape).to(return_dtype)
     if svd_up is not None:
         result = result.add_(svd_bias)
     if use_hadamard and not do_transpose:
         result = rotate_hadamard(result, group_size=hadamard_group_size)
-        if bias is not None:
-            result.add_(bias)
+    if bias_to_add_after is not None:
+        result.add_(bias_to_add_after)
     return result
 
 
