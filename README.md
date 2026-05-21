@@ -1,15 +1,14 @@
 # SDNQ: SD.Next Quantization Engine
 
 SD.Next Quantization provides full cross-platform quantization to reduce memory usage and increase performance for any device.  
-SDNQ is written fully in PyTorch and can be compiled with torch.compile into different backends such as Inductor and OpenVINO.  
-SDNQ can run on any device (MPS (Apple Mac), CPU, ARM, Android etc.) with PyTorch Eager fallback mode.  
-CUDA (Nvidia), ROCm (AMD) and XPU (Intel) devices utilizes the faster Inductor backend by default if Triton is available.  
-
-SDNQ supports every quantization type from 1 bit to 16 bits including int, uint, fp and ufp types totalig to 176 storage types for inference and training.  
-SDNQ supports Hadamard Rotations and SVD Quantization on both quantized weights and quantized matmul for inference and training.  
-SDNQ supports INT8, FP8 and FP16 quantized matmul on supported Nvidia, AMD and Intel GPUs for inference and training with any quantized weights type.  
-SDNQ supports full parameter quantized training with quantized weights and / or quantized matmul and also offers quantized optimizers for training.  
-SDNQ supports direct math to be done on the quantized model on training (aka supports updating the quantized model weights directy).  
+- SDNQ is written fully in PyTorch and can be compiled with torch.compile into different backends such as Inductor and OpenVINO.  
+- SDNQ can run on any device (MPS (Apple Mac), CPU, ARM, Android etc.) with PyTorch Eager fallback mode.  
+  - CUDA (Nvidia), ROCm (AMD) and XPU (Intel) devices utilizes the faster Inductor backend by default if Triton is available.  
+- SDNQ supports every quantization type from 1 bit to 16 bits including int, uint, fp and ufp types totalig to 176 storage types for inference and training.  
+- SDNQ supports Hadamard Rotations and SVD Quantization on both quantized weights and quantized matmul for inference and training.  
+- SDNQ supports INT8, FP8 and FP16 quantized matmul on supported Nvidia, AMD and Intel GPUs for inference and training with any quantized weights type.  
+- SDNQ supports full parameter quantized training with quantized weights and / or quantized matmul and also offers quantized optimizers for training.  
+- SDNQ supports direct math to be done on the quantized model on training (aka supports updating the quantized model weights directy).  
 
 For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
