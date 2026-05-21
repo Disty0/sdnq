@@ -203,7 +203,6 @@ def convert_sdnq_layer_to_training(self: torch.nn.Module, quantized_matmul_dtype
         sdnq_dequantizer = self.sdnq_dequantizer
     else:
         sdnq_dequantizer = copy.deepcopy(self.sdnq_dequantizer)
-    sdnq_dequantizer.use_quantized_matmul = use_quantized_matmul
     sdnq_dequantizer.use_stochastic_rounding = use_stochastic_rounding
     weight = torch.nn.Parameter(SDNQTensor(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down, sdnq_dequantizer), requires_grad=True)
     quantized_forward = get_forward_func(sdnq_dequantizer.weights_dtype, quantized_matmul_dtype, use_grad_ckpt, use_quantized_matmul, True, sdnq_dequantizer.group_size)
@@ -326,10 +325,16 @@ def convert_training_layer_to_sdnq(self: torch.nn.Module, inplace: bool = False)
     sdnq_dequantizer.use_quantized_matmul = False
     weight = torch.nn.Parameter(self.weight.weight, requires_grad=False)
     scale = torch.nn.Parameter(self.weight.scale, requires_grad=False)
-    zero_point = torch.nn.Parameter(self.weight.zero_point, requires_grad=False)
-    svd_up = torch.nn.Parameter(self.weight.svd_up, requires_grad=False)
-    svd_down = torch.nn.Parameter(self.weight.svd_down, requires_grad=False)
-    quantized_forward = get_sdnq_forward_func(self.original_class.__name__, sdnq_dequantizer.quantized_matmul_dtype, False)
+    if self.weight.zero_point is not None:
+        zero_point = torch.nn.Parameter(self.weight.zero_point, requires_grad=False)
+    else:
+        zero_point = None
+    if self.weight.svd_up is not None:
+        svd_up = torch.nn.Parameter(self.weight.svd_up, requires_grad=False)
+        svd_down = torch.nn.Parameter(self.weight.svd_down, requires_grad=False)
+    else:
+        svd_up, svd_down = None, None
+    quantized_forward = get_sdnq_forward_func(self.original_class.__name__, sdnq_dequantizer.quantized_matmul_dtype, sdnq_dequantizer.use_quantized_matmul)
     if inplace:
         self.weight = weight
         self.scale = scale
