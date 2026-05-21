@@ -12,52 +12,86 @@ from .forward import get_forward_func
 from .tensor import SDNQTensor
 
 
-@torch.no_grad()
-def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul_dtype="int8", hadamard_group_size=128, group_size=32, svd_rank=32, svd_steps=8, use_svd=False, use_hadamard=False, use_grad_ckpt=True, use_quantized_matmul=False, use_static_quantization=True, use_stochastic_rounding=True, dequantize_fp32=True, non_blocking=False, quantization_device=None, return_device=None, modules_to_not_convert=None, modules_dtype_dict=None, torch_dtype=None, full_param_name=""):
-    if not use_quantized_matmul and not use_static_quantization:
-        return model
-    if modules_to_not_convert is None:
-        modules_to_not_convert = []
-    if modules_dtype_dict is None:
-        modules_dtype_dict = {}
+def get_quant_kwargs(layer: torch.nn.Module, quantization_config, torch_dtype: torch.dtype | None = None, param_name: str = "", **kwargs) -> dict:
+    if not isinstance(quantization_config, SDNQConfig):
+        quantization_config = SDNQConfig(**quantization_config)
+    layer_class_name = layer.__class__.__name__
 
+    quant_kwargs = {
+        "weights_dtype": quantization_config.weights_dtype,
+        "hadamard_group_size": quantization_config.hadamard_group_size,
+        "group_size": quantization_config.group_size,
+        "svd_rank": quantization_config.svd_rank,
+        "svd_steps": quantization_config.svd_steps,
+        "use_svd": quantization_config.use_svd,
+        "use_hadamard": quantization_config.use_hadamard,
+        "use_stochastic_rounding": quantization_config.use_stochastic_rounding,
+        "dequantize_fp32": quantization_config.dequantize_fp32,
+        "use_grad_ckpt": quantization_config.use_grad_ckpt,
+        "use_quantized_matmul": quantization_config.use_quantized_matmul,
+        "use_static_quantization": quantization_config.use_static_quantization,
+        "quantized_matmul_dtype": quantization_config.quantized_matmul_dtype,
+        "non_blocking": quantization_config.non_blocking,
+        "quantization_device": quantization_config.quantization_device,
+        "return_device": quantization_config.return_device,
+        "layer_class_name": layer_class_name,
+        "torch_dtype": torch_dtype,
+        "param_name": param_name,
+    }
+
+    for key, value in kwargs.items():
+        quant_kwargs[key] = value
+
+    param_key = check_param_name_in(quant_kwargs["param_name"], quantization_config.modules_quant_config.keys())
+    if param_key is not None:
+        for key, value in quantization_config.modules_quant_config[param_key].items():
+            quant_kwargs[key] = value
+
+    quant_kwargs["weights_dtype"] = get_minimum_dtype(quant_kwargs["weights_dtype"], quant_kwargs["param_name"], quantization_config.modules_dtype_dict)
+    if check_param_name_in(quant_kwargs["param_name"], quantization_config.modules_to_not_use_matmul) is not None:
+        quant_kwargs["use_quantized_matmul"] = False
+
+    return quant_kwargs
+
+
+@torch.no_grad()
+def apply_sdnq_training_to_module(model, quantization_config: SDNQConfig, torch_dtype=None, full_param_name=""):
     has_children = list(model.children())
     if not has_children:
-        return model
+        return model, quantization_config
 
     for module_name, module in model.named_children():
         if full_param_name:
             param_name = full_param_name + "." + module_name
         else:
             param_name = module_name
-        if module.__class__.__name__ == "Linear" and hasattr(module, "weight") and module.weight is not None:
+        if hasattr(module, "weight") and module.weight is not None:
             param_name = param_name + ".weight"
-            if check_param_name_in(param_name, modules_to_not_convert) is not None:
-                continue
-            output_channel_size, channel_size = module.weight.shape
+            layer_class_name = module.__class__.__name__
+            param_in_modules_to_not_convert = check_param_name_in(param_name, quantization_config.modules_to_not_convert)
+            if (
+                layer_class_name in linear_types
+                and module.weight.dtype in {torch.float64, torch.float32, torch.float16, torch.bfloat16}
+                and param_in_modules_to_not_convert is None
+                and module.weight.shape[0] >= 32 and module.weight.shape[1] >= 32
+            ):
+                output_channel_size, channel_size = module.weight.shape
+                quant_kwargs = get_quant_kwargs(module, quantization_config, torch_dtype=torch_dtype, param_name=param_name)
+                use_grad_ckpt = quant_kwargs.pop("use_grad_ckpt")
+                use_quantized_matmul = quant_kwargs.pop("use_quantized_matmul")
+                use_static_quantization = quant_kwargs.pop("use_static_quantization")
+                quantized_matmul_dtype = quant_kwargs.pop("quantized_matmul_dtype")
+                non_blocking = quant_kwargs.pop("non_blocking")
+                quantization_device = quant_kwargs.pop("quantization_device")
+                return_device = quant_kwargs.pop("return_device")
 
-            if channel_size >= 32 and output_channel_size >= 32:
-                param_weights_dtype = get_minimum_dtype(weights_dtype, param_name, modules_dtype_dict)
                 if use_static_quantization:
                     if quantization_device is None:
                         quantization_device = module.weight.device
                     if return_device is None:
                         return_device = module.weight.device
                     module.weight = torch.nn.Parameter(
-                        SDNQTensor.from_float(
-                            module.weight.to(quantization_device, non_blocking=non_blocking),
-                            layer_class_name="Linear",
-                            weights_dtype=param_weights_dtype,
-                            hadamard_group_size=hadamard_group_size,
-                            group_size=group_size,
-                            svd_rank=svd_rank,
-                            svd_steps=svd_steps,
-                            use_svd=use_svd,
-                            use_hadamard=use_hadamard,
-                            use_stochastic_rounding=use_stochastic_rounding,
-                            dequantize_fp32=dequantize_fp32,
-                            torch_dtype=torch_dtype,
-                        ).to(return_device, non_blocking=non_blocking),
+                        SDNQTensor.from_float(module.weight.to(quantization_device, non_blocking=non_blocking), **quant_kwargs).to(return_device, non_blocking=non_blocking),
                         requires_grad=module.weight.requires_grad,
                     )
                     current_group_size = module.weight.sdnq_dequantizer.group_size
@@ -65,36 +99,27 @@ def apply_sdnq_training_to_module(model, weights_dtype="uint8", quantized_matmul
                     current_group_size = -1
 
                 current_use_quantized_matmul = use_quantized_matmul and output_channel_size % 16 == 0 and channel_size % 16 == 0
-                quantized_forward = get_forward_func(param_weights_dtype, quantized_matmul_dtype, use_grad_ckpt, current_use_quantized_matmul, use_static_quantization, current_group_size)
+                if use_quantized_matmul and not current_use_quantized_matmul:
+                    quantization_config.modules_to_not_use_matmul.append(param_name)
+
+                quantized_forward = get_forward_func(
+                    quant_kwargs["weights_dtype"],
+                    quantized_matmul_dtype,
+                    use_grad_ckpt,
+                    current_use_quantized_matmul,
+                    use_static_quantization,
+                    current_group_size,
+                )
 
                 if quantized_forward is not None:
                     module = get_sdnq_wrapper_class(module, quantized_forward)
                     setattr(model, module_name, module)
+            elif param_in_modules_to_not_convert is None:
+                quantization_config.modules_to_not_convert.append(param_name)
 
-        setattr(model, module_name, apply_sdnq_training_to_module(
-            module,
-            weights_dtype=weights_dtype,
-            quantized_matmul_dtype=quantized_matmul_dtype,
-            hadamard_group_size=hadamard_group_size,
-            group_size=group_size,
-            svd_rank=svd_rank,
-            svd_steps=svd_steps,
-            use_svd=use_svd,
-            use_hadamard=use_hadamard,
-            use_grad_ckpt=use_grad_ckpt,
-            use_quantized_matmul=use_quantized_matmul,
-            use_static_quantization=use_static_quantization,
-            use_stochastic_rounding=use_stochastic_rounding,
-            dequantize_fp32=dequantize_fp32,
-            non_blocking=non_blocking,
-            quantization_device=quantization_device,
-            return_device=return_device,
-            modules_to_not_convert=modules_to_not_convert,
-            modules_dtype_dict=modules_dtype_dict,
-            torch_dtype=torch_dtype,
-            full_param_name=param_name,
-        ))
-    return model
+        module, quantization_config = apply_sdnq_training_to_module(module, quantization_config, torch_dtype=torch_dtype, full_param_name=param_name)
+        setattr(model, module_name, module)
+    return model, quantization_config
 
 
 @torch.no_grad()
@@ -115,22 +140,14 @@ def sdnq_training_post_load_quant(
     dequantize_fp32: bool = True,
     non_blocking: bool = False,
     add_skip_keys:bool = True,
+    modules_to_not_convert: list[str] | None = None,
+    modules_to_not_use_matmul: list[str] | None = None,
+    modules_dtype_dict: dict[str, list[str]] | None = None,
+    modules_quant_config: dict[str, dict] | None = None,
     quantization_device: torch.device | None = None,
     return_device: torch.device | None = None,
-    modules_to_not_convert: list[str] | None = None,
-    modules_dtype_dict: dict[str, list[str]] | None = None,
     torch_dtype: torch.dtype | None = None,
 ):
-    if modules_to_not_convert is None:
-        modules_to_not_convert = []
-    if modules_dtype_dict is None:
-        modules_dtype_dict = {}
-
-    modules_to_not_convert = modules_to_not_convert.copy()
-    modules_dtype_dict = modules_dtype_dict.copy()
-    if add_skip_keys:
-        model, modules_to_not_convert, modules_dtype_dict = add_module_skip_keys(model, modules_to_not_convert, modules_dtype_dict)
-
     quantization_config = SDNQConfig(
         weights_dtype=weights_dtype,
         quantized_matmul_dtype=quantized_matmul_dtype,
@@ -153,32 +170,16 @@ def sdnq_training_post_load_quant(
         quantization_device=quantization_device,
         return_device=return_device,
         modules_to_not_convert=modules_to_not_convert,
+        modules_to_not_use_matmul=modules_to_not_use_matmul,
         modules_dtype_dict=modules_dtype_dict,
+        modules_quant_config=modules_quant_config,
         is_training=True,
     )
 
-    model = apply_sdnq_training_to_module(
-        model,
-        weights_dtype=weights_dtype,
-        quantized_matmul_dtype=quantized_matmul_dtype,
-        hadamard_group_size=hadamard_group_size,
-        group_size=group_size,
-        svd_rank=svd_rank,
-        svd_steps=svd_steps,
-        use_svd=use_svd,
-        use_hadamard=use_hadamard,
-        use_grad_ckpt=use_grad_ckpt,
-        use_quantized_matmul=use_quantized_matmul,
-        use_static_quantization=use_static_quantization,
-        use_stochastic_rounding=use_stochastic_rounding,
-        dequantize_fp32=dequantize_fp32,
-        non_blocking=non_blocking,
-        quantization_device=quantization_device,
-        return_device=return_device,
-        modules_to_not_convert=modules_to_not_convert,
-        modules_dtype_dict=modules_dtype_dict,
-        torch_dtype=torch_dtype,
-    )
+    if add_skip_keys:
+        model, quantization_config = add_module_skip_keys(model, quantization_config)
+
+    model, quantization_config = apply_sdnq_training_to_module(model, quantization_config, torch_dtype=torch_dtype)
 
     model.quantization_config = quantization_config
     if hasattr(model, "config"):

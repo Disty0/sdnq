@@ -56,12 +56,12 @@ sdnq_config = SDNQConfig(
     dequantize_fp32=True,
     non_blocking=False,
     add_skip_keys=True,
-    quantization_device="cuda",
-    return_device="cuda",
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
     modules_to_not_use_matmul=["x_embedder"],
     modules_dtype_dict={"int8": ["lm_head"]},
     modules_quant_config={"embed_tokens_per_layer": {"quantization_device": "cpu"}},
+    quantization_device="cuda",
+    return_device="cuda",
 )
 
 quantized_model = AutoModel.from_pretrained(model_path, quantization_config=sdnq_config)
@@ -113,10 +113,12 @@ quantized_model = sdnq_training_post_load_quant(
     dequantize_fp32=True,
     non_blocking=False,
     add_skip_keys=True,
+    modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
+    modules_to_not_use_matmul=["x_embedder"],
+    modules_dtype_dict={"int8": ["lm_head"]},
+    modules_quant_config={"embed_tokens_per_layer": {"quantization_device": "cpu"}},
     quantization_device="cuda",
     return_device="cuda",
-    modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
-    modules_dtype_dict={"int8": ["lm_head"]},
 )
 ```
 
