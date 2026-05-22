@@ -1,3 +1,5 @@
+# pylint: disable=redefined-builtin
+
 import math
 import torch
 
@@ -93,7 +95,7 @@ def build_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.devic
 HADAMARD_MATRIX_CACHE = {}
 @devices.inference_context()
 def get_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.device | None = None):
-    global HADAMARD_MATRIX_CACHE
+    global HADAMARD_MATRIX_CACHE # pylint: disable=global-variable-not-assigned
     device = devices.normalize_device(device)
     if HADAMARD_MATRIX_CACHE.get(n, None) is None:
         HADAMARD_MATRIX_CACHE[n] = {}
@@ -105,7 +107,7 @@ def get_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.device 
 
 
 @devices.inference_context()
-def rotate_hadamard(weight: torch.Tensor, group_size: int = 128, hadamard: torch.Tensor | None = None, is_conv: bool = False) -> torch.Tensor:
+def rotate_hadamard(weight: torch.Tensor, group_size: int = 128, hadamard: torch.FloatTensor | None = None, is_conv: bool = False) -> torch.Tensor:
     if hadamard is None:
         hadamard = get_hadamard(group_size, dtype=weight.dtype, device=weight.device)
     else:
@@ -122,7 +124,7 @@ def rotate_hadamard(weight: torch.Tensor, group_size: int = 128, hadamard: torch
 
 
 @devices.inference_context()
-def apply_hadamard(weight: torch.Tensor, group_size: int = 128, hadamard: torch.Tensor | None = None, layer_class_name: str | None = None) -> torch.Tensor:
+def apply_hadamard(weight: torch.Tensor, group_size: int = 128, hadamard: torch.FloatTensor | None = None, layer_class_name: str | None = None) -> torch.Tensor:
     is_conv = False
     use_hadamard = True
     if layer_class_name in conv_types or layer_class_name in conv_transpose_types:
@@ -138,7 +140,7 @@ def apply_hadamard(weight: torch.Tensor, group_size: int = 128, hadamard: torch.
     if group_size < 4:
         use_hadamard = False
     if use_hadamard:
-        weight = rotate_hadamard(weight, group_size=group_size, is_conv=is_conv)
+        weight = rotate_hadamard(weight, group_size=group_size, hadamard=hadamard, is_conv=is_conv)
     return weight, use_hadamard, group_size
 
 
