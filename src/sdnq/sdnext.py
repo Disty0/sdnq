@@ -44,15 +44,19 @@ class Devices():
         else:
             self.dtype = torch.bfloat16
 
-    def normalize_device(self, dev):
+    @staticmethod
+    def normalize_device(dev):
+        if dev is None:
+            return None
         if torch.device(dev).type in {"cpu", "mps", "meta"}:
             return torch.device(dev)
         if torch.device(dev).index is None:
             return torch.device(str(dev), index=0)
         return torch.device(dev)
 
-    def same_device(self, d1, d2):
-        return self.normalize_device(d1) == self.normalize_device(d2)
+    @staticmethod
+    def same_device(d1, d2):
+        return Devices.normalize_device(d1) == Devices.normalize_device(d2)
 
     def torch_gc(self, force:bool=False, fast:bool=False, reason:str=None):
         if force:
