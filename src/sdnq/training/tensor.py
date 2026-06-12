@@ -78,7 +78,7 @@ class SDNQTensor(torch.Tensor):
         weight,
         layer_class_name: str | None = None,
         weights_dtype: str = "int8",
-        hadamard_group_size: int = 128,
+        hadamard_group_size: int = 256,
         group_size: int = 32,
         svd_rank: int = 32,
         svd_steps: int = 8,

@@ -140,7 +140,7 @@ class FP8MatmulDynamicBackward(torch.autograd.Function):
         else:
             svd_up, svd_down = None, None
             ctx.use_hadamard = False
-            ctx.hadamard_group_size = 128
+            ctx.hadamard_group_size = 256
         if ctx.use_hadamard:
             hadamard = get_hadamard(ctx.hadamard_group_size, dtype=input.dtype, device=input.device)
         else:

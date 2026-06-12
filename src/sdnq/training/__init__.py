@@ -127,7 +127,7 @@ def sdnq_training_post_load_quant(
     model: torch.nn.Module,
     weights_dtype: str = "uint8",
     quantized_matmul_dtype: str = "int8",
-    hadamard_group_size: int = 128,
+    hadamard_group_size: int = 256,
     group_size: int = 32,
     svd_rank: int = 32,
     svd_steps: int = 8,

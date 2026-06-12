@@ -60,7 +60,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["quantized_buffers_dtype"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_dtype", "uint8")
         group["quantized_buffers_minimum_numel"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_minimum_numel", 16384)
         group["quantized_buffers_minimum_ndim"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_minimum_ndim", 2)
-        group["quantized_buffers_hadamard_group_size"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_hadamard_group_size", 128)
+        group["quantized_buffers_hadamard_group_size"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_hadamard_group_size", 256)
         group["quantized_buffers_group_size"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_group_size", 32)
         group["quantized_buffers_svd_rank"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_svd_rank", 32)
         group["quantized_buffers_use_svd"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_use_svd", False)
