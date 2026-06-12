@@ -44,7 +44,7 @@ sdnq_config = SDNQConfig(
     weights_dtype="int8", # Check out `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
     quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.  
     group_size=0, # 0 means auto, -1 means disabled
-    hadamard_group_size=128,
+    hadamard_group_size=256,
     svd_rank=32,
     svd_steps=8,
     dynamic_loss_threshold=None,
@@ -103,7 +103,7 @@ quantized_model = sdnq_training_post_load_quant(
     weights_dtype="uint8", # Check out `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
     quantized_matmul_dtype="int8", # can be int8, fp8 or fp16
     group_size=32, # 0 means auto, -1 means disabled
-    hadamard_group_size=128,
+    hadamard_group_size=256,
     svd_rank=32,
     svd_steps=8,
     use_svd=False,
@@ -154,7 +154,7 @@ optimizer = AdamW(
     parameters,
     use_quantized_buffers=True,
     quantized_buffers_dtype="uint8",
-    quantized_buffers_hadamard_group_size=128,
+    quantized_buffers_hadamard_group_size=256,
     quantized_buffers_group_size=32,
     quantized_buffers_svd_rank=32,
     final_norm_mode="clip", # can be one of ["none", "clip", "rms", "rms_clip", "relative", "muon"]
@@ -179,7 +179,7 @@ from sdnq.training import SDNQTensor
 state["exp_avg"] = SDNQTensor.from_float(
     torch.zeros_like(p),
     weights_dtype="int8",
-    hadamard_group_size=128,
+    hadamard_group_size=256,
     group_size=32,
     svd_rank=32,
     svd_steps=8,
