@@ -326,6 +326,15 @@ def convert_sdnq_model_to_training(model: torch.nn.Module, dtype: torch.dtype | 
                     model.config["quantization_config"].quantized_matmul_dtype = quantized_matmul_dtype
         except Exception:
             pass
+    if hasattr(model, "hf_quantizer"):
+        model.hf_quantizer.quantization_config.quant_method = QuantizationMethod.SDNQ_TRAINING
+        model.hf_quantizer.quantization_config.use_grad_ckpt = use_grad_ckpt
+        model.hf_quantizer.quantization_config.use_quantized_matmul = use_quantized_matmul
+        model.hf_quantizer.quantization_config.use_stochastic_rounding = use_stochastic_rounding
+        model.hf_quantizer.quantization_config.dequantize_fp32 = dequantize_fp32
+        model.hf_quantizer.quantization_config.is_training = True
+        if quantized_matmul_dtype is not None:
+            model.hf_quantizer.quantization_config.quantized_matmul_dtype = quantized_matmul_dtype
     return model
 
 
@@ -402,6 +411,9 @@ def convert_training_model_to_sdnq(model: torch.nn.Module, dtype: torch.dtype | 
                 model.config["quantization_config"].is_training = False
         except Exception:
             pass
+    if hasattr(model, "hf_quantizer"):
+        model.hf_quantizer.quant_method = QuantizationMethod.SDNQ
+        model.hf_quantizer.is_training = False
     return model
 
 
