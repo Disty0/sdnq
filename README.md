@@ -10,7 +10,7 @@ SD.Next Quantization provides full cross-platform quantization to reduce memory 
 - SDNQ supports full parameter quantized training with quantized weights and / or quantized matmul and also offers quantized optimizers for training.  
 - SDNQ supports direct math to be done on the quantized model on training (aka supports updating the quantized model weights directy).  
 
-For more info, please check out SD.Next SDNQ wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
+For more info, please see SD.Next SDNQ Wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
 ### Install command:  
 ```sh
@@ -36,26 +36,28 @@ quantized_model = apply_sdnq_options_to_model(quantized_model, use_quantized_mat
 
 ### Example quantization config code for Diffusers and Transformers libraries:  
 
+For more information about the options, see [SDNQ Wiki](https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization) and `SDNQConfig` docstring.  
+
 ```py
 from sdnq import SDNQConfig
 from sdnq.common import use_torch_compile as triton_is_available
 
 sdnq_config = SDNQConfig(
-    weights_dtype="int8", # Check out `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
-    quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.  
-    group_size=0, # 0 means auto, -1 means disabled
+    weights_dtype="int8", # see `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
+    quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.
+    group_size=0, # 0 means auto, -1 means disabled (aka. uses row-wise quant)
     hadamard_group_size=256,
     svd_rank=32,
     svd_steps=8,
-    dynamic_loss_threshold=None,
+    dynamic_loss_threshold=None, # None or negative number means auto select based on weights_dtype
     use_svd=False,
     use_hadamard=False,
     quant_conv=False,
     quant_embedding=False,
-    use_quantized_matmul=triton_is_available,
+    use_quantized_matmul=triton_is_available, # use quantized matmul (False means no quantized matmul at all)
     use_quantized_matmul_conv=False,
-    use_dynamic_quantization=False,
-    dequantize_fp32=True,
+    use_dynamic_quantization=False, # dynamically select a per layer quantization type based on the dynamic_loss_threshold
+    dequantize_fp32=True, # keeps the quant scales in FP32 and compute the de-quant steps in FP32. Highly recommended to enable this option
     non_blocking=False,
     add_skip_keys=True,
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
@@ -89,6 +91,8 @@ model = sdnq_post_load_quant(
 
 
 ### Example code for quantized training:  
+
+For more information about the options, see [SDNQ Wiki](https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization) and `SDNQConfig` docstring.  
 Note:  
  - Safetensors serialization is not supported with SDNQ training.  
    Either don't use Safetensors serialization or convert the quantized model to standard SDNQ model before saving.  
@@ -101,18 +105,18 @@ from sdnq.common import use_torch_compile as triton_is_available
 quantized_model = sdnq_training_post_load_quant(
     model,
     weights_dtype="uint8", # Check out `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
-    quantized_matmul_dtype="int8", # can be int8, fp8 or fp16
-    group_size=32, # 0 means auto, -1 means disabled
+    quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.
+    group_size=32, # 0 means auto, -1 means disabled (aka. uses row-wise quant)
     hadamard_group_size=256,
     svd_rank=32,
     svd_steps=8,
     use_svd=False,
     use_hadamard=False,
     use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
-    use_quantized_matmul=triton_is_available, # use quantized matmul on the forward pass and the backward pass
-    use_static_quantization=True, # quantize the model weights
+    use_quantized_matmul=triton_is_available, # use quantized matmul on the forward pass and the backward pass (False means no quantized matmul at all)
+    use_static_quantization=True, # quantize the model weights (False means model weights will be kept unquantized and only quantized matmul (if enabled) will be used)
     use_stochastic_rounding=True,
-    dequantize_fp32=True,
+    dequantize_fp32=True, # keeps the quant scales in FP32 and compute the de-quant steps in FP32. Highly recommended to enable this option
     non_blocking=False,
     add_skip_keys=True,
     modules_to_not_convert=["correction_coefs", "prediction_coefs", "lm_head", "embedding_projection"],
@@ -131,11 +135,11 @@ from sdnq.training import convert_sdnq_model_to_training
 from sdnq.common import use_torch_compile as triton_is_available
 quantized_model = convert_sdnq_model_to_training(
     quantized_model,
-    quantized_matmul_dtype="int8",
-    use_grad_ckpt=True,
-    use_quantized_matmul=triton_is_available,
+    quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.
+    use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
+    use_quantized_matmul=triton_is_available, # use quantized matmul on the forward pass and the backward pass (False means no quantized matmul at all)
     use_stochastic_rounding=True,
-    dequantize_fp32=True,
+    dequantize_fp32=True, # keeps the quant scales in FP32 and compute the de-quant steps in FP32. Highly recommended to enable this option
 )
 ```
 
@@ -186,7 +190,7 @@ state["exp_avg"] = SDNQTensor.from_float(
     use_svd=False,
     use_hadamard=False,
     use_stochastic_rounding=True,
-    dequantize_fp32=True,
+    dequantize_fp32=True, # keeps the quant scales in FP32 and compute the de-quant steps in FP32. Highly recommended to enable this option
     layer_class_name=None, # can be "Linear", "Conv2d" etc.
 )
 ```
