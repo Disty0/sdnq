@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 import time
 import torch
+import platform
 from tqdm import tqdm
 
 import sdnq.common
@@ -29,6 +30,29 @@ from sdnq.training.layers.linear.linear_fp16_dynamic import fp16_matmul_dynamic_
 from sdnq.training.layers.linear.linear_fp16_dynamic_ckpt import fp16_matmul_dynamic_with_backward_ckpt
 
 
+def get_device_name(device: torch.device):
+    device = torch.device(device)
+    if device.type in {"xpu", "cuda"}:
+        return getattr(torch, device.type).get_device_name(device)
+    try:
+        import cpuinfo
+        cpu_dict = cpuinfo.get_cpu_info()
+        return cpu_dict.get("arch", cpu_dict.get("arch_string_raw", platform.machine())) + " " + cpu_dict.get("hardware_raw", cpu_dict.get("brand_raw", "Unkwnown"))
+    except Exception:
+        return platform.machine() + " Unknown"
+        
+
+def do_nothing(*args, **kwargs):
+    return
+
+
+def get_sync_func(device: torch.device):
+    device = torch.device(device)
+    if device.type in {"xpu", "cuda"}:
+        return getattr(torch, device.type).synchronize
+    return do_nothing
+
+
 def get_tflops(it_s: float, m: int, n: int, k: int) -> float:
     return round(it_s * ((3*2*m*k*n) + (2 * n * m)) / (10**12), 2)
 
@@ -37,7 +61,7 @@ def benchmark_linear(name: str, linear: Callable, x: torch.Tensor, y: torch.Tens
     assert x.ndim == 2
     try:
         print(name)
-        sync_func = getattr(torch, x.device.type).synchronize
+        sync_func = get_sync_func(x.device)
         z = linear(x, y, b)
         loss = z.mean()
         loss.backward()
@@ -172,7 +196,8 @@ def main(
 
     print("")
     print("==================================================")
-    print("GPU:", getattr(torch, torch.device(device).type).get_device_name(device))
+    print("Platform:", platform.platform())
+    print("Device:", get_device_name(device))
     print("Steps:", steps, "| MNK:", round((m*n*k)**(1/3)), "| Float:", dtype)
     print("M:", m, "| N:", n, "| K:", k)
     print("Torch Compile:", sdnq.common.use_torch_compile)
