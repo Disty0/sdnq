@@ -32,14 +32,19 @@ from sdnq.training.layers.linear.linear_fp16_dynamic_ckpt import fp16_matmul_dyn
 
 def get_device_name(device: torch.device):
     device = torch.device(device)
+    if sdnq.common.use_openvino_mm:
+        from sdnq.kernels.openvino_mm import OV_DEVICE
+        extra_device_str = OV_DEVICE + " of "
+    else:
+        extra_device_str = ""
     if device.type in {"xpu", "cuda"}:
-        return getattr(torch, device.type).get_device_name(device)
+        return extra_device_str + getattr(torch, device.type).get_device_name(device)
     try:
         import cpuinfo
         cpu_dict = cpuinfo.get_cpu_info()
-        return cpu_dict.get("arch", cpu_dict.get("arch_string_raw", platform.machine())) + " " + cpu_dict.get("hardware_raw", cpu_dict.get("brand_raw", "Unkwnown"))
+        return extra_device_str + cpu_dict.get("arch", cpu_dict.get("arch_string_raw", platform.machine())) + " " + cpu_dict.get("hardware_raw", cpu_dict.get("brand_raw", "Unkwnown"))
     except Exception:
-        return platform.machine() + " Unknown"
+        return extra_device_str + platform.machine() + " " + (platform.processor() or "Unknown")
         
 
 def do_nothing(*args, **kwargs):
