@@ -2,11 +2,13 @@ import os
 import torch
 import openvino as ov
 from openvino import opset16 as ov_ops
+from openvino.properties import hint as ov_hints
 
 
 core = ov.Core()
 OV_DEVICE: str = os.environ.get("SDNQ_OPENVINO_DEVICE", "CPU")
 OV_COMPILED_CACHE: dict[tuple[str, tuple[int,int] | None, tuple[int,int] | None], list[ov.InferRequest, str]] = {}
+core.set_property(OV_DEVICE, {ov_hints.execution_mode: ov_hints.ExecutionMode.ACCURACY})
 
 
 def ov_int_mm(A: torch.Tensor, B: torch.Tensor, infer_request: ov.InferRequest, out_name: str) -> torch.Tensor:
