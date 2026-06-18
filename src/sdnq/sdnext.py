@@ -73,6 +73,8 @@ class Devices():
         try:
             if torch._dynamo.config.disable:
                 triton_is_available = False
+            elif self.backend == "cpu": # CPUs can use torch.compile / Inductor without Triton
+                triton_is_available = True
             else:
                 from torch.utils._triton import has_triton as torch_has_triton
                 triton_is_available = torch_has_triton()

@@ -3,10 +3,11 @@
 SD.Next Quantization provides full cross-platform quantization to reduce memory usage and increase performance for any device.  
 - SDNQ is written fully in PyTorch and can be compiled with torch.compile into different backends such as Inductor and OpenVINO.  
 - SDNQ can run on any device (MPS (Apple Mac), CPU, ARM, Android etc.) with PyTorch Eager fallback mode.  
-  - CUDA (Nvidia), ROCm (AMD) and XPU (Intel) devices utilizes the faster Inductor backend by default if Triton is available.  
+  - CUDA (Nvidia GPU), ROCm (AMD GPU), XPU (Intel GPU) and CPU devices utilizes the faster Inductor backend by default if Triton or Inductor is available.  
 - SDNQ supports every quantization type from 1 bit to 16 bits including int, uint, fp and ufp types totaling to 176 storage types for inference and training.  
 - SDNQ supports Hadamard Rotations and SVD Quantization on both quantized weights and quantized matmul for inference and training.  
 - SDNQ supports INT8, FP8 and FP16 quantized matmul on supported Nvidia, AMD and Intel GPUs for inference and training with any quantized weights type.  
+- SDNQ supports fast INT8 quantized mamtul on any CPU via OpenVINO matmul (requires manual installation of OpenVINO via `pip install openvino`).  
 - SDNQ supports full parameter quantized training with quantized weights and / or quantized matmul and also offers quantized optimizers for training.  
 - SDNQ supports direct math to be done on the quantized model on training (aka supports updating the quantized model weights directy).  
 
@@ -207,6 +208,10 @@ state["exp_avg"] = SDNQTensor.from_float(
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_USE_CONTIGUOUS_MM**: Force the use of contiguous matmul instead of regular transposed matmul.  
   Some devices can perform much better with contiguous matmul.  
+  Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_USE_OPENVINO_MM**: Force the use of OpenVINO MM kernels for INT8 MM instead of torch._int_mm.  
+  OpenVINO MM kernels will outperform torch._int_mm on CPUs.  
+  Requires manual installation of OpenVINO via `pip install openvino`.  
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_USE_TRITON_MM**: Force the use of Triton MM kernels for INT8 MM instead of torch._int_mm.  
   AMD RDNA2 GPUs requires Triton MM kernels for INT8 MM support.  

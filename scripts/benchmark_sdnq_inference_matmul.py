@@ -116,6 +116,7 @@ def main(
     print("Torch Compile:", sdnq.common.use_torch_compile)
     print("Contiguous MM:", sdnq.common.use_contiguous_mm)
     print("Triton MM:", sdnq.common.use_triton_mm)
+    print("OpenVINO MM:", sdnq.common.use_openvino_mm)
     print("==================================================")
     print("PyTorch Float TFLOPS:", pytorch_float_tflops)
     print("==================================================")

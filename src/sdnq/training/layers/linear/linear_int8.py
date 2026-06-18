@@ -9,7 +9,7 @@ from .linear_int8_dynamic import int8_matmul_dynamic
 from .forward import check_mats, quantized_linear_with_backward
 
 try:
-    from ....triton_mm import int_mm as triton_int_mm
+    from ....kernels.triton_mm import triton_int_mm
 except Exception:
     triton_int_mm = int_mm_func
 
