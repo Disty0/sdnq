@@ -218,7 +218,7 @@ state["exp_avg"] = SDNQTensor.from_float(
   Requires manual installation of OpenVINO via `pip install openvino`.  
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_OPENVINO_DEVICE**: Overrides the default OpenVINO device used for OpenVINO MM.  
-  Must be name of an OpenVINO device such as `NPU`. Default is `NPU` if `NPU` is available else `CPU`  
+  Must be name of an OpenVINO device such as `NPU`. Default is `CPU`  
 - **SDNQ_COMPILE_KWARGS**: A dict of kwargs to override the kwargs used on torch.compile for SDNQ.  
   `SDNQ_COMPILE_KWARGS` is an advanced option, don't touch this if you don't know exactly what you are doing.  
   Must be json string such as `{"fullgraph": true}`. Default is None (auto-detect)  
