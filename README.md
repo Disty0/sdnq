@@ -10,6 +10,7 @@ SD.Next Quantization provides full cross-platform quantization to reduce memory 
 - SDNQ supports fast INT8 quantized mamtul on any x86 or ARM CPUs and Intel NPUs via OpenVINO matmul (requires manual installation of OpenVINO via `pip install openvino`).  
 - SDNQ supports full parameter quantized training with quantized weights and / or quantized matmul and also offers quantized optimizers for training.  
 - SDNQ supports direct math to be done on the quantized model on training (aka supports updating the quantized model weights directy).  
+- SDNQ also offers fast Quantized Attention kernels for Nvidia, AMD and Intel Arc GPUs with Triton.  
 
 For more info, please see SD.Next SDNQ Wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 
@@ -88,6 +89,33 @@ model = sdnq_post_load_quant(
     model,
     **kwargs_are_the_same_as_SDNQConfig,
 )
+```
+
+
+### Example code for using SDNQ Attention as SDPA replacement for Inference:  
+```py
+from functools import wraps
+from sdnq.kernels.triton_atten import sdnq_triton_atten
+
+sdpa_pre_sdnq_atten = torch.nn.functional.scaled_dot_product_attention
+@wraps(sdpa_pre_sdnq_atten)
+def sdpa_sdnq_atten(query: torch.FloatTensor, key: torch.FloatTensor, value: torch.FloatTensor, attn_mask: torch.Tensor | None = None, dropout_p: float = 0.0, is_causal: bool = False, scale: float | None = None, enable_gqa: bool = False, **kwargs) -> torch.FloatTensor:
+    if not is_causal and query.shape[-3] > 1: # Disable for VAEs
+        return sdnq_triton_atten(
+            query=query, key=key, value=value, attn_mask=attn_mask, scale=scale, enable_gqa=enable_gqa,
+            matmul_dtype="int8", # can be one of "no", "int8", "float8_e4m3fn", "float16".
+            pv_matmul_dtype="no", # can be one of "no", "int8", "float8_e4m3fn", "float16".
+            smooth_k=False,
+            use_hadamard=False,
+            hadamard_group_size=256,
+            do_quantize=True, # Set this to False to disable the quantized matmul usage
+            out_dtype=None, # Set this to a torch.dtype like torch.float32 if you want the output dtype to be different than inputs
+        )
+    else:
+        if enable_gqa:
+            kwargs["enable_gqa"] = enable_gqa
+        return sdpa_pre_sdnq_atten(query=query, key=key, value=value, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=is_causal, scale=scale, **kwargs)
+torch.nn.functional.scaled_dot_product_attention = sdpa_sdnq_atten
 ```
 
 
