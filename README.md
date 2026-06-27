@@ -103,8 +103,6 @@ def sdpa_sdnq_atten(query: torch.FloatTensor, key: torch.FloatTensor, value: tor
     if (
         not is_causal
         and query.device.type != "cpu"
-        and key.device == query.device
-        and value.device == query.device
         and (query.shape[-1] >= 32 and key.shape[-1] >= 32 and value.shape[-1] >= 32) # Dim < 32 is unsupported by Matrix Cores
         and (query.shape[-2] >= 512 or key.shape[-2] >= 512) # Skip TE
         and query.shape[-3] > 1 # Skip VAE
