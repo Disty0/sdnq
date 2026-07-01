@@ -1,3 +1,4 @@
+import os
 import torch
 
 from ....common import compile_func, int_mm_func, use_contiguous_mm
@@ -8,9 +9,12 @@ from ...tensor import SDNQTensor
 from .linear_int8_dynamic import int8_matmul_dynamic
 from .forward import check_mats, quantized_linear_with_backward
 
-try:
-    from ....kernels.triton_mm import triton_int_mm
-except Exception:
+if os.environ.get("SDNQ_USE_TRITON_MM", "1").lower() not in {"0", "false", "no"}:
+    try:
+        from ....kernels.triton_mm import triton_int_mm
+    except Exception:
+        triton_int_mm = int_mm_func
+else:
     triton_int_mm = int_mm_func
 
 
