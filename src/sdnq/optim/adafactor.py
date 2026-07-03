@@ -100,7 +100,7 @@ def adafactor_update(
     return update
 
 
-def approx_sq_grad(exp_avg_sq_row, exp_avg_sq_col):
+def approx_sq_grad(exp_avg_sq_row: torch.FloatTensor, exp_avg_sq_col: torch.FloatTensor) -> torch.FloatTensor:
     return torch.mul(
         torch.div(exp_avg_sq_row, exp_avg_sq_row.mean(dim=-1, keepdim=True)).rsqrt_().unsqueeze(-1),
         exp_avg_sq_col.rsqrt().unsqueeze(-2),

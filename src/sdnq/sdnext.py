@@ -45,7 +45,7 @@ class Devices():
             self.dtype = torch.bfloat16
 
     @staticmethod
-    def normalize_device(dev):
+    def normalize_device(dev: torch.device) -> torch.device:
         if dev is None:
             return None
         if torch.device(dev).type in {"cpu", "mps", "meta"}:
@@ -55,10 +55,10 @@ class Devices():
         return torch.device(dev)
 
     @staticmethod
-    def same_device(d1, d2):
+    def same_device(d1: torch.device, d2: torch.device) -> bool:
         return Devices.normalize_device(d1) == Devices.normalize_device(d2)
 
-    def torch_gc(self, force:bool=False, fast:bool=False, reason:str=None):
+    def torch_gc(self, force:bool=False, fast:bool=False, reason:str=None) -> None:
         if force:
             import gc
             gc.collect()
@@ -97,7 +97,7 @@ class Devices():
             logger.warning("SDNQ: Triton is not available. Falling back to PyTorch Eager mode.")
         return triton_is_available
 
-    def get_hip_agent(self):
+    def get_hip_agent(self) -> HIPAgent:
         return HIPAgent(int("0x" + getattr(torch.cuda.get_device_properties(self.device), "gcnArchName", "gfx0000")[3:], 16))
 
 class SharedOpts():

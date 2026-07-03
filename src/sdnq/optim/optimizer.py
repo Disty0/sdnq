@@ -149,7 +149,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         else:
             return value.to(dtype=param.dtype).to(device=device)
 
-    def _load_state_dict_cast(self, param, value, param_id=None, param_groups=None, key=None, device=None):
+    def _load_state_dict_cast(self, param: torch.Tensor, value: torch.Tensor, param_id: int | None = None, param_groups: list[dict] | None = None, key: Hashable | None = None, device: torch.device | None = None) -> torch.Tensor | dict | Iterable:
         r"""Make a deep copy of value, casting all tensors to device of param."""
         if isinstance(value, torch.Tensor):
             return self._process_value_according_to_param_policy(param, value, param_id, param_groups, key=key, device=device)

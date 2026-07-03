@@ -88,7 +88,7 @@ class Muon(SDNQOptimizer):
         super().__init__(param_groups, dict())
 
     @staticmethod
-    def get_muon_groups(params, **kwargs):
+    def get_muon_groups(params, **kwargs) -> tuple[tuple[dict, dict], dict]:
         muon_group = {"use_muon": True, "params": []}
         adamw_group = {"use_muon": False, "params": []}
         extra_kwargs = kwargs.copy()
@@ -112,7 +112,7 @@ class Muon(SDNQOptimizer):
                 adamw_group["params"].append(param)
             else:
                 muon_group["params"].append(param)
-        return [muon_group, adamw_group], extra_kwargs
+        return (muon_group, adamw_group), extra_kwargs
 
     @torch.no_grad()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:

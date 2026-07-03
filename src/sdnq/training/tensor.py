@@ -27,7 +27,7 @@ class SDNQTensor(torch.Tensor):
         self.svd_up = svd_up
         self.svd_down = svd_down
 
-    def dequantize(self, dtype: torch.dtype | None = None, non_svd: bool = False, non_hadamard: bool = False):
+    def dequantize(self, dtype: torch.dtype | None = None, non_svd: bool = False, non_hadamard: bool = False) -> torch.FloatTensor:
         if non_svd:
             svd_up, svd_down = None, None
         else:
@@ -67,10 +67,10 @@ class SDNQTensor(torch.Tensor):
         return tensor_list, metadata
 
     @classmethod
-    def __tensor_unflatten__(cls, tensor_data_dict: dict[str, torch.Tensor], sdnq_dequantizer: SDNQDequantizer, outer_size=None, outer_stride=None):
+    def __tensor_unflatten__(cls, tensor_data_dict: dict[str, torch.Tensor], sdnq_dequantizer: SDNQDequantizer, outer_size=None, outer_stride=None) -> "SDNQTensor":
         return SDNQTensor(tensor_data_dict["weight"], tensor_data_dict["scale"], tensor_data_dict.get("zero_point", None), tensor_data_dict.get("svd_up", None), tensor_data_dict.get("svd_down", None), sdnq_dequantizer)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"SDNQTensor(weight={repr(self.weight)}, scale={repr(self.scale)}, zero_point={repr(self.zero_point)}, svd_up={repr(self.svd_up)}, svd_down={repr(self.svd_down)}), sdnq_dequantizer={repr(self.sdnq_dequantizer)}"
 
     @staticmethod
@@ -89,7 +89,7 @@ class SDNQTensor(torch.Tensor):
         skip_sr: bool = False,
         param_name: str | None = None,
         torch_dtype: torch.dtype | None = None,
-    ):
+    ) -> "SDNQTensor":
         fake_mode = detect_fake_mode(weight)
         if fake_mode is not None:
             with fake_mode:
@@ -138,7 +138,7 @@ class SDNQTensor(torch.Tensor):
             raise AssertionError(f"SDNQTensor does not yet support op: {str(func)}")
         return op_implementations_dict[func](func, *args, **kwargs)
 
-    def fsdp_pre_all_gather(self, mesh, outer_size=None, outer_stride=None, module=None, mp_policy=None):
+    def fsdp_pre_all_gather(self, mesh, outer_size=None, outer_stride=None, module=None, mp_policy=None) -> tuple[list[torch.Tensor, torch.FloatTensor], SDNQDequantizer]:
         tensor_list = [self.weight, self.scale]
         if self.zero_point is not None:
             tensor_list.append(self.zero_point)
@@ -147,7 +147,7 @@ class SDNQTensor(torch.Tensor):
             tensor_list.append(self.svd_down)
         return tensor_list, self.sdnq_dequantizer
 
-    def fsdp_post_all_gather(self, all_gather_outputs: tuple[torch.Tensor, ...], sdnq_dequantizer: SDNQDequantizer, param_dtype: torch.dtype, *, out: torch.Tensor | None = None):
+    def fsdp_post_all_gather(self, all_gather_outputs: tuple[torch.Tensor, ...], sdnq_dequantizer: SDNQDequantizer, param_dtype: torch.dtype, *, out: torch.Tensor | None = None) -> "SDNQTensor":
         zero_point, svd_up, svd_down = None, None, None
         if len(all_gather_outputs) == 2:
             weight, scale = all_gather_outputs
@@ -185,7 +185,7 @@ def register_op(ops: list[torch._ops.OpOverload]):
     torch.ops.aten.linalg_vector_norm.default,
     torch.ops.aten.select.int,
 ])
-def sdnq_generic_func(func, *args, **kwargs):
+def sdnq_generic_func(func, *args, **kwargs) -> torch.Tensor:
     args = [x.dequantize() if isinstance(x, SDNQTensor) else x for x in args]
     return func(*args, **kwargs)
 
@@ -201,7 +201,7 @@ def sdnq_generic_func(func, *args, **kwargs):
     torch.ops.aten.lerp_.Scalar,
     torch.ops.aten.sqrt_.default,
 ])
-def sdnq_generic_func_(func, *args, **kwargs):
+def sdnq_generic_func_(func, *args, **kwargs) -> SDNQTensor | torch.Tensor:
     input = args[0]
     args = [x.dequantize() if isinstance(x, SDNQTensor) else x for x in args]
     result = func(*args, **kwargs)
@@ -217,7 +217,7 @@ def sdnq_generic_func_(func, *args, **kwargs):
     torch.ops.aten.view.default,
     torch.ops.aten.as_strided.default,
 ])
-def sdnq_generic_quantized(func, input, *args, **kwargs):
+def sdnq_generic_quantized(func, input, *args, **kwargs) -> SDNQTensor | list[SDNQTensor] | tuple[SDNQTensor]:
     sdnq_dequantizer = copy.deepcopy(input.sdnq_dequantizer)
     result = func(input.dequantize(), *args, **kwargs)
     if isinstance(result, (list, tuple)):
@@ -258,7 +258,7 @@ def sdnq_generic_quantized(func, input, *args, **kwargs):
 
 
 @register_op([torch.ops.aten.cat.default])
-def sdnq_generic_multi_tensor_quantized(func, tensors, *args, **kwargs):
+def sdnq_generic_multi_tensor_quantized(func, tensors: list[SDNQTensor, torch.Tensor], *args, **kwargs) -> SDNQTensor:
     use_svd = False
     dequantize_fp32 = True
     for tensor in tensors:
@@ -294,7 +294,7 @@ def sdnq_generic_multi_tensor_quantized(func, tensors, *args, **kwargs):
     torch.ops.c10d_functional.wait_tensor.default,
     torch.ops._c10d_functional.wait_tensor.default,
 ])
-def sdnq_view_ops(func, *args, **kwargs):
+def sdnq_view_ops(func, *args, **kwargs) -> SDNQTensor:
     out = SDNQTensor(
         func(args[0].weight, *args[1:], **kwargs),
         func(args[0].scale, *args[1:], **kwargs),
@@ -307,7 +307,7 @@ def sdnq_view_ops(func, *args, **kwargs):
 
 
 @register_op([torch.ops.aten.copy_.default])
-def sdnq_copy_(func, x, y, *args, **kwargs):
+def sdnq_copy_(func, x:  SDNQTensor | torch.Tensor, y:  SDNQTensor | torch.Tensor, *args, **kwargs) -> SDNQTensor | torch.Tensor:
     if isinstance(x, SDNQTensor):
         if not isinstance(y, SDNQTensor):
             y = SDNQTensor.from_float(
@@ -337,7 +337,7 @@ def sdnq_copy_(func, x, y, *args, **kwargs):
 
 
 @register_op([torch.ops.aten._to_copy.default, torch.ops.aten.empty_like.default])
-def sdnq_to_copy(func, *args, **kwargs):
+def sdnq_to_copy(func, *args, **kwargs) -> SDNQTensor:
     cast_dtype = None
     dtype = kwargs.pop("dtype", None)
     sdnq_dequantizer = copy.deepcopy(args[0].sdnq_dequantizer)
@@ -359,21 +359,21 @@ def sdnq_to_copy(func, *args, **kwargs):
 
 
 @register_op([torch.ops.aten.zeros_like.default])
-def sdnq_zeros_like(func, x, *args, **kwargs):
+def sdnq_zeros_like(func, x: SDNQTensor, *args, **kwargs) -> torch.Tensor:
     dtype = kwargs.pop("dtype", x.sdnq_dequantizer.result_dtype)
     device = kwargs.pop("device", x.device)
     return torch.zeros(x.sdnq_dequantizer.original_shape, *args, dtype=dtype, device=device, **kwargs)
 
 
 @register_op([torch.ops.aten.ones_like.default])
-def sdnq_ones_like(func, x, *args, **kwargs):
+def sdnq_ones_like(func, x: SDNQTensor, *args, **kwargs) -> torch.Tensor:
     dtype = kwargs.pop("dtype", x.sdnq_dequantizer.result_dtype)
     device = kwargs.pop("device", x.device)
     return torch.ones(x.sdnq_dequantizer.original_shape, *args, dtype=dtype, device=device, **kwargs)
 
 
 @register_op([torch.ops.aten.mul.Tensor, torch.ops.aten.mul.Scalar])
-def sdnq_mul(func, x, y):
+def sdnq_mul(func, x: SDNQTensor | torch.Tensor, y: SDNQTensor | torch.Tensor) -> SDNQTensor | torch.Tensor:
     if isinstance(x, SDNQTensor):
         input, other = x, y
     else:
@@ -398,7 +398,7 @@ def sdnq_mul(func, x, y):
 
 
 @register_op([torch.ops.aten.mul_.Tensor, torch.ops.aten.mul_.Scalar])
-def sdnq_mul_(func, x, y):
+def sdnq_mul_(func, x: SDNQTensor | torch.Tensor, y: SDNQTensor | torch.Tensor) -> SDNQTensor | torch.Tensor:
     if isinstance(x, SDNQTensor):
         input, other, sdnq_first = x, y, True
     else:
@@ -417,7 +417,7 @@ def sdnq_mul_(func, x, y):
 
 
 @register_op([torch.ops.aten.div.Tensor, torch.ops.aten.div.Scalar])
-def sdnq_div(func, x, y):
+def sdnq_div(func, x: SDNQTensor | torch.Tensor, y: SDNQTensor | torch.Tensor) -> SDNQTensor | torch.Tensor:
     if isinstance(x, SDNQTensor):
         input, other, sdnq_first = x, y, True
     else:
@@ -447,7 +447,7 @@ def sdnq_div(func, x, y):
 
 
 @register_op([torch.ops.aten.div_.Tensor, torch.ops.aten.div_.Scalar])
-def sdnq_div_(func, x, y):
+def sdnq_div_(func, x: SDNQTensor | torch.Tensor, y: SDNQTensor | torch.Tensor) -> SDNQTensor | torch.Tensor:
     if isinstance(x, SDNQTensor):
         input, other, sdnq_first = x, y, True
     else:
