@@ -215,6 +215,7 @@ def sdnq_generic_func_(func, *args, **kwargs) -> SDNQTensor | torch.Tensor:
     torch.ops.aten.split.Tensor,
     torch.ops.aten.chunk.default,
     torch.ops.aten.view.default,
+    torch.ops.aten.t.default,
     torch.ops.aten.as_strided.default,
 ])
 def sdnq_generic_quantized(func, input, *args, **kwargs) -> SDNQTensor | list[SDNQTensor] | tuple[SDNQTensor]:
@@ -288,7 +289,6 @@ def sdnq_generic_multi_tensor_quantized(func, tensors: list[SDNQTensor, torch.Te
 @register_op([
     torch.ops.aten.detach.default,
     torch.ops.aten.clone.default,
-    torch.ops.aten.t.default,
     torch.ops.c10d_functional.all_gather_into_tensor.default,
     torch.ops._c10d_functional.all_gather_into_tensor.default,
     torch.ops.c10d_functional.wait_tensor.default,
