@@ -6,8 +6,8 @@ SD.Next Quantization provides full cross-platform quantization to reduce memory 
   - CUDA (Nvidia GPU), ROCm (AMD GPU), XPU (Intel GPU) and CPU devices utilizes the faster Inductor backend by default if Triton or Inductor is available.  
 - SDNQ supports every quantization type from 1 bit to 16 bits including int, uint, fp and ufp types totaling to 176 storage types for inference and training.  
 - SDNQ supports Hadamard Rotations and SVD Quantization on both quantized weights and quantized matmul for inference and training.  
-- SDNQ supports INT8, FP8 and FP16 quantized matmul on supported Nvidia, AMD and Intel GPUs for inference and training with any quantized weights type.  
-- SDNQ supports fast INT8 quantized mamtul on any x86 or ARM CPUs and Intel NPUs via OpenVINO matmul (requires manual installation of OpenVINO via `pip install openvino`).  
+- SDNQ supports fast INT8, UINT8, FP8 and FP16 quantized matmul on supported Nvidia, AMD and Intel GPUs for inference and training with any quantized weights type.  
+- SDNQ supports fast INT8, UINT8 and FP16 quantized mamtul on any x86 or ARM CPUs and Intel NPUs via OpenVINO matmul (requires manual installation of OpenVINO via `pip install openvino`).  
 - SDNQ supports full parameter quantized training with quantized weights and / or quantized matmul and also offers quantized optimizers for training.  
 - SDNQ supports direct math to be done on the quantized model on training (aka supports updating the quantized model weights directy).  
 - SDNQ also offers fast Quantized Attention kernels for Nvidia, AMD and Intel Arc GPUs with Triton.  
