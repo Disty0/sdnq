@@ -6,6 +6,7 @@ from ..training import SDNQTensor
 from ..common import compile_func, use_tensorwise_fp8_matmul
 
 from ..training.layers.linear.linear_int8.linear_int8_dynamic import int8_matmul_dynamic
+from ..training.layers.linear.linear_uint8.linear_uint8_dynamic import uint8_matmul_dynamic
 from ..training.layers.linear.linear_fp8_scaled.linear_fp8_scaled_dynamic import fp8_scaled_matmul_dynamic
 from ..training.layers.linear.linear_fp8.linear_fp8_dynamic import fp8_matmul_dynamic
 from ..training.layers.linear.linear_fp16.linear_fp16_dynamic import fp16_matmul_dynamic
@@ -205,6 +206,8 @@ def muon_update(
     if use_quantized_matmul:
         if quantized_matmul_dtype == "int8":
             mm_func = int8_matmul_dynamic
+        elif quantized_matmul_dtype == "uint8":
+            mm_func = uint8_matmul_dynamic
         elif quantized_matmul_dtype in {"fp8", "float8_e4m3fn"}:
             if use_tensorwise_fp8_matmul:
                 mm_func = fp8_matmul_dynamic

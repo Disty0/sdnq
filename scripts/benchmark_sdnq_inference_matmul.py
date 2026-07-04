@@ -92,6 +92,9 @@ def main(
     sdnq_int8_tflops = benchmark_linear("SDNQ INT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
     sdnq_int8_hadamard_tflops = benchmark_linear("SDNQ INT8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
+    sdnq_uint8_tflops = benchmark_linear("SDNQ UINT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="uint8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_uint8_hadamard_tflops = benchmark_linear("SDNQ UINT8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="uint8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
+
     sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
     sdnq_fp16_hadamard_tflops = benchmark_linear("SDNQ FP16 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
@@ -127,11 +130,13 @@ def main(
     print("PyTorch Float TFLOPS:", pytorch_float_tflops)
     print("==================================================")
     print("SDNQ INT8 TFLOPS:", sdnq_int8_tflops)
+    print("SDNQ UINT8 TFLOPS:", sdnq_uint8_tflops)
     print("SDNQ FP8 Scaled TFLOPS:", sdnq_fp8_scaled_tflops)
     print("SDNQ FP8 TFLOPS:", sdnq_fp8_tflops)
     print("SDNQ FP16 TFLOPS:", sdnq_fp16_tflops)
     print("==================================================")
     print("SDNQ INT8 Hadamard TFLOPS:", sdnq_int8_hadamard_tflops)
+    print("SDNQ UINT8 Hadamard TFLOPS:", sdnq_uint8_hadamard_tflops)
     print("SDNQ FP8 Scaled Hadamard TFLOPS:", sdnq_fp8_scaled_hadamard_tflops)
     print("SDNQ FP8 Hadamard TFLOPS:", sdnq_fp8_hadamard_tflops)
     print("SDNQ FP16 Hadamard TFLOPS:", sdnq_fp16_hadamard_tflops)
