@@ -194,7 +194,7 @@ class UINT8MatmulDynamicBackward(torch.autograd.Function):
         )
 
 
-def quantized_linear_forward_int8_matmul_dynamic(self, input: torch.FloatTensor) -> torch.FloatTensor:
+def quantized_linear_forward_uint8_matmul_dynamic(self, input: torch.FloatTensor) -> torch.FloatTensor:
     if torch.numel(input) / input.shape[-1] < 32:
         if isinstance(self.weight, SDNQTensor):
             return quantized_linear_with_backward(input, self.weight, self.bias)

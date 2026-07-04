@@ -95,5 +95,7 @@ def get_forward_func(param_weights_dtype: str, quantized_matmul_dtype: str, use_
     elif use_static_quantization:
         from .layers.linear.forward import quantized_linear_forward
         quantized_forward = quantized_linear_forward
+    else:
+        quantized_forward = None
 
     return quantized_forward

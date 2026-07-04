@@ -23,7 +23,7 @@ class AdamW(SDNQOptimizer):
         for group in param_groups:
             group = self.apply_group_defaults(group, **kwargs)
             assert set(group.keys()) == self._group_keys
-        super().__init__(param_groups, dict())
+        super().__init__(param_groups, {})
 
     @torch.no_grad()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:

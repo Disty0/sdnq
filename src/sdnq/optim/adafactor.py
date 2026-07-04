@@ -27,7 +27,7 @@ class Adafactor(SDNQOptimizer):
             group["use_first_moment"] = self.get_default_kwarg(group, kwargs, "use_first_moment", False)
             group = self.apply_group_defaults(group, **kwargs)
             assert set(group.keys()) == self._group_keys
-        super().__init__(param_groups, dict())
+        super().__init__(param_groups, {})
 
     @torch.no_grad()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:

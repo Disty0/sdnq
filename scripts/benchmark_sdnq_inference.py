@@ -1,6 +1,7 @@
 import time
-import torch
 import platform
+
+import torch
 from tqdm import tqdm
 
 import sdnq.common
@@ -23,9 +24,9 @@ def get_device_name(device: torch.device):
         return extra_device_str + cpu_dict.get("arch", cpu_dict.get("arch_string_raw", platform.machine())) + " " + cpu_dict.get("hardware_raw", cpu_dict.get("brand_raw", "Unkwnown"))
     except Exception:
         return extra_device_str + platform.machine() + " " + (platform.processor() or "Unknown")
-        
 
-def do_nothing(*args, **kwargs):
+
+def do_nothing(*args, **kwargs): # pylint: disable=unused-argument
     return
 
 
@@ -48,7 +49,7 @@ def benchmark_linear(name: str, linear: torch.nn.Linear, x: torch.Tensor, steps:
         z = linear(x)
         sync_func(x.device)
         t0 = time.time()
-        for i in tqdm(range(steps)):
+        for _ in tqdm(range(steps)):
             z = linear(x)
             sync_func(x.device)
         t1 = time.time()
@@ -211,5 +212,5 @@ if __name__ == "__main__":
     parser.add_argument("-n", default=None, type=int)
     parser.add_argument("-k", default=None, type=int)
 
-    args = parser.parse_args()
-    main(steps=args.steps, mnk=args.mnk, dtype=args.dtype, device=args.device, m=args.m, n=args.n, k=args.k)
+    parser_args = parser.parse_args()
+    main(steps=parser_args.steps, mnk=parser_args.mnk, dtype=parser_args.dtype, device=parser_args.device, m=parser_args.m, n=parser_args.n, k=parser_args.k)

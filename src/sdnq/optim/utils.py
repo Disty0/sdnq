@@ -100,7 +100,6 @@ def lerp_buffer_stochastic_(
     update: torch.FloatTensor,
     weight: torch.FloatTensor | float,
     use_stochastic_rounding: bool = True,
-    return_dequantized_buffer: bool = True,
 ) -> tuple[torch.FloatTensor, torch.FloatTensor]:
     if isinstance(buffer, SDNQTensor):
         buffer_fp32 = buffer.dequantize(dtype=torch.float32).lerp_(update, weight)

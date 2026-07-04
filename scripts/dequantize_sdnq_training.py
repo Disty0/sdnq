@@ -3,7 +3,7 @@ from safetensors.torch import save_file
 from sdnq.training import SDNQTensor
 
 
-def main(model_path, out_path, dtype=None):
+def main(model_path, out_path, dtype=None): # pylint: disable=redefined-outer-name
     print("\nLoading the SDNQ model...\n")
     state_dict = torch.load(model_path, map_location="cpu")
     for key, value in state_dict.items():
@@ -27,6 +27,6 @@ if __name__ == "__main__":
     parser.add_argument("out_path", type=str)
     parser.add_argument("--dtype", default="none", type=str)
 
-    args = parser.parse_args()
-    dtype = getattr(torch, args.dtype) if args.dtype not in {None, "none"} else None
-    main(args.model_path, args.out_path, dtype=dtype)
+    parser_args = parser.parse_args()
+    dtype = getattr(torch, parser_args.dtype) if parser_args.dtype not in {None, "none"} else None
+    main(parser_args.model_path, parser_args.out_path, dtype=dtype)

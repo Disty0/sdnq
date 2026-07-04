@@ -26,7 +26,7 @@ class CAME(SDNQOptimizer):
             group["norm_mode"] = self.get_default_kwarg(group, kwargs, "norm_mode", "rms_clip")
             group = self.apply_group_defaults(group, **kwargs)
             assert set(group.keys()) == self._group_keys
-        super().__init__(param_groups, dict())
+        super().__init__(param_groups, {})
 
     @torch.no_grad()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
@@ -74,7 +74,7 @@ def came_update(
     exp_avg_res_col: torch.FloatTensor,
     exp_avg_sq: torch.FloatTensor,
     exp_avg: torch.FloatTensor,
-    step: int,
+    step: int, # pylint: disable=unused-argument
     betas: tuple[float, float, float],
     clips: tuple[float],
     norm_mode: str = "rms_clip",

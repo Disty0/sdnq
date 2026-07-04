@@ -73,12 +73,12 @@ class SDNQOptimizer(torch.optim.Optimizer):
     @torch.no_grad()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
         raise NotImplementedError
-        return state
+        return state # noqa: F821 # pylint: disable=unreachable
 
     @torch.no_grad()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
         raise NotImplementedError
-        return update # noqa: F821
+        return update # noqa: F821 # pylint: disable=unreachable,undefined-variable
 
     @torch.no_grad()
     def step(self, closure=None):
@@ -138,7 +138,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
 
         return loss
 
-    def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict], key: Hashable | None = None, device: torch.device | None = None) -> torch.Tensor:
+    def _process_value_according_to_param_policy(self, param: torch.Tensor, value: torch.Tensor, param_id: int, param_groups: list[dict], key: Hashable | None = None, device: torch.device | None = None) -> torch.Tensor: # pylint: disable=unused-argument
         if key == "step":
             return value
         if device is None:

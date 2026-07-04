@@ -58,7 +58,7 @@ class Devices():
     def same_device(d1: torch.device, d2: torch.device) -> bool:
         return Devices.normalize_device(d1) == Devices.normalize_device(d2)
 
-    def torch_gc(self, force:bool=False, fast:bool=False, reason:str=None) -> None:
+    def torch_gc(self, force:bool=False, fast:bool=False, reason:str=None) -> None: # pylint: disable=unused-argument
         if force:
             import gc
             gc.collect()
@@ -101,7 +101,7 @@ class Devices():
         return HIPAgent(int("0x" + getattr(torch.cuda.get_device_properties(self.device), "gcnArchName", "gfx0000")[3:], 16))
 
 class SharedOpts():
-    def __init__(self, devices):
+    def __init__(self, devices): # pylint: disable=redefined-outer-name
         self.diffusers_offload_mode = os.environ.get("SDNQ_OFFLOAD_MODE", "none").lower()
         if os.environ.get("SDNQ_USE_TORCH_COMPILE", None) is None:
             self.sdnq_dequantize_compile = devices.has_triton()
@@ -110,7 +110,7 @@ class SharedOpts():
 
 
 class Shared():
-    def __init__(self, devices, logger):
+    def __init__(self, devices, logger): # pylint: disable=redefined-outer-name
         self.log = logger
         self.opts = SharedOpts(devices=devices)
 

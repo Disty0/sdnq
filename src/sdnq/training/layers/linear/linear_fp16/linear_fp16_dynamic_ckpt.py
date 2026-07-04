@@ -16,8 +16,6 @@ def fp16_matmul_dynamic_ckpt(
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
-    output_shape: torch.Size = None,
-    do_input_reshape: bool = True,
 ) -> torch.FloatTensor:
     result = fp16_matmul_dynamic(
         input, weight,

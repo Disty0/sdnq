@@ -21,3 +21,34 @@ dependencies = ["torch", "diffusers", "transformers", "accelerate"]
 [project.urls]
 Homepage = "https://github.com/Disty0/sdnq"
 Issues = "https://github.com/Disty0/sdnq/issues"
+
+
+[tool.pylint]
+messages_control.disable=[
+    "import-error",
+    "invalid-name",
+    "cyclic-import",
+    "line-too-long",
+    "duplicate-code",
+    "no-else-return",
+    "protected-access",
+    "redefined-builtin",
+    "chained-comparison",
+    "broad-exception-caught",
+    "import-outside-toplevel",
+    "logging-fstring-interpolation",
+    "missing-function-docstring",
+    "missing-module-docstring",
+    "missing-class-docstring",
+    "too-many-lines",
+    "too-many-locals",
+    "too-many-branches",
+    "too-many-arguments",
+    "too-many-statements",
+    "too-many-nested-blocks",
+    "too-many-return-statements",
+    "too-many-boolean-expressions",
+    "too-many-instance-attributes",
+    "too-many-positional-arguments",
+    "too-few-public-methods",
+]

@@ -85,7 +85,7 @@ class Muon(SDNQOptimizer):
             else:
                 group = self.apply_group_defaults(group, **kwargs)
                 assert set(group.keys()) == self._group_keys[1]
-        super().__init__(param_groups, dict())
+        super().__init__(param_groups, {})
 
     @staticmethod
     def get_muon_groups(params, **kwargs) -> tuple[tuple[dict, dict], dict]:
@@ -103,9 +103,9 @@ class Muon(SDNQOptimizer):
         for key in keys_to_pop:
             extra_kwargs.pop(key, None)
         for key, value in extra_kwargs.items():
-            if key not in muon_group.keys():
+            if key not in muon_group:
                 muon_group[key] = value
-            if key not in adamw_group.keys() and key not in Muon._extra_group_keys[0]:
+            if key not in adamw_group and key not in Muon._extra_group_keys[0]:
                 adamw_group[key] = value
         for param in params:
             if param.ndim <= 1:
@@ -171,7 +171,7 @@ class Muon(SDNQOptimizer):
 
 
 def muon_update(
-    param: torch.FloatTensor,
+    param: torch.FloatTensor, # pylint: disable=unused-argument
     grad: torch.FloatTensor,
     momentum_buffer: torch.FloatTensor,
     v_buffer: torch.FloatTensor,
@@ -189,7 +189,7 @@ def muon_update(
     use_stochastic_buffers: bool = False,
 ) -> torch.FloatTensor:
     beta1, beta2 = betas
-    reshape_grad = (grad.ndim > 2)
+    reshape_grad = grad.ndim > 2
 
     momentum_buffer, momentum_buffer_fp32 = lerp_buffer_stochastic_(momentum_buffer, grad, 1 - beta1, use_stochastic_rounding=use_stochastic_buffers)
     update = grad.lerp(momentum_buffer_fp32, beta1) if nesterov else momentum_buffer_fp32.clone()
@@ -283,18 +283,18 @@ def zeropower_via_newtonschulz5(
         I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype) # noqa:E741
         Q = None
         for i, (a, b, c) in enumerate(gram_ns_coefficients):
-                if i in gram_ns_resets and i != 0:
-                    X = torch.mm(Q, X)
-                    R = torch.mm(X, X.t())
-                    Q = None
-                Z = torch.addmm(R, R, R, beta=b, alpha=c)
-                if i != 0 and i not in gram_ns_resets:
-                    Q = torch.addmm(Q, Q, Z, beta=a)
-                else:
-                    Q = torch.add(Z, I, alpha=a)
-                if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
-                    RZ = torch.addmm(R, R, Z, beta=a)
-                    R = torch.addmm(RZ, Z, RZ, beta=a)
+            if i in gram_ns_resets and i != 0:
+                X = torch.mm(Q, X)
+                R = torch.mm(X, X.t())
+                Q = None
+            Z = torch.addmm(R, R, R, beta=b, alpha=c)
+            if i != 0 and i not in gram_ns_resets:
+                Q = torch.addmm(Q, Q, Z, beta=a)
+            else:
+                Q = torch.add(Z, I, alpha=a)
+            if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
+                RZ = torch.addmm(R, R, Z, beta=a)
+                R = torch.addmm(RZ, Z, RZ, beta=a)
         del R, RZ, I, Z
         if reshape_grad:
             X = torch.mm(X.t(), Q)
@@ -339,18 +339,18 @@ def zeropower_via_newtonschulz5_quantized_matmul(
         I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype) # noqa:E741
         Q = None
         for i, (a, b, c) in enumerate(gram_ns_coefficients):
-                if i in gram_ns_resets and i != 0:
-                    X = mm_func(Q, X, do_input_reshape=False)
-                    R = mm_func(X, X, do_input_reshape=True)
-                    Q = None
-                Z = mm_func((R*c), R, bias=(R*b), do_input_reshape=False)
-                if i != 0 and i not in gram_ns_resets:
-                    Q = mm_func(Q, Z, bias=(Q*a), do_input_reshape=False)
-                else:
-                    Q = torch.add(Z, I, alpha=a)
-                if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
-                    RZ = mm_func(R, Z, bias=(R*a), do_input_reshape=False)
-                    R = mm_func(Z, RZ, bias=(RZ*a), do_input_reshape=False)
+            if i in gram_ns_resets and i != 0:
+                X = mm_func(Q, X, do_input_reshape=False)
+                R = mm_func(X, X, do_input_reshape=True)
+                Q = None
+            Z = mm_func((R*c), R, bias=(R*b), do_input_reshape=False)
+            if i != 0 and i not in gram_ns_resets:
+                Q = mm_func(Q, Z, bias=(Q*a), do_input_reshape=False)
+            else:
+                Q = torch.add(Z, I, alpha=a)
+            if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
+                RZ = mm_func(R, Z, bias=(R*a), do_input_reshape=False)
+                R = mm_func(Z, RZ, bias=(RZ*a), do_input_reshape=False)
         del R, RZ, I, Z
         if reshape_grad:
             X = mm_func(X.t(), Q, do_input_reshape=False)
@@ -394,18 +394,18 @@ def zeropower_via_newtonschulz5_fp8_matmul(
         I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype) # noqa:E741
         Q = None
         for i, (a, b, c) in enumerate(gram_ns_coefficients):
-                if i in gram_ns_resets and i != 0:
-                    X = fp8_scaled_matmul_dynamic(Q, X, do_input_reshape=False)
-                    R = fp8_scaled_matmul_dynamic(X, X, do_input_reshape=True)
-                    Q = None
-                Z = fp8_scaled_matmul_dynamic((R*c), R, do_input_reshape=False).add_(R, alpha=b)
-                if i != 0 and i not in gram_ns_resets:
-                    Q = fp8_scaled_matmul_dynamic(Q, Z, do_input_reshape=False).add_(Q, alpha=a)
-                else:
-                    Q = torch.add(Z, I, alpha=a)
-                if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
-                    RZ = fp8_scaled_matmul_dynamic(R, Z, do_input_reshape=False).add_(R, alpha=a)
-                    R = fp8_scaled_matmul_dynamic(Z, RZ, do_input_reshape=False).add_(RZ, alpha=a)
+            if i in gram_ns_resets and i != 0:
+                X = fp8_scaled_matmul_dynamic(Q, X, do_input_reshape=False)
+                R = fp8_scaled_matmul_dynamic(X, X, do_input_reshape=True)
+                Q = None
+            Z = fp8_scaled_matmul_dynamic((R*c), R, do_input_reshape=False).add_(R, alpha=b)
+            if i != 0 and i not in gram_ns_resets:
+                Q = fp8_scaled_matmul_dynamic(Q, Z, do_input_reshape=False).add_(Q, alpha=a)
+            else:
+                Q = torch.add(Z, I, alpha=a)
+            if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
+                RZ = fp8_scaled_matmul_dynamic(R, Z, do_input_reshape=False).add_(R, alpha=a)
+                R = fp8_scaled_matmul_dynamic(Z, RZ, do_input_reshape=False).add_(RZ, alpha=a)
         del R, RZ, I, Z
         if reshape_grad:
             X = fp8_scaled_matmul_dynamic(X.t(), Q, do_input_reshape=False)

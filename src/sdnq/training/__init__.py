@@ -94,7 +94,10 @@ def apply_sdnq_training_to_module(model: torch.nn.Module, quantization_config: S
                     if return_device is None:
                         return_device = module.weight.device
                     module.weight = torch.nn.Parameter(
-                        SDNQTensor.from_float(module.weight.to(quantization_device, non_blocking=non_blocking), **quant_kwargs).to(return_device, non_blocking=non_blocking),
+                        SDNQTensor.from_float( # pylint: disable=unexpected-keyword-arg
+                            module.weight.to(quantization_device, non_blocking=non_blocking),
+                            **quant_kwargs,
+                        ).to(return_device, non_blocking=non_blocking),
                         requires_grad=module.weight.requires_grad,
                     )
                     current_group_size = module.weight.sdnq_dequantizer.group_size
