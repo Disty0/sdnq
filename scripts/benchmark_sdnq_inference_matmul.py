@@ -99,14 +99,14 @@ def main(
     sdnq.common.use_tensorwise_fp8_matmul = False
     sdnq.quantizer.use_tensorwise_fp8_matmul = False
     sdnq.forward.use_tensorwise_fp8_matmul = False
-    sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
-    sdnq_fp8_hadamard_tflops = benchmark_linear("SDNQ FP8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
+    sdnq_fp8_scaled_tflops = benchmark_linear("SDNQ FP8 Scaled", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_fp8_scaled_hadamard_tflops = benchmark_linear("SDNQ FP8 Scaled Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
     sdnq.common.use_tensorwise_fp8_matmul = True
     sdnq.quantizer.use_tensorwise_fp8_matmul = True
     sdnq.forward.use_tensorwise_fp8_matmul = True
-    sdnq_fp8_tw_tflops = benchmark_linear("SDNQ FP8 TW", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
-    sdnq_fp8_tw_hadamard_tflops = benchmark_linear("SDNQ FP8 TW Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
+    sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_fp8_hadamard_tflops = benchmark_linear("SDNQ FP8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
     sdnq.common.use_tensorwise_fp8_matmul = backup_tw_fp8
     sdnq.quantizer.use_tensorwise_fp8_matmul = backup_tw_fp8
@@ -126,13 +126,13 @@ def main(
     print("PyTorch Float TFLOPS:", pytorch_float_tflops)
     print("==================================================")
     print("SDNQ INT8 TFLOPS:", sdnq_int8_tflops)
+    print("SDNQ FP8 Scaled TFLOPS:", sdnq_fp8_scaled_tflops)
     print("SDNQ FP8 TFLOPS:", sdnq_fp8_tflops)
-    print("SDNQ FP8 TW TFLOPS:", sdnq_fp8_tw_tflops)
     print("SDNQ FP16 TFLOPS:", sdnq_fp16_tflops)
     print("==================================================")
     print("SDNQ INT8 Hadamard TFLOPS:", sdnq_int8_hadamard_tflops)
+    print("SDNQ FP8 Scaled Hadamard TFLOPS:", sdnq_fp8_scaled_hadamard_tflops)
     print("SDNQ FP8 Hadamard TFLOPS:", sdnq_fp8_hadamard_tflops)
-    print("SDNQ FP8 TW Hadamard TFLOPS:", sdnq_fp8_tw_hadamard_tflops)
     print("SDNQ FP16 Hadamard TFLOPS:", sdnq_fp16_hadamard_tflops)
     print("==================================================")
     print("")

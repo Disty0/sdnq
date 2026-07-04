@@ -1,47 +1,17 @@
-import os
 import torch
 
-from ....common import compile_func, int_mm_func, use_contiguous_mm
-from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
-from ....quant_utils import quantize_int_mm, quantize_int_mm_sr, rotate_hadamard, get_hadamard
-from ...tensor import SDNQTensor
+from .....common import compile_func, fp_mm_func, use_contiguous_mm
+from .....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
+from .....quant_utils import rotate_hadamard, get_hadamard
+from ....tensor import SDNQTensor
 
-from .forward import check_mats, quantized_linear_with_backward
-
-if os.environ.get("SDNQ_USE_TRITON_MM", "1").lower() not in {"0", "false", "no"}:
-    try:
-        from ....kernels.triton_mm import triton_int_mm
-    except Exception:
-        triton_int_mm = int_mm_func
-else:
-    triton_int_mm = int_mm_func
+from ..forward import check_mats, quantized_linear_with_backward
+from ..linear_fp8.linear_fp8_dynamic import quantize_fp_mm_matmul
 
 
-def quantize_int_mm_matmul(
+def fp16_matmul_dynamic(
     input: torch.FloatTensor,
-    weight: torch.FloatTensor,
-    hadamard: torch.FloatTensor | None = None,
-    do_input_reshape: bool = True,
-    use_sr: bool = False,
-) -> tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
-    if hadamard is not None:
-        weight = rotate_hadamard(weight, hadamard=hadamard)
-    if do_input_reshape:
-        input = input.flatten(0,-2)
-        weight = weight.t()
-        if use_contiguous_mm:
-            weight = weight.contiguous()
-    weight, scale = quantize_int_mm(weight.to(dtype=torch.float32), dim=0)
-    if use_sr:
-        input, input_scale = quantize_int_mm_sr(input.to(dtype=torch.float32), dim=-1)
-    else:
-        input, input_scale = quantize_int_mm(input.to(dtype=torch.float32), dim=-1)
-    return input, weight, input_scale, scale
-
-
-def int8_matmul_dynamic(
-    input: torch.FloatTensor,
-    weight: torch.FloatTensor,
+    weight: torch.Tensor,
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
@@ -51,7 +21,6 @@ def int8_matmul_dynamic(
     rotate_weight: bool = False,
     use_sr: bool = False,
 ) -> torch.FloatTensor:
-    int_mm = triton_int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
     return_dtype = input.dtype
     bias_to_add_after = None
     if output_shape is None:
@@ -82,23 +51,24 @@ def int8_matmul_dynamic(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, weight, input_scale, scale = quantize_int_mm_matmul(
+    input, weight, input_scale, scale = quantize_fp_mm_matmul(
         input, weight,
         do_input_reshape=do_input_reshape,
         hadamard=hadamard if rotate_weight else None,
         use_sr=use_sr,
+        matmul_dtype="float16",
     )
     input, weight = check_mats(input, weight)
     if bias is not None:
         result = dequantize_symmetric_with_bias(
-            int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
+            fp_mm_func(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
             scale, bias,
             dtype=return_dtype,
             result_shape=output_shape,
         )
     else:
         result = dequantize_symmetric(
-            int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
+            fp_mm_func(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
             scale,
             dtype=return_dtype,
             result_shape=output_shape,
@@ -110,7 +80,7 @@ def int8_matmul_dynamic(
     return result
 
 
-def int8_matmul_dynamic_backward(
+def fp16_matmul_dynamic_backward(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor,
     weight: torch.FloatTensor,
@@ -125,7 +95,7 @@ def int8_matmul_dynamic_backward(
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = int8_matmul_dynamic(
+        grad_input = fp16_matmul_dynamic(
             grad_output,
             weight,
             svd_up=svd_up,
@@ -135,7 +105,7 @@ def int8_matmul_dynamic_backward(
             do_input_reshape=False,
         )
     if do_grad_weight:
-        grad_weight = int8_matmul_dynamic(
+        grad_weight = fp16_matmul_dynamic(
             grad_output.t(),
             input.flatten(0,-2),
             hadamard=hadamard,
@@ -148,7 +118,7 @@ def int8_matmul_dynamic_backward(
     return grad_input, grad_weight, grad_bias
 
 
-class INT8MatmulDynamicBackward(torch.autograd.Function):
+class FP16MatmulDynamicBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
         if isinstance(weight, SDNQTensor):
@@ -166,13 +136,13 @@ class INT8MatmulDynamicBackward(torch.autograd.Function):
             hadamard = None
 
         ctx.save_for_backward(input, weight, bias, svd_up, svd_down)
-        return int8_matmul_dynamic_compiled(
+        return fp16_matmul_dynamic_compiled(
             input, weight,
             bias=bias,
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
-            )
+        )
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
@@ -182,7 +152,7 @@ class INT8MatmulDynamicBackward(torch.autograd.Function):
         else:
             hadamard = None
 
-        return int8_matmul_dynamic_backward(
+        return fp16_matmul_dynamic_backward(
             grad_output, input, weight,
             bias=bias,
             svd_up=svd_up,
@@ -194,15 +164,15 @@ class INT8MatmulDynamicBackward(torch.autograd.Function):
         )
 
 
-def quantized_linear_forward_int8_matmul_dynamic(self, input: torch.FloatTensor) -> torch.FloatTensor:
+def quantized_linear_forward_fp16_matmul_dynamic(self, input: torch.FloatTensor) -> torch.FloatTensor:
     if torch.numel(input) / input.shape[-1] < 32:
         if isinstance(self.weight, SDNQTensor):
             return quantized_linear_with_backward(input, self.weight, self.bias)
         else:
             return torch.nn.functional.linear(input, self.weight, self.bias)
-    return int8_matmul_dynamic_with_backward(input, self.weight, self.bias)
+    return fp16_matmul_dynamic_with_backward(input, self.weight, self.bias)
 
 
-int8_matmul_dynamic_with_backward = INT8MatmulDynamicBackward.apply
-int8_matmul_dynamic_compiled = compile_func(int8_matmul_dynamic)
-int8_matmul_dynamic_backward = compile_func(int8_matmul_dynamic_backward)
+fp16_matmul_dynamic_with_backward = FP16MatmulDynamicBackward.apply
+fp16_matmul_dynamic_compiled = compile_func(fp16_matmul_dynamic)
+fp16_matmul_dynamic_backward = compile_func(fp16_matmul_dynamic_backward)

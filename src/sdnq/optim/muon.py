@@ -5,10 +5,10 @@ import torch
 from ..training import SDNQTensor
 from ..common import compile_func, use_tensorwise_fp8_matmul
 
-from ..training.layers.linear.linear_int8_dynamic import int8_matmul_dynamic
-from ..training.layers.linear.linear_fp8_dynamic import fp8_matmul_dynamic
-from ..training.layers.linear.linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
-from ..training.layers.linear.linear_fp16_dynamic import fp16_matmul_dynamic
+from ..training.layers.linear.linear_int8.linear_int8_dynamic import int8_matmul_dynamic
+from ..training.layers.linear.linear_fp8_scaled.linear_fp8_scaled_dynamic import fp8_scaled_matmul_dynamic
+from ..training.layers.linear.linear_fp8.linear_fp8_dynamic import fp8_matmul_dynamic
+from ..training.layers.linear.linear_fp16.linear_fp16_dynamic import fp16_matmul_dynamic
 
 from .optimizer import SDNQOptimizer
 from .utils import lerp_buffer_stochastic_
@@ -207,7 +207,7 @@ def muon_update(
             mm_func = int8_matmul_dynamic
         elif quantized_matmul_dtype in {"fp8", "float8_e4m3fn"}:
             if use_tensorwise_fp8_matmul:
-                mm_func = fp8_matmul_tensorwise_dynamic
+                mm_func = fp8_matmul_dynamic
             else:
                 mm_func = None
                 update = zeropower_via_newtonschulz5_fp8_matmul(
@@ -390,33 +390,33 @@ def zeropower_via_newtonschulz5_fp8_matmul(
 
     if use_gram_ns and X.shape[0] != X.shape[1]:
         gram_ns_coefficients_lenght = len(gram_ns_coefficients)
-        R = fp8_matmul_dynamic(X, X, do_input_reshape=True)
+        R = fp8_scaled_matmul_dynamic(X, X, do_input_reshape=True)
         I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype) # noqa:E741
         Q = None
         for i, (a, b, c) in enumerate(gram_ns_coefficients):
                 if i in gram_ns_resets and i != 0:
-                    X = fp8_matmul_dynamic(Q, X, do_input_reshape=False)
-                    R = fp8_matmul_dynamic(X, X, do_input_reshape=True)
+                    X = fp8_scaled_matmul_dynamic(Q, X, do_input_reshape=False)
+                    R = fp8_scaled_matmul_dynamic(X, X, do_input_reshape=True)
                     Q = None
-                Z = fp8_matmul_dynamic((R*c), R, do_input_reshape=False).add_(R, alpha=b)
+                Z = fp8_scaled_matmul_dynamic((R*c), R, do_input_reshape=False).add_(R, alpha=b)
                 if i != 0 and i not in gram_ns_resets:
-                    Q = fp8_matmul_dynamic(Q, Z, do_input_reshape=False).add_(Q, alpha=a)
+                    Q = fp8_scaled_matmul_dynamic(Q, Z, do_input_reshape=False).add_(Q, alpha=a)
                 else:
                     Q = torch.add(Z, I, alpha=a)
                 if i < gram_ns_coefficients_lenght - 1 and i + 1 not in gram_ns_resets:
-                    RZ = fp8_matmul_dynamic(R, Z, do_input_reshape=False).add_(R, alpha=a)
-                    R = fp8_matmul_dynamic(Z, RZ, do_input_reshape=False).add_(RZ, alpha=a)
+                    RZ = fp8_scaled_matmul_dynamic(R, Z, do_input_reshape=False).add_(R, alpha=a)
+                    R = fp8_scaled_matmul_dynamic(Z, RZ, do_input_reshape=False).add_(RZ, alpha=a)
         del R, RZ, I, Z
         if reshape_grad:
-            X = fp8_matmul_dynamic(X.t(), Q, do_input_reshape=False)
+            X = fp8_scaled_matmul_dynamic(X.t(), Q, do_input_reshape=False)
         else:
-            X = fp8_matmul_dynamic(Q, X, do_input_reshape=False)
+            X = fp8_scaled_matmul_dynamic(Q, X, do_input_reshape=False)
         del Q
     else:
         for a, b, c in ns_coefficients:
-            A = fp8_matmul_dynamic(X, X, do_input_reshape=True)
-            B = fp8_matmul_dynamic((A*c), A, do_input_reshape=False).add_(A, alpha=b)
-            X = fp8_matmul_dynamic(B, X, do_input_reshape=False).add_(X, alpha=a)
+            A = fp8_scaled_matmul_dynamic(X, X, do_input_reshape=True)
+            B = fp8_scaled_matmul_dynamic((A*c), A, do_input_reshape=False).add_(A, alpha=b)
+            X = fp8_scaled_matmul_dynamic(B, X, do_input_reshape=False).add_(X, alpha=a)
         del A, B
         if reshape_grad:
             X = X.t()

@@ -1,25 +1,25 @@
 import torch
 
-from ....common import compile_func, use_contiguous_mm
-from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
-from ....quant_utils import quantize_fp_mm, quantize_fp_mm_sr, rotate_hadamard, get_hadamard
-from ...tensor import SDNQTensor
+from .....common import compile_func, use_contiguous_mm
+from .....dequantizer import dequantize_symmetric
+from .....quant_utils import quantize_fp_mm, quantize_fp_mm_sr, rotate_hadamard, get_hadamard
+from ....tensor import SDNQTensor
 
-from .forward import check_mats, quantized_linear_with_backward
-from .linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
+from ..forward import check_mats, quantized_linear_with_backward
+from .linear_fp8_scaled_dynamic import fp8_scaled_matmul_dynamic
 
 
-def quantize_fp_mm_input_tensorwise(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
+def quantize_fp_scaled_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.Tensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     if use_sr:
-        input, input_scale = quantize_fp_mm_sr(input.to(dtype=torch.float32), dim=dim, matmul_dtype=matmul_dtype)
+        input, input_scale = quantize_fp_mm_sr(input.to(dtype=torch.float32), dim=dim)
     else:
-        input, input_scale = quantize_fp_mm(input.to(dtype=torch.float32), dim=dim, matmul_dtype=matmul_dtype)
+        input, input_scale = quantize_fp_mm(input.to(dtype=torch.float32), dim=dim)
     return input, input_scale
 
 
-def fp8_matmul_tensorwise(
+def fp8_scaled_matmul(
     input: torch.FloatTensor,
     weight: torch.Tensor,
     scale: torch.FloatTensor,
@@ -54,54 +54,33 @@ def fp8_matmul_tensorwise(
                 svd_up, svd_down = svd_up.t().contiguous(), svd_down.t().contiguous()
             else:
                 svd_up, svd_down = svd_up.contiguous().t(), svd_down.contiguous().t()
-            if bias is not None:
-                bias = torch.addmm(bias, torch.mm(input, svd_down), svd_up)
-            else:
-                bias = torch.mm(torch.mm(input, svd_down), svd_up)
+            svd_bias = torch.mm(torch.mm(input, svd_down), svd_up)
         else:
             _, svd_up = check_mats(None, svd_up)
             _, svd_down = check_mats(None, svd_down)
-            if bias is not None:
-                bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
-            else:
-                bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    dummy_input_scale = torch.ones(1, device=input.device, dtype=torch.float32)
-    input, input_scale = quantize_fp_mm_input_tensorwise(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
+            svd_bias = torch.mm(torch.mm(input, svd_up), svd_down)
+    input, input_scale = quantize_fp_scaled_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight, allow_contiguous_mm=False)
-    if bias is not None:
-        result = dequantize_symmetric_with_bias(
-            torch._scaled_mm(
-                input, weight,
-                scale_a=dummy_input_scale,
-                scale_b=dummy_input_scale,
-                bias=None,
-                out_dtype=input_scale.dtype,
-            ).mul_(input_scale),
-            scale, bias,
-            dtype=return_dtype,
-            result_shape=output_shape,
-        )
-    else:
-        result = dequantize_symmetric(
-            torch._scaled_mm(
-                input, weight,
-                scale_a=dummy_input_scale,
-                scale_b=dummy_input_scale,
-                bias=None,
-                out_dtype=input_scale.dtype,
-            ).mul_(input_scale),
-            scale,
-            dtype=return_dtype,
-            result_shape=output_shape,
-        )
+    if bias is not None and bias.dtype != torch.bfloat16:
+        bias = bias.to(dtype=torch.bfloat16)
+    result = torch._scaled_mm(
+        input, weight,
+        scale_a=input_scale,
+        scale_b=scale,
+        bias=bias,
+        out_dtype=torch.bfloat16,
+    ).to(return_dtype)
+    if svd_up is not None:
+        result = result.add_(svd_bias)
     if hadamard is not None and not do_transpose:
         result = rotate_hadamard(result, hadamard=hadamard)
     if bias_to_add_after is not None:
         result.add_(bias_to_add_after)
+    result = result.view(output_shape)
     return result
 
 
-def fp8_matmul_tensorwise_backward(
+def fp8_scaled_matmul_backward(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor,
     weight: torch.Tensor,
@@ -117,9 +96,10 @@ def fp8_matmul_tensorwise_backward(
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = fp8_matmul_tensorwise_dynamic(
+        weight = dequantize_symmetric(weight, scale)
+        grad_input = fp8_scaled_matmul_dynamic(
             grad_output,
-            dequantize_symmetric(weight, scale),
+            weight,
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
@@ -127,7 +107,7 @@ def fp8_matmul_tensorwise_backward(
             do_input_reshape=False,
         )
     if do_grad_weight:
-        grad_weight = fp8_matmul_tensorwise_dynamic(
+        grad_weight = fp8_scaled_matmul_dynamic(
             grad_output.t(),
             input.flatten(0,-2),
             hadamard=hadamard,
@@ -140,7 +120,7 @@ def fp8_matmul_tensorwise_backward(
     return grad_input, grad_weight, grad_bias
 
 
-class FP8MatmulTensorWiseBackward(torch.autograd.Function):
+class FP8ScaledMatmulBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
         ctx.save_for_backward(input, weight, bias)
@@ -149,7 +129,7 @@ class FP8MatmulTensorWiseBackward(torch.autograd.Function):
         else:
             hadamard = None
 
-        return fp8_matmul_tensorwise_compiled(
+        return fp8_scaled_matmul_compiled(
             input, weight.weight, weight.scale,
             bias=bias,
             svd_up=weight.svd_up,
@@ -166,7 +146,7 @@ class FP8MatmulTensorWiseBackward(torch.autograd.Function):
         else:
             hadamard = None
 
-        return fp8_matmul_tensorwise_backward(
+        return fp8_scaled_matmul_backward(
             grad_output, input, weight.weight, weight.scale,
             bias=bias,
             svd_up=weight.svd_up,
@@ -178,12 +158,12 @@ class FP8MatmulTensorWiseBackward(torch.autograd.Function):
         )
 
 
-def quantized_linear_forward_fp8_matmul_tensorwise(self, input: torch.FloatTensor) -> torch.FloatTensor:
+def quantized_linear_forward_fp8_scaled_matmul(self, input: torch.FloatTensor) -> torch.FloatTensor:
     if torch.numel(input) / input.shape[-1] < 32:
         return quantized_linear_with_backward(input, self.weight, self.bias)
-    return fp8_matmul_tensorwise_with_backward(input, self.weight, self.bias)
+    return fp8_scaled_matmul_with_backward(input, self.weight, self.bias)
 
 
-fp8_matmul_tensorwise_with_backward = FP8MatmulTensorWiseBackward.apply
-fp8_matmul_tensorwise_compiled = compile_func(fp8_matmul_tensorwise)
-fp8_matmul_tensorwise_backward = compile_func(fp8_matmul_tensorwise_backward)
+fp8_scaled_matmul_with_backward = FP8ScaledMatmulBackward.apply
+fp8_scaled_matmul_compiled = compile_func(fp8_scaled_matmul)
+fp8_scaled_matmul_backward = compile_func(fp8_scaled_matmul_backward)

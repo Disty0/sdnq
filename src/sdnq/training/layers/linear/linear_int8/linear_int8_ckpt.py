@@ -1,11 +1,11 @@
 import torch
 
-from ....common import compile_func
-from ....dequantizer import dequantize_symmetric
-from ....quant_utils import quantize_int_mm, get_hadamard
-from ...tensor import SDNQTensor
+from .....common import compile_func
+from .....dequantizer import dequantize_symmetric
+from .....quant_utils import quantize_int_mm, get_hadamard
+from ....tensor import SDNQTensor
 
-from .forward import quantized_linear_with_backward
+from ..forward import quantized_linear_with_backward
 from .linear_int8 import int8_matmul
 from .linear_int8_dynamic import int8_matmul_dynamic
 

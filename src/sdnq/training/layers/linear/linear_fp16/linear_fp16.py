@@ -1,33 +1,38 @@
 import torch
 
-from ....common import compile_func, fp_mm_func, use_contiguous_mm
-from ....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
-from ....quant_utils import rotate_hadamard, get_hadamard
-from ...tensor import SDNQTensor
+from .....common import compile_func, fp_mm_func, use_contiguous_mm
+from .....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
+from .....quant_utils import rotate_hadamard, get_hadamard
+from ....tensor import SDNQTensor
 
-from .forward import check_mats, quantized_linear_with_backward
-from .linear_fp8_tensorwise_dynamic import quantize_fp_mm_matmul_tensorwise
+from ..forward import check_mats, quantized_linear_with_backward
+from ..linear_fp8.linear_fp8 import quantize_fp_mm_input
+from .linear_fp16_dynamic import fp16_matmul_dynamic
 
 
-def fp16_matmul_dynamic(
+def fp16_matmul(
     input: torch.FloatTensor,
     weight: torch.Tensor,
+    scale: torch.FloatTensor,
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
-    rotate_weight: bool = False,
+    do_transpose: bool = True,
     use_sr: bool = False,
 ) -> torch.FloatTensor:
     return_dtype = input.dtype
     bias_to_add_after = None
+    if do_transpose:
+        weight = weight.t()
+        scale = scale.t()
     if output_shape is None:
         output_shape = list(input.shape)
-        output_shape[-1] = weight.shape[0] if do_input_reshape else weight.shape[-1]
+        output_shape[-1] = weight.shape[-1]
     if hadamard is not None:
-        if do_input_reshape:
+        if do_transpose:
             input = rotate_hadamard(input, hadamard=hadamard)
         else:
             bias_to_add_after = bias
@@ -35,7 +40,7 @@ def fp16_matmul_dynamic(
     if svd_up is not None:
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
-        if do_input_reshape:
+        if do_transpose:
             if use_contiguous_mm:
                 svd_up, svd_down = svd_up.t().contiguous(), svd_down.t().contiguous()
             else:
@@ -51,13 +56,8 @@ def fp16_matmul_dynamic(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, weight, input_scale, scale = quantize_fp_mm_matmul_tensorwise(
-        input, weight,
-        do_input_reshape=do_input_reshape,
-        hadamard=hadamard if rotate_weight else None,
-        use_sr=use_sr,
-        matmul_dtype="float16",
-    )
+    input, input_scale = quantize_fp_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr, matmul_dtype="float16")
+    weight = weight.to(dtype=torch.float16) # fp8 weights
     input, weight = check_mats(input, weight)
     if bias is not None:
         result = dequantize_symmetric_with_bias(
@@ -73,17 +73,18 @@ def fp16_matmul_dynamic(
             dtype=return_dtype,
             result_shape=output_shape,
         )
-    if hadamard is not None and not do_input_reshape:
+    if hadamard is not None and not do_transpose:
         result = rotate_hadamard(result, hadamard=hadamard)
     if bias_to_add_after is not None:
         result.add_(bias_to_add_after)
     return result
 
 
-def fp16_matmul_dynamic_backward(
+def fp16_matmul_backward(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor,
-    weight: torch.FloatTensor,
+    weight: torch.Tensor,
+    scale: torch.FloatTensor,
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
@@ -97,7 +98,7 @@ def fp16_matmul_dynamic_backward(
     if do_grad_input:
         grad_input = fp16_matmul_dynamic(
             grad_output,
-            weight,
+            dequantize_symmetric(weight, scale),
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
@@ -118,45 +119,37 @@ def fp16_matmul_dynamic_backward(
     return grad_input, grad_weight, grad_bias
 
 
-class FP16MatmulDynamicBackward(torch.autograd.Function):
+class FP16MatmulBackward(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
-        if isinstance(weight, SDNQTensor):
-            svd_up, svd_down = weight.svd_up, weight.svd_down
-            ctx.use_hadamard = weight.sdnq_dequantizer.use_hadamard
-            ctx.hadamard_group_size = weight.sdnq_dequantizer.hadamard_group_size
-            weight = weight.dequantize(non_svd=True, non_hadamard=True)
-        else:
-            svd_up, svd_down = None, None
-            ctx.use_hadamard = False
-            ctx.hadamard_group_size = 256
-        if ctx.use_hadamard:
-            hadamard = get_hadamard(ctx.hadamard_group_size, dtype=input.dtype, device=input.device)
+    def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
+        ctx.save_for_backward(input, weight, bias)
+        if weight.sdnq_dequantizer.use_hadamard:
+            hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=input.dtype, device=input.device)
         else:
             hadamard = None
 
-        ctx.save_for_backward(input, weight, bias, svd_up, svd_down)
-        return fp16_matmul_dynamic_compiled(
-            input, weight,
+        return fp16_matmul_compiled(
+            input, weight.weight, weight.scale,
             bias=bias,
-            svd_up=svd_up,
-            svd_down=svd_down,
+            svd_up=weight.svd_up,
+            svd_down=weight.svd_down,
             hadamard=hadamard,
+            do_transpose=True,
         )
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
-        input, weight, bias, svd_up, svd_down = ctx.saved_tensors
-        if ctx.use_hadamard:
-            hadamard = get_hadamard(ctx.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
+        input, weight, bias = ctx.saved_tensors
+        if weight.sdnq_dequantizer.use_hadamard:
+            hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
         else:
             hadamard = None
 
-        return fp16_matmul_dynamic_backward(
-            grad_output, input, weight,
+        return fp16_matmul_backward(
+            grad_output, input, weight.weight, weight.scale,
             bias=bias,
-            svd_up=svd_up,
-            svd_down=svd_down,
+            svd_up=weight.svd_up,
+            svd_down=weight.svd_down,
             hadamard=hadamard,
             do_grad_input=ctx.needs_input_grad[0],
             do_grad_weight=ctx.needs_input_grad[1],
@@ -164,15 +157,12 @@ class FP16MatmulDynamicBackward(torch.autograd.Function):
         )
 
 
-def quantized_linear_forward_fp16_matmul_dynamic(self, input: torch.FloatTensor) -> torch.FloatTensor:
+def quantized_linear_forward_fp16_matmul(self, input: torch.FloatTensor) -> torch.FloatTensor:
     if torch.numel(input) / input.shape[-1] < 32:
-        if isinstance(self.weight, SDNQTensor):
-            return quantized_linear_with_backward(input, self.weight, self.bias)
-        else:
-            return torch.nn.functional.linear(input, self.weight, self.bias)
-    return fp16_matmul_dynamic_with_backward(input, self.weight, self.bias)
+        return quantized_linear_with_backward(input, self.weight, self.bias)
+    return fp16_matmul_with_backward(input, self.weight, self.bias)
 
 
-fp16_matmul_dynamic_with_backward = FP16MatmulDynamicBackward.apply
-fp16_matmul_dynamic_compiled = compile_func(fp16_matmul_dynamic)
-fp16_matmul_dynamic_backward = compile_func(fp16_matmul_dynamic_backward)
+fp16_matmul_with_backward = FP16MatmulBackward.apply
+fp16_matmul_compiled = compile_func(fp16_matmul)
+fp16_matmul_backward = compile_func(fp16_matmul_backward)

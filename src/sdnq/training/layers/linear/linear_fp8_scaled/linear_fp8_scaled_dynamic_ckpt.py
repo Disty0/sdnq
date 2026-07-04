@@ -1,15 +1,15 @@
 import torch
 
-from ....common import compile_func
-from ....quant_utils import quantize_fp_mm, get_hadamard
-from ...tensor import SDNQTensor
+from .....common import compile_func
+from .....quant_utils import quantize_fp_mm, get_hadamard
+from ....tensor import SDNQTensor
 
-from .forward import quantized_linear_with_backward
-from .linear_fp8_tensorwise import fp8_matmul_tensorwise
-from .linear_fp8_tensorwise_dynamic import fp8_matmul_tensorwise_dynamic
+from ..forward import quantized_linear_with_backward
+from .linear_fp8_scaled import fp8_scaled_matmul
+from .linear_fp8_scaled_dynamic import fp8_scaled_matmul_dynamic
 
 
-def fp8_matmul_tensorwise_dynamic_ckpt(
+def fp8_scaled_matmul_dynamic_ckpt(
     input: torch.FloatTensor,
     weight: torch.FloatTensor,
     bias: torch.FloatTensor | None = None,
@@ -19,7 +19,7 @@ def fp8_matmul_tensorwise_dynamic_ckpt(
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
 ) -> torch.FloatTensor:
-    result = fp8_matmul_tensorwise_dynamic(
+    result = fp8_scaled_matmul_dynamic(
         input, weight,
         bias=bias,
         svd_up=svd_up,
@@ -35,7 +35,7 @@ def fp8_matmul_tensorwise_dynamic_ckpt(
     return result, new_input, new_weight, input_scale, weight_scale
 
 
-def fp8_matmul_tensorwise_dynamic_backward_ckpt(
+def fp8_scaled_matmul_dynamic_backward_ckpt(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor,
     weight: torch.FloatTensor,
@@ -54,7 +54,7 @@ def fp8_matmul_tensorwise_dynamic_backward_ckpt(
     input_shape[-1] = input.shape[-1]
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = fp8_matmul_tensorwise(
+        grad_input = fp8_scaled_matmul(
             grad_output,
             weight, weight_scale,
             svd_up=svd_up,
@@ -65,7 +65,7 @@ def fp8_matmul_tensorwise_dynamic_backward_ckpt(
             do_transpose=False,
         )
     if do_grad_weight:
-        grad_weight = fp8_matmul_tensorwise(
+        grad_weight = fp8_scaled_matmul(
             grad_output.t(),
             input, input_scale,
             hadamard=hadamard,
@@ -78,7 +78,7 @@ def fp8_matmul_tensorwise_dynamic_backward_ckpt(
     return grad_input, grad_weight, grad_bias
 
 
-class FP8MatmulTensorWiseDynamicBackwardCKPT(torch.autograd.Function):
+class FP8ScaledMatmulDynamicBackwardCKPT(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
         if isinstance(weight, SDNQTensor):
@@ -95,7 +95,7 @@ class FP8MatmulTensorWiseDynamicBackwardCKPT(torch.autograd.Function):
         else:
             hadamard = None
 
-        result, new_input, new_weight, input_scale, weight_scale = fp8_matmul_tensorwise_dynamic_ckpt_compiled(
+        result, new_input, new_weight, input_scale, weight_scale = fp8_scaled_matmul_dynamic_ckpt_compiled(
             input, weight,
             bias=bias,
             svd_up=svd_up,
@@ -113,7 +113,7 @@ class FP8MatmulTensorWiseDynamicBackwardCKPT(torch.autograd.Function):
         else:
             hadamard = None
 
-        return fp8_matmul_tensorwise_dynamic_backward_ckpt(
+        return fp8_scaled_matmul_dynamic_backward_ckpt(
             grad_output, input, weight, input_scale, weight_scale,
             bias=bias,
             svd_up=svd_up,
@@ -125,15 +125,15 @@ class FP8MatmulTensorWiseDynamicBackwardCKPT(torch.autograd.Function):
         )
 
 
-def quantized_linear_forward_fp8_matmul_tensorwise_dynamic_ckpt(self, input: torch.FloatTensor) -> torch.FloatTensor:
+def quantized_linear_forward_fp8_scaled_matmul_dynamic_ckpt(self, input: torch.FloatTensor) -> torch.FloatTensor:
     if torch.numel(input) / input.shape[-1] < 32:
         if isinstance(self.weight, SDNQTensor):
             return quantized_linear_with_backward(input, self.weight, self.bias)
         else:
             return torch.nn.functional.linear(input, self.weight, self.bias)
-    return fp8_matmul_tensorwise_dynamic_with_backward_ckpt(input, self.weight, self.bias)
+    return fp8_scaled_matmul_dynamic_with_backward_ckpt(input, self.weight, self.bias)
 
 
-fp8_matmul_tensorwise_dynamic_with_backward_ckpt = FP8MatmulTensorWiseDynamicBackwardCKPT.apply
-fp8_matmul_tensorwise_dynamic_ckpt_compiled = compile_func(fp8_matmul_tensorwise_dynamic_ckpt)
-fp8_matmul_tensorwise_dynamic_backward_ckpt = compile_func(fp8_matmul_tensorwise_dynamic_backward_ckpt)
+fp8_scaled_matmul_dynamic_with_backward_ckpt = FP8ScaledMatmulDynamicBackwardCKPT.apply
+fp8_scaled_matmul_dynamic_ckpt_compiled = compile_func(fp8_scaled_matmul_dynamic_ckpt)
+fp8_scaled_matmul_dynamic_backward_ckpt = compile_func(fp8_scaled_matmul_dynamic_backward_ckpt)
