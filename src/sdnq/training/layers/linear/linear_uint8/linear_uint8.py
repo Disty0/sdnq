@@ -1,19 +1,38 @@
+import os
 import torch
 
-from .....common import compile_func, fp_mm_func, use_contiguous_mm
+from .....common import compile_func, int_mm_func, use_contiguous_mm
 from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
-from .....quant_utils import rotate_hadamard, get_hadamard
+from .....quant_utils import quantize_uint_mm, quantize_uint_mm_sr, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
 from ..forward import check_mats, quantized_linear_with_backward
-from ..linear_fp8.linear_fp8 import quantize_fp_mm_input
-from .linear_fp16_dynamic import fp16_matmul_dynamic
+from .linear_uint8_dynamic import uint8_matmul_dynamic
+
+if os.environ.get("SDNQ_USE_TRITON_MM", "1").lower() not in {"0", "false", "no"}:
+    try:
+        from ....kernels.triton_mm import triton_int_mm
+    except Exception:
+        triton_int_mm = int_mm_func
+else:
+    triton_int_mm = int_mm_func
 
 
-def fp16_matmul(
+def quantize_uint_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
+    if do_input_reshape:
+        input = input.flatten(0,-2)
+    if use_sr:
+        input, input_scale, input_zero_point = quantize_uint_mm_sr(input.to(dtype=torch.float32), dim=dim)
+    else:
+        input, input_scale, input_zero_point = quantize_uint_mm(input.to(dtype=torch.float32), dim=dim)
+    return input, input_scale, input_zero_point
+
+
+def uint8_matmul(
     input: torch.FloatTensor,
     weight: torch.Tensor,
     scale: torch.FloatTensor,
+    zero_point: torch.FloatTensor,
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
@@ -21,16 +40,32 @@ def fp16_matmul(
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
     do_transpose: bool = True,
+    is_backward_pass: bool = False,
     use_sr: bool = False,
 ) -> torch.FloatTensor:
+    if is_backward_pass:
+        int_mm = triton_int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
+    else:
+        int_mm = int_mm_func
     return_dtype = input.dtype
     bias_to_add_after = None
+
     if do_transpose:
         weight = weight.t()
         scale = scale.t()
+        if zero_point is not None:
+            zero_point = zero_point.t()
+    if weight.dtype == torch.uint8:
+        weight = weight.bitwise_xor(128).view(torch.int8)
+        if zero_point is not None:
+            zero_point = torch.add(zero_point, scale, alpha=128)
+        else:
+            zero_point = torch.mul(scale, 128)
+
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[-1]
+
     if hadamard is not None:
         if do_transpose:
             input = rotate_hadamard(input, hadamard=hadamard)
@@ -56,23 +91,24 @@ def fp16_matmul(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    input, input_scale = quantize_fp_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr, matmul_dtype="float16")
-    weight = weight.to(dtype=torch.float16) # fp8 weights
-    input, weight = check_mats(input, weight)
-    if bias is not None:
-        result = dequantize_asymmetric(
-            fp_mm_func(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
-            scale, bias,
-            dtype=return_dtype,
-            result_shape=output_shape,
-        )
+
+    input, input_scale, input_zero_point = quantize_uint_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
+    if zero_point is not None:
+        zero_bias = torch.sum(input, dim=-1, keepdim=True, dtype=torch.int32).to(input_scale.dtype).mul_(input_scale).mul(zero_point)
+        zero_bias.add_(torch.sum(weight, dim=0, keepdim=True, dtype=torch.int32).to(scale.dtype).mul_(scale).mul(input_zero_point))
+        zero_bias.add_(torch.mul(input_zero_point.mul_(input.shape[-1]), zero_point))
     else:
-        result = dequantize_symmetric(
-            fp_mm_func(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
-            scale,
-            dtype=return_dtype,
-            result_shape=output_shape,
-        )
+        zero_bias = torch.sum(weight, dim=0, keepdim=True, dtype=torch.int32).to(scale.dtype).mul_(scale).mul(input_zero_point)
+    if bias is not None:
+        zero_bias.add_(bias)
+    input, weight = check_mats(input, weight)
+
+    result = dequantize_asymmetric(
+        int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
+        scale, zero_bias,
+        dtype=return_dtype,
+        result_shape=output_shape,
+    )
     if hadamard is not None and not do_transpose:
         result = rotate_hadamard(result, hadamard=hadamard)
     if bias_to_add_after is not None:
@@ -80,11 +116,12 @@ def fp16_matmul(
     return result
 
 
-def fp16_matmul_backward(
+def uint8_matmul_backward(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor,
     weight: torch.Tensor,
     scale: torch.FloatTensor,
+    zero_point: torch.FloatTensor,
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
@@ -96,9 +133,9 @@ def fp16_matmul_backward(
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
-        grad_input = fp16_matmul_dynamic(
+        grad_input = uint8_matmul_dynamic(
             grad_output,
-            dequantize_symmetric(weight, scale),
+            dequantize_symmetric(weight, scale) if zero_point is None else dequantize_asymmetric(weight, scale, zero_point),
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
@@ -106,7 +143,7 @@ def fp16_matmul_backward(
             do_input_reshape=False,
         )
     if do_grad_weight:
-        grad_weight = fp16_matmul_dynamic(
+        grad_weight = uint8_matmul_dynamic(
             grad_output.t(),
             input.flatten(0,-2),
             hadamard=hadamard,
@@ -119,7 +156,7 @@ def fp16_matmul_backward(
     return grad_input, grad_weight, grad_bias
 
 
-class FP16MatmulBackward(torch.autograd.Function):
+class UINT8MatmulBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
         ctx.save_for_backward(input, weight, bias)
@@ -128,8 +165,9 @@ class FP16MatmulBackward(torch.autograd.Function):
         else:
             hadamard = None
 
-        return fp16_matmul_compiled(
-            input, weight.weight, weight.scale,
+        return uint8_matmul_compiled(
+            input, weight.weight,
+            weight.scale, weight.zero_point,
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
@@ -145,8 +183,9 @@ class FP16MatmulBackward(torch.autograd.Function):
         else:
             hadamard = None
 
-        return fp16_matmul_backward(
-            grad_output, input, weight.weight, weight.scale,
+        return uint8_matmul_backward(
+            grad_output, input, weight.weight,
+            weight.scale, weight.zero_point,
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
@@ -157,12 +196,12 @@ class FP16MatmulBackward(torch.autograd.Function):
         )
 
 
-def quantized_linear_forward_fp16_matmul(self, input: torch.FloatTensor) -> torch.FloatTensor:
+def quantized_linear_forward_uint8_matmul(self, input: torch.FloatTensor) -> torch.FloatTensor:
     if torch.numel(input) / input.shape[-1] < 32:
         return quantized_linear_with_backward(input, self.weight, self.bias)
-    return fp16_matmul_with_backward(input, self.weight, self.bias)
+    return uint8_matmul_with_backward(input, self.weight, self.bias)
 
 
-fp16_matmul_with_backward = FP16MatmulBackward.apply
-fp16_matmul_compiled = compile_func(fp16_matmul)
-fp16_matmul_backward = compile_func(fp16_matmul_backward)
+uint8_matmul_with_backward = UINT8MatmulBackward.apply
+uint8_matmul_compiled = compile_func(uint8_matmul)
+uint8_matmul_backward = compile_func(uint8_matmul_backward)

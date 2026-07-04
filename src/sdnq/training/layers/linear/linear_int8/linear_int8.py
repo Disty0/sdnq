@@ -2,7 +2,7 @@ import os
 import torch
 
 from .....common import compile_func, int_mm_func, use_contiguous_mm
-from .....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
+from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
 from .....quant_utils import quantize_int_mm, quantize_int_mm_sr, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -18,7 +18,7 @@ else:
     triton_int_mm = int_mm_func
 
 
-def quantize_int_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.CharTensor, torch.FloatTensor]:
+def quantize_int_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.Tensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
     if use_sr:
@@ -35,6 +35,7 @@ def int8_matmul(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
+    zero_point: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
@@ -48,12 +49,23 @@ def int8_matmul(
         int_mm = int_mm_func
     return_dtype = input.dtype
     bias_to_add_after = None
+
     if do_transpose:
         weight = weight.t()
         scale = scale.t()
+        if zero_point is not None:
+            zero_point = zero_point.t()
+    if weight.dtype == torch.uint8:
+        weight = weight.bitwise_xor(128).view(torch.int8)
+        if zero_point is not None:
+            zero_point = torch.add(zero_point, scale, alpha=128)
+        else:
+            zero_point = torch.mul(scale, 128)
+
     if output_shape is None:
         output_shape = list(input.shape)
         output_shape[-1] = weight.shape[-1]
+
     if hadamard is not None:
         if do_transpose:
             input = rotate_hadamard(input, hadamard=hadamard)
@@ -79,10 +91,17 @@ def int8_matmul(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
+
     input, input_scale = quantize_int_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
+    if zero_point is not None:
+        zero_bias = torch.sum(input, dim=-1, keepdim=True, dtype=torch.int32).to(input_scale.dtype).mul_(input_scale).mul(zero_point)
+        if bias is not None:
+            zero_bias.add_(bias)
+        bias = zero_bias
     input, weight = check_mats(input, weight)
+
     if bias is not None:
-        result = dequantize_symmetric_with_bias(
+        result = dequantize_asymmetric(
             int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
             scale, bias,
             dtype=return_dtype,
@@ -110,6 +129,7 @@ def int8_matmul_backward(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
+    zero_point: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
@@ -120,7 +140,7 @@ def int8_matmul_backward(
     if do_grad_input:
         grad_input = int8_matmul_dynamic(
             grad_output,
-            dequantize_symmetric(weight, scale),
+            dequantize_symmetric(weight, scale) if zero_point is None else dequantize_asymmetric(weight, scale, zero_point),
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
@@ -155,6 +175,7 @@ class INT8MatmulBackward(torch.autograd.Function):
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
+            zero_point=weight.zero_point,
             hadamard=hadamard,
             do_transpose=True,
         )
@@ -172,6 +193,7 @@ class INT8MatmulBackward(torch.autograd.Function):
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
+            zero_point=weight.zero_point,
             hadamard=hadamard,
             do_grad_input=ctx.needs_input_grad[0],
             do_grad_weight=ctx.needs_input_grad[1],

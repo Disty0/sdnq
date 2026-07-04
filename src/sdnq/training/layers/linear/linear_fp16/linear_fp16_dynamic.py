@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func, fp_mm_func, use_contiguous_mm
-from .....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
+from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
 from .....quant_utils import rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -60,7 +60,7 @@ def fp16_matmul_dynamic(
     )
     input, weight = check_mats(input, weight)
     if bias is not None:
-        result = dequantize_symmetric_with_bias(
+        result = dequantize_asymmetric(
             fp_mm_func(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
             scale, bias,
             dtype=return_dtype,

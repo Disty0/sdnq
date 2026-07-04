@@ -44,8 +44,8 @@ def fp8_scaled_matmul_backward_ckpt(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor,
     weight: torch.Tensor,
-    scale: torch.FloatTensor,
     input_scale: torch.FloatTensor,
+    scale: torch.FloatTensor,
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
@@ -110,7 +110,8 @@ class FP8ScaledMatmulBackwardCKPT(torch.autograd.Function):
             hadamard = None
 
         return fp8_scaled_matmul_backward_ckpt(
-            grad_output, input, weight.weight, weight.scale, input_scale,
+            grad_output, input, weight.weight,
+            input_scale, weight.scale,
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,

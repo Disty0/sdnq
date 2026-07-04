@@ -2,7 +2,7 @@ import os
 import torch
 
 from .....common import compile_func, int_mm_func, use_contiguous_mm
-from .....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
+from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
 from .....quant_utils import quantize_int_mm, quantize_int_mm_sr, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -23,7 +23,7 @@ def quantize_int_mm_matmul(
     hadamard: torch.FloatTensor | None = None,
     do_input_reshape: bool = True,
     use_sr: bool = False,
-) -> tuple[torch.CharTensor, torch.CharTensor, torch.FloatTensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     if hadamard is not None:
         weight = rotate_hadamard(weight, hadamard=hadamard)
     if do_input_reshape:
@@ -90,7 +90,7 @@ def int8_matmul_dynamic(
     )
     input, weight = check_mats(input, weight)
     if bias is not None:
-        result = dequantize_symmetric_with_bias(
+        result = dequantize_asymmetric(
             int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
             scale, bias,
             dtype=return_dtype,

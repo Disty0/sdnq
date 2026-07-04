@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func, use_contiguous_mm
-from .....dequantizer import dequantize_symmetric, dequantize_symmetric_with_bias
+from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
 from .....quant_utils import quantize_fp_mm, quantize_fp_mm_sr, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -69,7 +69,7 @@ def fp8_matmul(
     input, input_scale = quantize_fp_mm_input(input, do_input_reshape=do_input_reshape, use_sr=use_sr)
     input, weight = check_mats(input, weight, allow_contiguous_mm=False)
     if bias is not None:
-        result = dequantize_symmetric_with_bias(
+        result = dequantize_asymmetric(
             torch._scaled_mm(
                 input, weight,
                 scale_a=dummy_input_scale,

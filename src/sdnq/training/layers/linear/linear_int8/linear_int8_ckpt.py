@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func
-from .....dequantizer import dequantize_symmetric
+from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
 from .....quant_utils import quantize_int_mm, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -17,6 +17,7 @@ def int8_matmul_ckpt(
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
+    zero_point: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
     output_shape: torch.Size = None,
     do_input_reshape: bool = True,
@@ -27,6 +28,7 @@ def int8_matmul_ckpt(
         bias=bias,
         svd_up=svd_up,
         svd_down=svd_down,
+        zero_point=zero_point,
         hadamard=hadamard,
         output_shape=output_shape,
         do_input_reshape=do_input_reshape,
@@ -44,11 +46,12 @@ def int8_matmul_backward_ckpt(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor,
     weight: torch.Tensor,
-    scale: torch.FloatTensor,
     input_scale: torch.FloatTensor,
+    scale: torch.FloatTensor,
     bias: torch.FloatTensor | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
+    zero_point: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
@@ -61,7 +64,7 @@ def int8_matmul_backward_ckpt(
     if do_grad_input:
         grad_input = int8_matmul_dynamic(
             grad_output,
-            dequantize_symmetric(weight, scale),
+            dequantize_symmetric(weight, scale) if zero_point is None else dequantize_asymmetric(weight, scale, zero_point),
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
@@ -96,6 +99,7 @@ class INT8MatmulBackwardCKPT(torch.autograd.Function):
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
+            zero_point=weight.zero_point,
             hadamard=hadamard,
             do_transpose=True,
         )
@@ -111,10 +115,12 @@ class INT8MatmulBackwardCKPT(torch.autograd.Function):
             hadamard = None
 
         return int8_matmul_backward_ckpt(
-            grad_output, input, weight.weight, weight.scale, input_scale,
+            grad_output, input, weight.weight,
+            input_scale, weight.scale,
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
+            zero_point=weight.zero_point,
             hadamard=hadamard,
             do_grad_input=ctx.needs_input_grad[0],
             do_grad_weight=ctx.needs_input_grad[1],
