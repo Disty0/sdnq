@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func, use_contiguous_mm
-from .....quant_utils import quantize_fp_mm, quantize_fp_mm_sr, rotate_hadamard, get_hadamard
+from .....quant_utils import quantize_fp_mm, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
 from ..forward import check_mats, quantized_linear_with_backward
@@ -22,10 +22,7 @@ def quantize_fp_scaled_mm_matmul(
         weight = weight.t()
     weight, scale = quantize_fp_mm(weight.to(dtype=torch.float32), dim=-1)
     weight, scale = weight.t_(), scale.t_()
-    if use_sr:
-        input, input_scale = quantize_fp_mm_sr(input.to(dtype=torch.float32), dim=-1)
-    else:
-        input, input_scale = quantize_fp_mm(input.to(dtype=torch.float32), dim=-1)
+    input, input_scale = quantize_fp_mm(input.to(dtype=torch.float32), dim=-1, use_sr=use_sr)
     return input, weight, input_scale, scale
 
 

@@ -3,7 +3,7 @@ import torch
 
 from .....common import compile_func, int_mm_func, use_contiguous_mm
 from .....dequantizer import dequantize_asymmetric
-from .....quant_utils import quantize_uint_mm, quantize_uint_mm_sr, rotate_hadamard, get_hadamard
+from .....quant_utils import quantize_uint_mm, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
 from ..forward import check_mats, quantized_linear_with_backward
@@ -32,10 +32,7 @@ def quantize_uint_mm_matmul(
         if use_contiguous_mm:
             weight = weight.contiguous()
     weight, scale, zero_point = quantize_uint_mm(weight.to(dtype=torch.float32), dim=0)
-    if use_sr:
-        input, input_scale, input_zero_point = quantize_uint_mm_sr(input.to(dtype=torch.float32), dim=-1)
-    else:
-        input, input_scale, input_zero_point = quantize_uint_mm(input.to(dtype=torch.float32), dim=-1)
+    input, input_scale, input_zero_point = quantize_uint_mm(input.to(dtype=torch.float32), dim=-1, use_sr=use_sr)
     return input, weight, input_scale, scale, zero_point, input_zero_point
 
 

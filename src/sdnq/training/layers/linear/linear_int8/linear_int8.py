@@ -3,7 +3,7 @@ import torch
 
 from .....common import compile_func, int_mm_func, use_contiguous_mm
 from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
-from .....quant_utils import quantize_int_mm, quantize_int_mm_sr, rotate_hadamard, get_hadamard
+from .....quant_utils import quantize_int_mm, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
 from ..forward import check_mats, quantized_linear_with_backward
@@ -21,10 +21,7 @@ else:
 def quantize_int_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.Tensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
-    if use_sr:
-        input, input_scale = quantize_int_mm_sr(input.to(dtype=torch.float32), dim=dim)
-    else:
-        input, input_scale = quantize_int_mm(input.to(dtype=torch.float32), dim=dim)
+    input, input_scale = quantize_int_mm(input.to(dtype=torch.float32), dim=dim, use_sr=use_sr)
     return input, input_scale
 
 
