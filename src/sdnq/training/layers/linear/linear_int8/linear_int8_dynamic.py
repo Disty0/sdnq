@@ -1,7 +1,7 @@
 import os
 import torch
 
-from .....common import compile_func, int_mm_func, use_contiguous_mm
+from .....common import compile_func, int_mm_func, use_contiguous_int8_mm, use_contiguous_fp16_mm
 from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
 from .....quant_utils import quantize_int_mm, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
@@ -29,7 +29,7 @@ def quantize_int_mm_matmul(
     if do_input_reshape:
         input = input.flatten(0,-2)
         weight = weight.t()
-        if use_contiguous_mm:
+        if use_contiguous_int8_mm:
             weight = weight.contiguous()
     weight, scale = quantize_int_mm(weight.to(dtype=torch.float32), dim=0)
     input, input_scale = quantize_int_mm(input.to(dtype=torch.float32), dim=-1, use_sr=use_sr)
@@ -64,7 +64,7 @@ def int8_matmul_dynamic(
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
         if do_input_reshape:
-            if use_contiguous_mm:
+            if use_contiguous_fp16_mm:
                 svd_up, svd_down = svd_up.t().contiguous(), svd_down.t().contiguous()
             else:
                 svd_up, svd_down = svd_up.contiguous().t(), svd_down.contiguous().t()

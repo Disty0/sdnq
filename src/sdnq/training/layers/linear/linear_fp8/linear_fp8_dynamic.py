@@ -1,6 +1,6 @@
 import torch
 
-from .....common import compile_func, use_contiguous_mm
+from .....common import compile_func, use_contiguous_fp16_mm
 from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
 from .....quant_utils import quantize_fp_mm, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
@@ -55,7 +55,7 @@ def fp8_matmul_dynamic(
         input = input.flatten(0,-2)
         svd_up, svd_down = svd_up.to(dtype=return_dtype), svd_down.to(dtype=return_dtype)
         if do_input_reshape:
-            if use_contiguous_mm:
+            if use_contiguous_fp16_mm:
                 svd_up, svd_down = svd_up.t().contiguous(), svd_down.t().contiguous()
             else:
                 svd_up, svd_down = svd_up.contiguous().t(), svd_down.contiguous().t()
