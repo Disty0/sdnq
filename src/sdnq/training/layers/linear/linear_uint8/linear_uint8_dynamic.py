@@ -10,11 +10,11 @@ from ..forward import check_mats, quantized_linear_with_backward
 
 if os.environ.get("SDNQ_USE_TRITON_MM", "1").lower() not in {"0", "false", "no"}:
     try:
-        from ....kernels.triton_mm import triton_int_mm
+        from ....kernels.triton_mm import sdnq_triton_mm
     except Exception:
-        triton_int_mm = int_mm_func
+        sdnq_triton_mm = int_mm_func
 else:
-    triton_int_mm = int_mm_func
+    sdnq_triton_mm = int_mm_func
 
 
 def quantize_uint_mm_matmul(
@@ -48,7 +48,7 @@ def uint8_matmul_dynamic(
     rotate_weight: bool = False,
     use_sr: bool = False,
 ) -> torch.FloatTensor:
-    int_mm = triton_int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
+    int_mm = sdnq_triton_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
     return_dtype = input.dtype
     bias_to_add_after = None
     if output_shape is None:

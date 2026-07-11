@@ -11,11 +11,11 @@ from .linear_int8_dynamic import int8_matmul_dynamic
 
 if os.environ.get("SDNQ_USE_TRITON_MM", "1").lower() not in {"0", "false", "no"}:
     try:
-        from ....kernels.triton_mm import triton_int_mm
+        from ....kernels.triton_mm import sdnq_triton_mm
     except Exception:
-        triton_int_mm = int_mm_func
+        sdnq_triton_mm = int_mm_func
 else:
-    triton_int_mm = int_mm_func
+    sdnq_triton_mm = int_mm_func
 
 
 def quantize_int_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.Tensor, torch.FloatTensor]:
@@ -41,7 +41,7 @@ def int8_matmul(
     use_sr: bool = False,
 ) -> torch.FloatTensor:
     if is_backward_pass:
-        int_mm = triton_int_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
+        int_mm = sdnq_triton_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
     else:
         int_mm = int_mm_func
     return_dtype = input.dtype
