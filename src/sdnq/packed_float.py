@@ -32,7 +32,6 @@ def pack_float(x: torch.FloatTensor, weights_dtype: str) -> torch.Tensor:
     else:
         sign_mask = (1 << (total_bits-1)) + (1 << (total_bits-2))
 
-    min_normal = 2.0 ** (2 - (1 << (exponent_bits - 1)))
     mantissa_difference = 23 - mantissa_bits
     exponent_difference = 8 - exponent_bits
     mantissa_mask = (1 << mantissa_difference) # pylint: disable=superfluous-parens
@@ -48,6 +47,7 @@ def pack_float(x: torch.FloatTensor, weights_dtype: str) -> torch.Tensor:
     )
 
     if exponent_bits < 8:
+        min_normal = 2.0 ** (2 - (1 << (exponent_bits - 1)))
         x_f32_abs = x.view(dtype=torch.float32).abs()
         is_subnormal = torch.lt(x_f32_abs, min_normal)
         x = torch.where(
@@ -90,7 +90,6 @@ def unpack_float(x: torch.Tensor, weights_dtype: str, shape: torch.Size) -> torc
     else:
         sign_mask = (1 << (total_bits-1)) + (1 << (total_bits-2))
 
-    min_normal = 2.0 ** (2 - (1 << (exponent_bits - 1)))
     mantissa_difference = 23 - mantissa_bits
     exponent_difference = 8 - exponent_bits
 
@@ -121,6 +120,7 @@ def unpack_float(x: torch.Tensor, weights_dtype: str, shape: torch.Size) -> torc
     x = torch.where(torch.bitwise_and(x, overflow_mask).to(dtype=torch.bool), x, 0)
     x = x.view(torch.float32)
     if exponent_bits < 8:
+        min_normal = 2.0 ** (2 - (1 << (exponent_bits - 1)))
         x = torch.where(
             torch.lt(x.abs(), min_normal),
             torch.sign(x).mul_(-min_normal).add_(x, alpha=2.0),
