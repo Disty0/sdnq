@@ -232,9 +232,6 @@ state["exp_avg"] = SDNQTensor.from_float(
 
 - **SDNQ_USE_TORCH_COMPILE**: Overrides the default Triton and torch.compile test done by SDNQ.  
   Can be `0` or `1`. Default is None (auto-detect)  
-- **SDNQ_ALLOW_FP8_MM**: Overrides the default FP8 matmul support test done by SDNQ.  
-  This option is used with the `use_dynamic_quantization` option and within the `apply_sdnq_options_to_module` function.  
-  Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_USE_TENSORWISE_FP8_MM**: Force the use of software row-wise quantization via tensorwise kernels on unsupported hardware.  
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_USE_CONTIGUOUS_MM**: Force the use of contiguous matmul instead of regular transposed matmul.  
@@ -250,6 +247,11 @@ state["exp_avg"] = SDNQTensor.from_float(
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_OPENVINO_DEVICE**: Overrides the default OpenVINO device used for OpenVINO MM.  
   Must be name of an OpenVINO device such as `CPU`. Default is `HETERO:NPU,CPU` if `NPU` is available else `CPU`  
+- **SDNQ_ALLOW_FP8_MM**: Overrides the default FP8 matmul support test done by SDNQ.  
+  This option is used with the `use_dynamic_quantization` option and within the `apply_sdnq_options_to_module` function.  
+  Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_ALLOW_FP8_COMPILE**: Overrides the torch.compile use with FP8 weights dtype.  
+  Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_COMPILE_KWARGS**: A dict of kwargs to override the kwargs used on torch.compile for SDNQ.  
   `SDNQ_COMPILE_KWARGS` is an advanced option, don't touch this if you don't know exactly what you are doing.  
   Must be json string such as `{"fullgraph": true}`. Default is None (auto-detect)  
