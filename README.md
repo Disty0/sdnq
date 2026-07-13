@@ -232,14 +232,12 @@ state["exp_avg"] = SDNQTensor.from_float(
 
 - **SDNQ_USE_TORCH_COMPILE**: Overrides the default Triton and torch.compile test done by SDNQ.  
   Can be `0` or `1`. Default is None (auto-detect)  
-- **SDNQ_USE_TENSORWISE_FP8_MM**: Force the use of software row-wise quantization via tensorwise kernels on unsupported hardware.  
-  Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_USE_CONTIGUOUS_MM**: Force the use of contiguous matmul instead of regular transposed matmul.  
   Some devices can perform much better with contiguous matmul.  
   Can be `0` or `1`. Default is None (auto-detect)  
-- **SDNQ_USE_TRITON_MM**: Force the use of Triton MM kernels for INT8 MM instead of torch._int_mm.  
+- **SDNQ_USE_TRITON_MM**: Use fused SDNQ Triton MM kernels instead of PyTorch.  
   AMD RDNA2 GPUs requires Triton MM kernels for INT8 MM support.  
-  Triton MM kernels can outperform torch._int_mm on Intel and AMD GPUs.  
+  Intel GPUs runs much faster with SDNQ Triton MM kernels than PyTorch.  
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_USE_OPENVINO_MM**: Force the use of OpenVINO MM kernels for INT8 MM instead of torch._int_mm.  
   OpenVINO MM kernels will outperform torch._int_mm on CPUs.  
@@ -247,6 +245,8 @@ state["exp_avg"] = SDNQTensor.from_float(
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_OPENVINO_DEVICE**: Overrides the default OpenVINO device used for OpenVINO MM.  
   Must be name of an OpenVINO device such as `CPU`. Default is `HETERO:NPU,CPU` if `NPU` is available else `CPU`  
+- **SDNQ_USE_TENSORWISE_FP8_MM**: Force the use of software row-wise quantization via tensorwise kernels on unsupported hardware.  
+  Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_ALLOW_FP8_MM**: Overrides the default FP8 matmul support test done by SDNQ.  
   This option is used with the `use_dynamic_quantization` option and within the `apply_sdnq_options_to_module` function.  
   Can be `0` or `1`. Default is None (auto-detect)  
