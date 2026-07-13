@@ -1,6 +1,6 @@
 from collections.abc import Callable
 
-from ..common import dtype_dict, use_tensorwise_fp8_matmul
+from ..common import dtype_dict
 
 
 def get_forward_func(param_weights_dtype: str, quantized_matmul_dtype: str, use_grad_ckpt: bool, use_quantized_matmul: bool, use_static_quantization: bool, current_group_size: int) -> Callable:
@@ -47,36 +47,20 @@ def get_forward_func(param_weights_dtype: str, quantized_matmul_dtype: str, use_
                         quantized_forward = quantized_linear_forward_int8_matmul_dynamic_ckpt
         else:
             if dtype_dict[quantized_matmul_dtype]["num_bits"] == 8:
-                if use_tensorwise_fp8_matmul:
-                    if use_grad_ckpt:
-                        if can_use_static_matmul:
-                            from .layers.linear.linear_fp8.linear_fp8 import quantized_linear_forward_fp8_matmul
-                            quantized_forward = quantized_linear_forward_fp8_matmul
-                        else:
-                            from .layers.linear.linear_fp8.linear_fp8_dynamic import quantized_linear_forward_fp8_matmul_dynamic
-                            quantized_forward = quantized_linear_forward_fp8_matmul_dynamic
+                if use_grad_ckpt:
+                    if can_use_static_matmul:
+                        from .layers.linear.linear_fp8.linear_fp8 import quantized_linear_forward_fp8_matmul
+                        quantized_forward = quantized_linear_forward_fp8_matmul
                     else:
-                        if can_use_static_matmul:
-                            from .layers.linear.linear_fp8.linear_fp8_ckpt import quantized_linear_forward_fp8_matmul_ckpt
-                            quantized_forward = quantized_linear_forward_fp8_matmul_ckpt
-                        else:
-                            from .layers.linear.linear_fp8.linear_fp8_dynamic_ckpt import quantized_linear_forward_fp8_matmul_dynamic_ckpt
-                            quantized_forward = quantized_linear_forward_fp8_matmul_dynamic_ckpt
+                        from .layers.linear.linear_fp8.linear_fp8_dynamic import quantized_linear_forward_fp8_matmul_dynamic
+                        quantized_forward = quantized_linear_forward_fp8_matmul_dynamic
                 else:
-                    if use_grad_ckpt:
-                        if can_use_static_matmul:
-                            from .layers.linear.linear_fp8_scaled.linear_fp8_scaled import quantized_linear_forward_fp8_scaled_matmul
-                            quantized_forward = quantized_linear_forward_fp8_scaled_matmul
-                        else:
-                            from .layers.linear.linear_fp8_scaled.linear_fp8_scaled_dynamic import quantized_linear_forward_fp8_scaled_matmul_dynamic
-                            quantized_forward = quantized_linear_forward_fp8_scaled_matmul_dynamic
+                    if can_use_static_matmul:
+                        from .layers.linear.linear_fp8.linear_fp8_ckpt import quantized_linear_forward_fp8_matmul_ckpt
+                        quantized_forward = quantized_linear_forward_fp8_matmul_ckpt
                     else:
-                        if can_use_static_matmul:
-                            from .layers.linear.linear_fp8_scaled.linear_fp8_scaled_ckpt import quantized_linear_forward_fp8_scaled_matmul_ckpt
-                            quantized_forward = quantized_linear_forward_fp8_scaled_matmul_ckpt
-                        else:
-                            from .layers.linear.linear_fp8_scaled.linear_fp8_scaled_dynamic_ckpt import quantized_linear_forward_fp8_scaled_matmul_dynamic_ckpt
-                            quantized_forward = quantized_linear_forward_fp8_scaled_matmul_dynamic_ckpt
+                        from .layers.linear.linear_fp8.linear_fp8_dynamic_ckpt import quantized_linear_forward_fp8_matmul_dynamic_ckpt
+                        quantized_forward = quantized_linear_forward_fp8_matmul_dynamic_ckpt
             else:
                 if use_grad_ckpt:
                     if can_use_static_matmul:

@@ -79,7 +79,6 @@ def int8_matmul_backward_ckpt(
             output_shape=None,
             do_input_reshape=False,
             do_transpose=False,
-            is_backward_pass=True,
         )
     if do_grad_bias and bias is not None:
         grad_bias = grad_output.sum(dim=0)

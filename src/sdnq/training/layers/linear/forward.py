@@ -1,5 +1,6 @@
 import torch
-from ....common import compile_func, use_contiguous_int8_mm, use_contiguous_fp16_mm
+from ....common import compile_func
+from ....kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm
 
 from ...tensor import SDNQTensor # noqa: TID252
 

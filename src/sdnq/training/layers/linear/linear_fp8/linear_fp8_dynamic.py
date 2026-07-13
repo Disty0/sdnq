@@ -1,7 +1,7 @@
 import torch
 
-from .....common import compile_func, use_contiguous_fp16_mm
-from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
+from .....common import compile_func
+from .....kernel_wrappers import fp8_scaled_mm_func, use_contiguous_fp16_mm
 from .....quant_utils import quantize_fp_mm, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -70,7 +70,6 @@ def fp8_matmul_dynamic(
                 bias = torch.addmm(bias, torch.mm(input, svd_up), svd_down)
             else:
                 bias = torch.mm(torch.mm(input, svd_up), svd_down)
-    dummy_input_scale = torch.ones(1, device=input.device, dtype=torch.float32)
     input, weight, input_scale, scale = quantize_fp_mm_matmul(
         input, weight,
         do_input_reshape=do_input_reshape,
@@ -78,32 +77,7 @@ def fp8_matmul_dynamic(
         use_sr=use_sr,
     )
     input, weight = check_mats(input, weight, allow_contiguous_mm=False)
-    if bias is not None:
-        result = dequantize_asymmetric(
-            torch._scaled_mm(
-                input, weight,
-                scale_a=dummy_input_scale,
-                scale_b=dummy_input_scale,
-                bias=None,
-                out_dtype=input_scale.dtype,
-            ).mul_(input_scale),
-            scale, bias,
-            dtype=return_dtype,
-            result_shape=output_shape,
-        )
-    else:
-        result = dequantize_symmetric(
-            torch._scaled_mm(
-                input, weight,
-                scale_a=dummy_input_scale,
-                scale_b=dummy_input_scale,
-                bias=None,
-                out_dtype=input_scale.dtype,
-            ).mul_(input_scale),
-            scale,
-            dtype=return_dtype,
-            result_shape=output_shape,
-        )
+    result = fp8_scaled_mm_func(input, weight, input_scale, scale, bias=bias, out_dtype=return_dtype).view(output_shape)
     if hadamard is not None and not do_input_reshape:
         result = rotate_hadamard(result, hadamard=hadamard)
     if bias_to_add_after is not None:

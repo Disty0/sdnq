@@ -1,20 +1,11 @@
-import os
 import torch
 
-from .....common import compile_func, int_mm_func, use_contiguous_int8_mm, use_contiguous_fp16_mm
-from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
+from .....common import compile_func
+from .....kernel_wrappers import int_scaled_mm_func, use_contiguous_int8_mm, use_contiguous_fp16_mm
 from .....quant_utils import quantize_int_mm, rotate_hadamard, get_hadamard
 from ....tensor import SDNQTensor
 
 from ..forward import check_mats, quantized_linear_with_backward
-
-if os.environ.get("SDNQ_USE_TRITON_MM", "1").lower() not in {"0", "false", "no"}:
-    try:
-        from ....kernels.triton_mm import sdnq_triton_mm
-    except Exception:
-        sdnq_triton_mm = int_mm_func
-else:
-    sdnq_triton_mm = int_mm_func
 
 
 def quantize_int_mm_matmul(
@@ -48,7 +39,6 @@ def int8_matmul_dynamic(
     rotate_weight: bool = False,
     use_sr: bool = False,
 ) -> torch.FloatTensor:
-    int_mm = sdnq_triton_mm if torch.version.cuda is not None and weight.device.type == "cuda" else int_mm_func
     return_dtype = input.dtype
     bias_to_add_after = None
     if output_shape is None:
@@ -86,20 +76,7 @@ def int8_matmul_dynamic(
         use_sr=use_sr,
     )
     input, weight = check_mats(input, weight)
-    if bias is not None:
-        result = dequantize_asymmetric(
-            int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
-            scale, bias,
-            dtype=return_dtype,
-            result_shape=output_shape,
-        )
-    else:
-        result = dequantize_symmetric(
-            int_mm(input, weight).to(dtype=input_scale.dtype).mul_(input_scale),
-            scale,
-            dtype=return_dtype,
-            result_shape=output_shape,
-        )
+    result = int_scaled_mm_func(input, weight, input_scale, scale, bias=bias, out_dtype=return_dtype).view(output_shape)
     if hadamard is not None and not do_input_reshape:
         result = rotate_hadamard(result, hadamard=hadamard)
     if bias_to_add_after is not None:
