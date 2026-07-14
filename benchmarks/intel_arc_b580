@@ -1,0 +1,24 @@
+==================================================
+Platform: Linux-7.1.3-zen1-2-zen-x86_64-with-glibc2.43
+Device: Intel(R) Arc(TM) B580 Graphics
+Steps: 100 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096
+Torch Compile: True
+Contiguous INT8 MM: True
+Contiguous FP16 MM: True
+Tensorwise FP8 MM: True
+Triton MM: True
+OpenVINO MM: False
+==================================================
+PyTorch Float TFLOPS: 101.01
+==================================================
+SDNQ INT8 TFLOPS: 175.85
+SDNQ UINT8 TFLOPS: 131.8
+SDNQ FP8 TFLOPS: 86.97
+SDNQ FP16 TFLOPS: 89.53
+==================================================
+SDNQ INT8 Hadamard TFLOPS: 158.58
+SDNQ UINT8 Hadamard TFLOPS: 121.32
+SDNQ FP8 Hadamard TFLOPS: 83.46
+SDNQ FP16 Hadamard TFLOPS: 84.49
+==================================================

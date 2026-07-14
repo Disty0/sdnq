@@ -1,0 +1,24 @@
+==================================================
+Platform: Linux-6.8.0-117-lowlatency-x86_64-with-glibc2.39
+Device: NVIDIA GeForce RTX 4090
+Steps: 100 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096
+Torch Compile: True
+Contiguous INT8 MM: False
+Contiguous FP16 MM: False
+Tensorwise FP8 MM: True
+Triton MM: True
+OpenVINO MM: False
+==================================================
+PyTorch Float TFLOPS: 161.05
+==================================================
+SDNQ INT8 TFLOPS: 459.96
+SDNQ UINT8 TFLOPS: 329.25
+SDNQ FP8 TFLOPS: 312.53
+SDNQ FP16 TFLOPS: 163.65
+==================================================
+SDNQ INT8 Hadamard TFLOPS: 408.33
+SDNQ UINT8 Hadamard TFLOPS: 300.01
+SDNQ FP8 Hadamard TFLOPS: 285.81
+SDNQ FP16 Hadamard TFLOPS: 154.64
+==================================================
