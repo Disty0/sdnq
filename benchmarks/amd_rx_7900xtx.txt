@@ -10,15 +10,15 @@ Tensorwise FP8 MM: True
 Triton MM: True
 OpenVINO MM: False
 ==================================================
-PyTorch Float TFLOPS: 70.0
+PyTorch Float TFLOPS: 80.41
 ==================================================
-SDNQ INT8 TFLOPS: 103.01
-SDNQ UINT8 TFLOPS: 90.59
-SDNQ FP8 TFLOPS: 71.33
-SDNQ FP16 TFLOPS: 78.48
+SDNQ INT8 TFLOPS: 103.02
+SDNQ UINT8 TFLOPS: 91.26
+SDNQ FP8 TFLOPS: 76.62
+SDNQ FP16 TFLOPS: 78.47
 ==================================================
-SDNQ INT8 Hadamard TFLOPS: 98.87
-SDNQ UINT8 Hadamard TFLOPS: 87.54
-SDNQ FP8 Hadamard TFLOPS: 69.2
-SDNQ FP16 Hadamard TFLOPS: 75.0
+SDNQ INT8 Hadamard TFLOPS: 98.83
+SDNQ UINT8 Hadamard TFLOPS: 87.51
+SDNQ FP8 Hadamard TFLOPS: 73.92
+SDNQ FP16 Hadamard TFLOPS: 75.01
 ==================================================
