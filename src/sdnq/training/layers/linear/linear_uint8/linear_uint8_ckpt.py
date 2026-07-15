@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func
-from .....dequantizer import dequantize_symmetric, dequantize_asymmetric
+from .....dequantizer import dequantize_symmetric_compiled, dequantize_asymmetric_compiled
 from .....quant_utils import quantize_uint_mm, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -10,36 +10,9 @@ from .linear_uint8 import uint8_matmul
 from .linear_uint8_dynamic import uint8_matmul_dynamic
 
 
-def uint8_matmul_ckpt(
-    input: torch.FloatTensor,
-    weight: torch.Tensor,
-    scale: torch.FloatTensor,
-    zero_point: torch.FloatTensor,
-    bias: torch.FloatTensor | None = None,
-    svd_up: torch.FloatTensor | None = None,
-    svd_down: torch.FloatTensor | None = None,
-    hadamard: torch.FloatTensor | None = None,
-    output_shape: torch.Size = None,
-    do_input_reshape: bool = True,
-    do_transpose: bool = True,
-) -> torch.FloatTensor:
-    result = uint8_matmul(
-        input, weight,
-        scale, zero_point,
-        bias=bias,
-        svd_up=svd_up,
-        svd_down=svd_down,
-        hadamard=hadamard,
-        output_shape=output_shape,
-        do_input_reshape=do_input_reshape,
-        do_transpose=do_transpose,
-    )
-    input, input_scale, input_zero_point = quantize_uint_mm(
-        input.flatten(0,-2).to(dtype=torch.float32),
-        dim=0,
-        hadamard=hadamard,
-    )
-    return result, input, input_scale, input_zero_point
+def get_uint8_matmul_backward_inputs(input: torch.FloatTensor, hadamard: torch.FloatTensor | None) -> tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
+    input, input_scale, input_zero_point = quantize_uint_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0, hadamard=hadamard)
+    return input, input_scale, input_zero_point
 
 
 def uint8_matmul_backward_ckpt(
@@ -65,7 +38,7 @@ def uint8_matmul_backward_ckpt(
     if do_grad_input:
         grad_input = uint8_matmul_dynamic(
             grad_output,
-            dequantize_symmetric(weight, scale) if zero_point is None else dequantize_asymmetric(weight, scale, zero_point),
+            dequantize_symmetric_compiled(weight, scale) if zero_point is None else dequantize_asymmetric_compiled(weight, scale, zero_point),
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
@@ -94,7 +67,7 @@ class UINT8MatmulBackwardCKPT(torch.autograd.Function):
         else:
             hadamard = None
 
-        result, new_input, input_scale, input_zero_point = uint8_matmul_ckpt_compiled(
+        result = uint8_matmul(
             input, weight.weight,
             weight.scale, weight.zero_point,
             bias=bias,
@@ -103,6 +76,8 @@ class UINT8MatmulBackwardCKPT(torch.autograd.Function):
             hadamard=hadamard,
             do_transpose=True,
         )
+
+        new_input, input_scale, input_zero_point = get_uint8_matmul_backward_inputs(input,hadamard)
         ctx.save_for_backward(new_input, weight, input_scale, input_zero_point, bias)
         return result
 
@@ -135,5 +110,4 @@ def quantized_linear_forward_uint8_matmul_ckpt(self, input: torch.FloatTensor) -
 
 
 uint8_matmul_with_backward_ckpt = UINT8MatmulBackwardCKPT.apply
-uint8_matmul_ckpt_compiled = compile_func(uint8_matmul_ckpt)
-uint8_matmul_backward_ckpt = compile_func(uint8_matmul_backward_ckpt)
+get_uint8_matmul_backward_inputs = compile_func(get_uint8_matmul_backward_inputs)

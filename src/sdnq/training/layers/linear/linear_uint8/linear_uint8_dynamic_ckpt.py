@@ -9,28 +9,10 @@ from .linear_uint8 import uint8_matmul
 from .linear_uint8_dynamic import uint8_matmul_dynamic
 
 
-def uint8_matmul_dynamic_ckpt(
-    input: torch.FloatTensor,
-    weight: torch.FloatTensor,
-    bias: torch.FloatTensor | None = None,
-    svd_up: torch.FloatTensor | None = None,
-    svd_down: torch.FloatTensor | None = None,
-    hadamard: torch.FloatTensor | None = None,
-) -> torch.FloatTensor:
-    result = uint8_matmul_dynamic(
-        input, weight,
-        bias=bias,
-        svd_up=svd_up,
-        svd_down=svd_down,
-        hadamard=hadamard,
-    )
+def get_uint8_matmul_dynamic_backward_inputs(input: torch.FloatTensor, weight: torch.FloatTensor, hadamard: torch.FloatTensor | None):
     weight, scale, zero_point = quantize_uint_mm(weight.to(dtype=torch.float32), dim=0)
-    input, input_scale, input_zero_point = quantize_uint_mm(
-        input.flatten(0,-2).to(dtype=torch.float32),
-        dim=0,
-        hadamard=hadamard,
-    )
-    return result, input, weight, input_scale, scale, input_zero_point, zero_point
+    input, input_scale, input_zero_point = quantize_uint_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0, hadamard=hadamard)
+    return input, weight, input_scale, scale, input_zero_point, zero_point
 
 
 def uint8_matmul_dynamic_backward_ckpt(
@@ -95,13 +77,15 @@ class UINT8MatmulDynamicBackwardCKPT(torch.autograd.Function):
         else:
             hadamard = None
 
-        result, new_input, new_weight, input_scale, weight_scale, input_zero_point, weight_zero_point = uint8_matmul_dynamic_ckpt_compiled(
+        result = uint8_matmul_dynamic(
             input, weight,
             bias=bias,
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
         )
+
+        new_input, new_weight, input_scale, weight_scale, input_zero_point, weight_zero_point = get_uint8_matmul_dynamic_backward_inputs(input, weight, hadamard)
         ctx.save_for_backward(new_input, new_weight, input_scale, weight_scale, input_zero_point, weight_zero_point, bias, svd_up, svd_down)
         return result
 
@@ -137,5 +121,4 @@ def quantized_linear_forward_uint8_matmul_dynamic_ckpt(self, input: torch.FloatT
 
 
 uint8_matmul_dynamic_with_backward_ckpt = UINT8MatmulDynamicBackwardCKPT.apply
-uint8_matmul_dynamic_ckpt_compiled = compile_func(uint8_matmul_dynamic_ckpt)
-uint8_matmul_dynamic_backward_ckpt = compile_func(uint8_matmul_dynamic_backward_ckpt)
+get_uint8_matmul_dynamic_backward_inputs = compile_func(get_uint8_matmul_dynamic_backward_inputs)

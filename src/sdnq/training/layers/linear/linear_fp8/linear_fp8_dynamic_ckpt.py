@@ -9,28 +9,10 @@ from .linear_fp8 import fp8_matmul
 from .linear_fp8_dynamic import fp8_matmul_dynamic
 
 
-def fp8_matmul_dynamic_ckpt(
-    input: torch.FloatTensor,
-    weight: torch.FloatTensor,
-    bias: torch.FloatTensor | None = None,
-    svd_up: torch.FloatTensor | None = None,
-    svd_down: torch.FloatTensor | None = None,
-    hadamard: torch.FloatTensor | None = None,
-) -> torch.FloatTensor:
-    result = fp8_matmul_dynamic(
-        input, weight,
-        bias=bias,
-        svd_up=svd_up,
-        svd_down=svd_down,
-        hadamard=hadamard,
-    )
+def get_fp8_matmul_dynamic_backward_inputs(input: torch.FloatTensor, weight: torch.FloatTensor, hadamard: torch.FloatTensor | None) -> torch.FloatTensor:
     new_weight, weight_scale = quantize_fp_mm(weight.to(dtype=torch.float32), dim=0)
-    new_input, input_scale = quantize_fp_mm(
-        input.flatten(0,-2).to(dtype=torch.float32),
-        dim=0,
-        hadamard=hadamard,
-    )
-    return result, new_input, new_weight, input_scale, weight_scale
+    new_input, input_scale = quantize_fp_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0, hadamard=hadamard)
+    return new_input, new_weight, input_scale, weight_scale
 
 
 def fp8_matmul_dynamic_backward_ckpt(
@@ -93,13 +75,15 @@ class FP8MatmulDynamicBackwardCKPT(torch.autograd.Function):
         else:
             hadamard = None
 
-        result, new_input, new_weight, input_scale, weight_scale = fp8_matmul_dynamic_ckpt_compiled(
+        result = fp8_matmul_dynamic(
             input, weight,
             bias=bias,
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
         )
+
+        new_input, new_weight, input_scale, weight_scale = get_fp8_matmul_dynamic_backward_inputs(input, weight, hadamard)
         ctx.save_for_backward(new_input, new_weight, input_scale, weight_scale, bias, svd_up, svd_down)
         return result
 
@@ -133,5 +117,4 @@ def quantized_linear_forward_fp8_matmul_dynamic_ckpt(self, input: torch.FloatTen
 
 
 fp8_matmul_dynamic_with_backward_ckpt = FP8MatmulDynamicBackwardCKPT.apply
-fp8_matmul_dynamic_ckpt_compiled = compile_func(fp8_matmul_dynamic_ckpt)
-fp8_matmul_dynamic_backward_ckpt = compile_func(fp8_matmul_dynamic_backward_ckpt)
+get_fp8_matmul_dynamic_backward_inputs = compile_func(get_fp8_matmul_dynamic_backward_inputs)

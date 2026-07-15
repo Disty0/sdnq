@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func
-from .....dequantizer import dequantize_symmetric
+from .....dequantizer import dequantize_symmetric_compiled
 from .....quant_utils import quantize_fp_mm, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -10,34 +10,9 @@ from .linear_fp8 import fp8_matmul
 from .linear_fp8_dynamic import fp8_matmul_dynamic
 
 
-def fp8_matmul_ckpt(
-    input: torch.FloatTensor,
-    weight: torch.Tensor,
-    scale: torch.FloatTensor,
-    bias: torch.FloatTensor | None = None,
-    svd_up: torch.FloatTensor | None = None,
-    svd_down: torch.FloatTensor | None = None,
-    hadamard: torch.FloatTensor | None = None,
-    output_shape: torch.Size = None,
-    do_input_reshape: bool = True,
-    do_transpose: bool = True,
-) -> torch.FloatTensor:
-    result = fp8_matmul(
-        input, weight, scale,
-        bias=bias,
-        svd_up=svd_up,
-        svd_down=svd_down,
-        hadamard=hadamard,
-        output_shape=output_shape,
-        do_input_reshape=do_input_reshape,
-        do_transpose=do_transpose,
-    )
-    new_input, input_scale = quantize_fp_mm(
-        input.flatten(0,-2).to(dtype=torch.float32),
-        dim=0,
-        hadamard=hadamard,
-    )
-    return result, new_input, input_scale
+def get_fp8_matmul_backward_inputs(input: torch.FloatTensor, hadamard: torch.FloatTensor | None) -> torch.FloatTensor:
+    new_input, input_scale = quantize_fp_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0, hadamard=hadamard)
+    return new_input, input_scale
 
 
 def fp8_matmul_backward_ckpt(
@@ -61,7 +36,7 @@ def fp8_matmul_backward_ckpt(
     if do_grad_input:
         grad_input = fp8_matmul_dynamic(
             grad_output,
-            dequantize_symmetric(weight, scale),
+            dequantize_symmetric_compiled(weight, scale),
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
@@ -90,7 +65,7 @@ class FP8MatmulBackwardCKPT(torch.autograd.Function):
         else:
             hadamard = None
 
-        result, new_input, input_scale = fp8_matmul_ckpt_compiled(
+        result = fp8_matmul(
             input, weight.weight, weight.scale,
             bias=bias,
             svd_up=weight.svd_up,
@@ -98,6 +73,8 @@ class FP8MatmulBackwardCKPT(torch.autograd.Function):
             hadamard=hadamard,
             do_transpose=True,
         )
+
+        new_input, input_scale = get_fp8_matmul_backward_inputs(input, hadamard)
         ctx.save_for_backward(new_input, weight, input_scale, bias)
         return result
 
@@ -129,5 +106,4 @@ def quantized_linear_forward_fp8_matmul_ckpt(self, input: torch.FloatTensor) -> 
 
 
 fp8_matmul_with_backward_ckpt = FP8MatmulBackwardCKPT.apply
-fp8_matmul_ckpt_compiled = compile_func(fp8_matmul_ckpt)
-fp8_matmul_backward_ckpt = compile_func(fp8_matmul_backward_ckpt)
+get_fp8_matmul_backward_inputs = compile_func(get_fp8_matmul_backward_inputs)

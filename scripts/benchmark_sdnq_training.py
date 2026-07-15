@@ -210,6 +210,7 @@ def main(
     print("Torch Compile:", sdnq.common.use_torch_compile)
     print("Contiguous INT8 MM:", sdnq.kernel_wrappers.use_contiguous_int8_mm)
     print("Contiguous FP16 MM:", sdnq.kernel_wrappers.use_contiguous_fp16_mm)
+    print("Contiguous FP8 MM:", sdnq.kernel_wrappers.use_contiguous_fp8_mm)
     print("Tensorwise FP8 MM:", sdnq.kernel_wrappers.use_tensorwise_fp8_matmul)
     print("Triton MM:", sdnq.kernel_wrappers.use_triton_mm)
     print("OpenVINO MM:", sdnq.kernel_wrappers.use_openvino_mm)

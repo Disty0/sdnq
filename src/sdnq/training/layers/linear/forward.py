@@ -1,14 +1,18 @@
 import torch
 from ....common import compile_func
-from ....kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm
+from ....kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm, use_contiguous_fp8_mm
 
 from ...tensor import SDNQTensor # noqa: TID252
 
 
-def check_mats(input: torch.Tensor, weight: torch.Tensor, allow_contiguous_mm: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
+def check_mats(input: torch.Tensor, weight: torch.Tensor, matmul_dtype: str = "int8") -> tuple[torch.Tensor, torch.Tensor]:
     if input is not None:
         input = input.contiguous()
-    if allow_contiguous_mm and ((use_contiguous_int8_mm and weight.dtype == torch.int8) or (use_contiguous_fp16_mm and weight.dtype == torch.float16)):
+    if (
+        (use_contiguous_int8_mm and matmul_dtype in {"int8", "uint8"})
+        or (use_contiguous_fp16_mm and matmul_dtype in {"fp16", "float16"})
+        or (use_contiguous_fp8_mm and matmul_dtype in {"fp8", "float8_e4m3fn"})
+    ):
         weight = weight.contiguous()
     elif weight.is_contiguous():
         weight = weight.t().contiguous().t()
