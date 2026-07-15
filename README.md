@@ -110,8 +110,8 @@ def sdpa_sdnq_atten(query: torch.FloatTensor, key: torch.FloatTensor, value: tor
         return sdnq_triton_atten(
             query=query, key=key, value=value, attn_mask=attn_mask,
             is_causal=is_causal, scale=scale, enable_gqa=enable_gqa,
-            matmul_dtype="int8", # can be one of "no", "int8", "float8_e4m3fn", "float16".
-            pv_matmul_dtype="no", # can be one of "no", "int8", "float8_e4m3fn", "float16".
+            matmul_dtype="int8", # can be one of "disabled", "int8", "float8_e4m3fn", "float16".
+            pv_matmul_dtype="disabled", # can be one of "disabled", "int8", "float8_e4m3fn", "float16".
             smooth_k=False,
             use_hadamard=False,
             hadamard_group_size=256,
