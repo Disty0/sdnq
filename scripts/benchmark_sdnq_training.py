@@ -213,6 +213,7 @@ def main(
     print("Contiguous FP8 MM:", sdnq.kernel_wrappers.use_contiguous_fp8_mm)
     print("Tensorwise FP8 MM:", sdnq.kernel_wrappers.use_tensorwise_fp8_matmul)
     print("Triton MM:", sdnq.kernel_wrappers.use_triton_mm)
+    print("Triton Scaled MM:", sdnq.kernel_wrappers.use_triton_scaled_mm)
     print("OpenVINO MM:", sdnq.kernel_wrappers.use_openvino_mm)
     print("==================================================")
     print("PyTorch Float TFLOPS:", pytorch_float_tflops)

@@ -104,7 +104,7 @@ def sdpa_sdnq_atten(query: torch.FloatTensor, key: torch.FloatTensor, value: tor
     if (
         query.device.type != "cpu"
         and (query.shape[-2] >= 32 and key.shape[-2] >= 32)
-        and (query.shape[-2] >= 512 or key.shape[-2] >= 512) # Skip TE
+        and (query.shape[-2] > 512 or key.shape[-2] > 512) # Skip TE
         and query.shape[-3] > 1 # Skip VAE
     ):
         return sdnq_triton_atten(
@@ -244,6 +244,9 @@ state["exp_avg"] = SDNQTensor.from_float(
   AMD RDNA2 GPUs requires Triton MM kernels for INT8 MM support.  
   Intel GPUs runs much faster with SDNQ Triton MM kernels than PyTorch.  
   Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_USE_TRITON_SCALED_MM**:  
+  Set this to `0` to disable fused SDNQ Triton MM kernels and use the regular unfused Triton MM kernels instead.  
+  Can be `0` or `1`. Default is `1`  
 - **SDNQ_USE_OPENVINO_MM**: Force the use of OpenVINO MM kernels for INT8 MM instead of torch._int_mm.  
   OpenVINO MM kernels will outperform torch._int_mm on CPUs.  
   Requires manual installation of OpenVINO via `pip install openvino`.  
