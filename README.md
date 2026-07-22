@@ -255,6 +255,8 @@ state["exp_avg"] = SDNQTensor.from_float(
   Must be name of an OpenVINO device such as `CPU`. Default is `HETERO:NPU,CPU` if `NPU` is available else `CPU`  
 - **SDNQ_USE_TENSORWISE_FP8_MM**: Force the use of software row-wise quantization via tensorwise kernels on unsupported hardware.  
   Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_INCLUDE_MM_KERNEL_IN_COMPILE**: Include the Fused MM Kernels in the torch.compile graph.  
+  Can be `0` or `1`. Default is `0` if Fused MM Kernels are in use, else `1`.  
 - **SDNQ_ALLOW_FP8_MM**: Overrides the default FP8 matmul support test done by SDNQ.  
   This option is used with the `use_dynamic_quantization` option and within the `apply_sdnq_options_to_module` function.  
   Can be `0` or `1`. Default is None (auto-detect)  

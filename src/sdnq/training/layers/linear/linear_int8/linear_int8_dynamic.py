@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func
-from .....kernel_wrappers import int_scaled_mm_func, use_contiguous_int8_mm, use_contiguous_fp16_mm
+from .....kernel_wrappers import int_scaled_mm_func, use_contiguous_int8_mm, use_contiguous_fp16_mm, include_mm_kernel_in_compile
 from .....quant_utils import quantize_int_mm, rotate_hadamard, rotate_hadamard_compiled, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -205,4 +205,7 @@ def quantized_linear_forward_int8_matmul_dynamic(self, input: torch.FloatTensor)
 
 
 int8_matmul_dynamic_with_backward = INT8MatmulDynamicBackward.apply
-get_int8_matmul_dynamic_inputs = compile_func(get_int8_matmul_dynamic_inputs)
+if not include_mm_kernel_in_compile:
+    get_int8_matmul_dynamic_inputs = compile_func(get_int8_matmul_dynamic_inputs)
+else:
+    int8_matmul_dynamic = compile_func(int8_matmul_dynamic)

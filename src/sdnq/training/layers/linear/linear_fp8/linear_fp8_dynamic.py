@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func
-from .....kernel_wrappers import fp8_scaled_mm_func, use_contiguous_fp16_mm
+from .....kernel_wrappers import fp8_scaled_mm_func, use_contiguous_fp16_mm, is_fp8_mm_supported, include_mm_kernel_in_compile
 from .....quant_utils import quantize_fp_mm, rotate_hadamard, rotate_hadamard_compiled, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -206,4 +206,7 @@ def quantized_linear_forward_fp8_matmul_dynamic(self, input: torch.FloatTensor) 
 
 
 fp8_matmul_dynamic_with_backward = FP8MatmulDynamicBackward.apply
-get_fp8_matmul_dynamic_inputs = compile_func(get_fp8_matmul_dynamic_inputs)
+if is_fp8_mm_supported and not include_mm_kernel_in_compile:
+    get_fp8_matmul_dynamic_inputs = compile_func(get_fp8_matmul_dynamic_inputs)
+else:
+    fp8_matmul_dynamic = compile_func(fp8_matmul_dynamic)

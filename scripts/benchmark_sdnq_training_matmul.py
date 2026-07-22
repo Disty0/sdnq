@@ -122,22 +122,21 @@ def main(
     sdnq_int8_tflops = benchmark_linear("SDNQ INT8", int8_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8", group_size=-1).requires_grad_(True), b, steps)
     sdnq_uint8_tflops = benchmark_linear("SDNQ UINT8", uint8_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8", group_size=-1).requires_grad_(True), b, steps)
     sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", fp8_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8", group_size=-1).requires_grad_(True), b, steps)
+    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", fp16_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="float16", group_size=-1).requires_grad_(True), b, steps)
 
     sdnq_int8_dyn_float_tflops = benchmark_linear("SDNQ INT8 Dynamic Float", int8_matmul_dynamic_with_backward, x, y, b, steps)
     sdnq_uint8_dyn_float_tflops = benchmark_linear("SDNQ UINT8 Dynamic Float", uint8_matmul_dynamic_with_backward, x, y, b, steps)
     sdnq_fp8_dyn_float_tflops = benchmark_linear("SDNQ FP8 Dynamic Float", fp8_matmul_dynamic_with_backward, x, y, b, steps)
+    sdnq_fp16_dyn_float_tflops = benchmark_linear("SDNQ FP16 Dynamic Float", fp16_matmul_dynamic_with_backward, x, y, b, steps)
 
     sdnq_int8_ckpt_tflops = benchmark_linear("SDNQ INT8 CKPT", int8_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8", group_size=-1).requires_grad_(True), b, steps)
     sdnq_uint8_ckpt_tflops = benchmark_linear("SDNQ UINT8 CKPT", uint8_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8", group_size=-1).requires_grad_(True), b, steps)
     sdnq_fp8_ckpt_tflops = benchmark_linear("SDNQ FP8 CKPT", fp8_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8", group_size=-1).requires_grad_(True), b, steps)
+    sdnq_fp16_ckpt_tflops = benchmark_linear("SDNQ FP16 CKPT", fp16_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="float16", group_size=-1).requires_grad_(True), b, steps)
 
     sdnq_int8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT Float", int8_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
     sdnq_uint8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT Float", uint8_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
     sdnq_fp8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT Float", fp8_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
-
-    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", fp16_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="float16", group_size=-1).requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_float_tflops = benchmark_linear("SDNQ FP16 Dynamic Float", fp16_matmul_dynamic_with_backward, x, y, b, steps)
-    sdnq_fp16_ckpt_tflops = benchmark_linear("SDNQ FP16 CKPT", fp16_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="float16", group_size=-1).requires_grad_(True), b, steps)
     sdnq_fp16_dyn_ckpt_float_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT Float", fp16_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
 
     print("")
@@ -147,6 +146,7 @@ def main(
     print("Steps:", steps, "| MNK:", round((m*n*k)**(1/3)), "| Float:", dtype)
     print("M:", m, "| N:", n, "| K:", k)
     print("Torch Compile:", sdnq.common.use_torch_compile)
+    print("MM Kernel in Compile:", sdnq.kernel_wrappers.include_mm_kernel_in_compile)
     print("Contiguous INT8 MM:", sdnq.kernel_wrappers.use_contiguous_int8_mm)
     print("Contiguous FP16 MM:", sdnq.kernel_wrappers.use_contiguous_fp16_mm)
     print("Contiguous FP8 MM:", sdnq.kernel_wrappers.use_contiguous_fp8_mm)

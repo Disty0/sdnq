@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func
-from .....kernel_wrappers import fp_scaled_mm_func, use_contiguous_fp16_mm
+from .....kernel_wrappers import fp_scaled_mm_func, use_contiguous_fp16_mm, include_mm_kernel_in_compile
 from .....quant_utils import rotate_hadamard, rotate_hadamard_compiled, get_hadamard
 from ....tensor import SDNQTensor
 
@@ -188,4 +188,7 @@ def quantized_linear_forward_fp16_matmul_dynamic(self, input: torch.FloatTensor)
 
 
 fp16_matmul_dynamic_with_backward = FP16MatmulDynamicBackward.apply
-get_fp16_matmul_dynamic_inputs = compile_func(get_fp16_matmul_dynamic_inputs)
+if not include_mm_kernel_in_compile:
+    get_fp16_matmul_dynamic_inputs = compile_func(get_fp16_matmul_dynamic_inputs)
+else:
+    fp16_matmul_dynamic = compile_func(fp16_matmul_dynamic)

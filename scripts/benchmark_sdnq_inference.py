@@ -140,6 +140,7 @@ def main(
     print("Steps:", steps, "| MNK:", round((m*n*k)**(1/3)), "| Float:", dtype)
     print("M:", m, "| N:", n, "| K:", k)
     print("Torch Compile:", sdnq.common.use_torch_compile)
+    print("MM Kernel in Compile:", sdnq.kernel_wrappers.include_mm_kernel_in_compile)
     print("Contiguous INT8 MM:", sdnq.kernel_wrappers.use_contiguous_int8_mm)
     print("Contiguous FP16 MM:", sdnq.kernel_wrappers.use_contiguous_fp16_mm)
     print("Contiguous FP8 MM:", sdnq.kernel_wrappers.use_contiguous_fp8_mm)

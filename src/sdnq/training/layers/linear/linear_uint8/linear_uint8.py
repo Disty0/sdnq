@@ -1,7 +1,7 @@
 import torch
 
 from .....common import compile_func
-from .....kernel_wrappers import int_scaled_mm_func, use_contiguous_fp16_mm
+from .....kernel_wrappers import int_scaled_mm_func, use_contiguous_fp16_mm, include_mm_kernel_in_compile
 from .....dequantizer import dequantize_symmetric_compiled, dequantize_asymmetric_compiled
 from .....quant_utils import quantize_uint_mm, rotate_hadamard, rotate_hadamard_compiled, get_hadamard
 from ....tensor import SDNQTensor
@@ -212,4 +212,7 @@ def quantized_linear_forward_uint8_matmul(self, input: torch.FloatTensor) -> tor
 
 
 uint8_matmul_with_backward = UINT8MatmulBackward.apply
-get_uint8_matmul_inputs = compile_func(get_uint8_matmul_inputs)
+if not include_mm_kernel_in_compile:
+    get_uint8_matmul_inputs = compile_func(get_uint8_matmul_inputs)
+else:
+    uint8_matmul = compile_func(uint8_matmul)
