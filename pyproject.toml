@@ -24,7 +24,12 @@ Issues = "https://github.com/Disty0/sdnq/issues"
 
 
 [tool.ruff.lint]
-ignore = ["I001"]
+ignore = [
+    "I001",
+    "FURB105",
+    "BLE001",
+    "S110",
+]
 
 [tool.pylint]
 messages_control.disable=[

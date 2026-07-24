@@ -65,10 +65,10 @@ def main(
     steps: int = 50,
     mnk: int = 8192,
     dtype: torch.dtype | str = None,
-    device: str = None,
-    m: int = None,
-    n: int = None,
-    k: int = None,
+    device: str | None = None,
+    m: int | None = None,
+    n: int | None = None,
+    k: int | None = None,
 ) -> None:
     if device is None:
         from sdnq.sdnext import devices
