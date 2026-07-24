@@ -23,6 +23,9 @@ Homepage = "https://github.com/Disty0/sdnq"
 Issues = "https://github.com/Disty0/sdnq/issues"
 
 
+[tool.ruff.lint]
+ignore = ["I001"]
+
 [tool.pylint]
 messages_control.disable=[
     "import-error",
