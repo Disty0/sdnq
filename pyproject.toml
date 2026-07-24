@@ -27,6 +27,7 @@ Issues = "https://github.com/Disty0/sdnq/issues"
 ignore = [
     "I001",
     "FURB105",
+    "PLR2044",
     "BLE001",
     "S110",
 ]

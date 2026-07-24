@@ -71,7 +71,7 @@ class SDNQTensor(torch.Tensor):
         return SDNQTensor(tensor_data_dict["weight"], tensor_data_dict["scale"], tensor_data_dict.get("zero_point", None), tensor_data_dict.get("svd_up", None), tensor_data_dict.get("svd_down", None), sdnq_dequantizer)
 
     def __repr__(self) -> str:
-        return f"SDNQTensor(weight={repr(self.weight)}, scale={repr(self.scale)}, zero_point={repr(self.zero_point)}, svd_up={repr(self.svd_up)}, svd_down={repr(self.svd_down)}), sdnq_dequantizer={repr(self.sdnq_dequantizer)}"
+        return f"SDNQTensor(weight={self.weight}, scale={self.scale}, zero_point={self.zero_point}, svd_up={self.svd_up}, svd_down={self.svd_down}), sdnq_dequantizer={self.sdnq_dequantizer}"
 
     @staticmethod
     def from_float(
@@ -135,7 +135,7 @@ class SDNQTensor(torch.Tensor):
         if kwargs is None:
             kwargs = {}
         if func not in op_implementations_dict:
-            raise AssertionError(f"SDNQTensor does not yet support op: {str(func)}")
+            raise AssertionError(f"SDNQTensor does not yet support op: {func}")
         return op_implementations_dict[func](func, *args, **kwargs)
 
     def fsdp_pre_all_gather(self, mesh, outer_size=None, outer_stride=None, module=None, mp_policy=None) -> tuple[list[torch.Tensor, torch.FloatTensor], SDNQDequantizer]: # pylint: disable=unused-argument
@@ -163,7 +163,7 @@ class SDNQTensor(torch.Tensor):
 op_implementations_dict = {}
 def register_op(ops: list[torch._ops.OpOverload]):
     def impl_decorator(op_impl):
-        global op_implementations_dict # pylint: disable=global-variable-not-assigned
+        global op_implementations_dict # pylint: disable=global-variable-not-assigned # noqa: PLW0602
         for op in ops:
             op_implementations_dict[op] = op_impl
         return op_impl

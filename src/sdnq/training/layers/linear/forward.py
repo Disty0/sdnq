@@ -2,7 +2,7 @@ import torch
 from ....common import compile_func
 from ....kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm, use_contiguous_fp8_mm
 
-from ...tensor import SDNQTensor # noqa: TID252
+from ...tensor import SDNQTensor
 
 
 def check_mats(input: torch.Tensor, weight: torch.Tensor, matmul_dtype: str = "int8") -> tuple[torch.Tensor, torch.Tensor]:
