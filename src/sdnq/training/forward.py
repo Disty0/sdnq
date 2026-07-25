@@ -77,8 +77,12 @@ def get_forward_func(param_weights_dtype: str, quantized_matmul_dtype: str, use_
                         from .layers.linear.linear_fp16.linear_fp16_dynamic_ckpt import quantized_linear_forward_fp16_matmul_dynamic_ckpt
                         quantized_forward = quantized_linear_forward_fp16_matmul_dynamic_ckpt
     elif use_static_quantization:
-        from .layers.linear.forward import quantized_linear_forward
-        quantized_forward = quantized_linear_forward
+        if use_grad_ckpt:
+            from .layers.linear.forward import quantized_linear_forward
+            quantized_forward = quantized_linear_forward
+        else:
+            from .layers.linear.forward import quantized_linear_forward_ckpt
+            quantized_forward = quantized_linear_forward_ckpt
     else:
         quantized_forward = None
 

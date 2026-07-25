@@ -42,10 +42,10 @@ def linear_backward(
 class QuantizedLinearBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
+        ctx.input_shape = input.shape
         if isinstance(weight, SDNQTensor):
             weight = weight.dequantize()
         ctx.save_for_backward(input if ctx.needs_input_grad[1] else None, weight if ctx.needs_input_grad[0] else None)
-        ctx.input_shape = input.shape
         return torch.nn.functional.linear(input, weight, bias)
 
     @staticmethod
@@ -61,9 +61,38 @@ class QuantizedLinearBackward(torch.autograd.Function):
         )
 
 
+class QuantizedLinearBackwardCKPT(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, input: torch.FloatTensor, weight: torch.FloatTensor | SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
+        ctx.input_shape = input.shape
+        ctx.save_for_backward(input if ctx.needs_input_grad[1] else None, weight if ctx.needs_input_grad[0] else None)
+        if isinstance(weight, SDNQTensor):
+            weight = weight.dequantize()
+        return torch.nn.functional.linear(input, weight, bias)
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
+        input, weight = ctx.saved_tensors
+        if isinstance(weight, SDNQTensor):
+            weight = weight.dequantize()
+        return linear_backward(
+            grad_output,
+            input, weight,
+            input_shape=ctx.input_shape,
+            do_grad_input=ctx.needs_input_grad[0],
+            do_grad_weight=ctx.needs_input_grad[1],
+            do_grad_bias=ctx.needs_input_grad[2],
+        )
+
+
 def quantized_linear_forward(self, input: torch.FloatTensor) -> torch.FloatTensor:
     return quantized_linear_with_backward(input, self.weight, self.bias)
 
 
+def quantized_linear_forward_ckpt(self, input: torch.FloatTensor) -> torch.FloatTensor:
+    return quantized_linear_with_backward_ckpt(input, self.weight, self.bias)
+
+
 quantized_linear_with_backward = QuantizedLinearBackward.apply
+quantized_linear_with_backward_ckpt = QuantizedLinearBackwardCKPT.apply
 linear_backward = compile_func(linear_backward)

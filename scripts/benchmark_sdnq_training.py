@@ -9,7 +9,7 @@ from tqdm import tqdm
 import sdnq.common
 import sdnq.kernel_wrappers
 from sdnq.training import SDNQTensor
-from sdnq.training.layers.linear.forward import quantized_linear_with_backward
+from sdnq.training.layers.linear.forward import quantized_linear_with_backward, quantized_linear_with_backward_ckpt
 
 from sdnq.training.layers.linear.linear_int8.linear_int8 import int8_matmul_with_backward
 from sdnq.training.layers.linear.linear_int8.linear_int8_ckpt import int8_matmul_with_backward_ckpt
@@ -135,6 +135,13 @@ def main(
     sdnq_float_int8_tflops = benchmark_linear("SDNQ Float INT8", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
     sdnq_float_fp8_tflops = benchmark_linear("SDNQ Float FP8", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
 
+    sdnq_float_ckpt_uint16_tflops = benchmark_linear("SDNQ Float CKPT UINT16", quantized_linear_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
+    sdnq_float_ckpt_int16_tflops = benchmark_linear("SDNQ Float CKPT INT16", quantized_linear_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
+    sdnq_float_ckpt_fp16_tflops = benchmark_linear("SDNQ Float CKPT FP16", quantized_linear_with_backward_ckpt, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
+    sdnq_float_ckpt_uint8_tflops = benchmark_linear("SDNQ Float CKPT UINT8", quantized_linear_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
+    sdnq_float_ckpt_int8_tflops = benchmark_linear("SDNQ Float CKPT INT8", quantized_linear_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
+    sdnq_float_ckpt_fp8_tflops = benchmark_linear("SDNQ Float CKPT FP8", quantized_linear_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
+
     sdnq_int8_dyn_float_tflops = benchmark_linear("SDNQ INT8 Dynamic Float", int8_matmul_dynamic_with_backward, x, y, b, steps, weight_grad, input_grad, bias_grad, bias)
     sdnq_int8_dyn_uint16_tflops = benchmark_linear("SDNQ INT8 Dynamic UINT16", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
     sdnq_int8_dyn_int16_tflops = benchmark_linear("SDNQ INT8 Dynamic INT16", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad, input_grad, bias_grad, bias)
@@ -239,6 +246,13 @@ def main(
     print("SDNQ Float UINT8 TFLOPS:", sdnq_float_uint8_tflops)
     print("SDNQ Float INT8 TFLOPS:", sdnq_float_int8_tflops)
     print("SDNQ Float FP8 TFLOPS:", sdnq_float_fp8_tflops)
+    print("==================================================")
+    print("SDNQ Float CKPT UINT16 TFLOPS:", sdnq_float_ckpt_uint16_tflops)
+    print("SDNQ Float CKPT INT16 TFLOPS:", sdnq_float_ckpt_int16_tflops)
+    print("SDNQ Float CKPT FP16 TFLOPS:", sdnq_float_ckpt_fp16_tflops)
+    print("SDNQ Float CKPT UINT8 TFLOPS:", sdnq_float_ckpt_uint8_tflops)
+    print("SDNQ Float CKPT INT8 TFLOPS:", sdnq_float_ckpt_int8_tflops)
+    print("SDNQ Float CKPT FP8 TFLOPS:", sdnq_float_ckpt_fp8_tflops)
     print("==================================================")
     print("SDNQ INT8 Dynamic Float TFLOPS:", sdnq_int8_dyn_float_tflops)
     print("SDNQ INT8 Dynamic UINT16 TFLOPS:", sdnq_int8_dyn_uint16_tflops)
