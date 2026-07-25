@@ -60,11 +60,11 @@ def get_sync_func(device: torch.device):
     return do_nothing
 
 
-def get_tflops(it_s: float, m: int, n: int, k: int) -> float:
-    return round(it_s * ((3*2*m*k*n) + (2 * n * m)) / (10**12), 2)
+def get_tflops(it_s: float, m: int, n: int, k: int, weight_grad: bool) -> float:
+    return round(it_s * (((3 if weight_grad else 2) * 2*m*k*n) + (2 * n * m)) / (10**12), 2)
 
 
-def benchmark_linear(name: str, linear: Callable, x: torch.Tensor, y: torch.Tensor, b: torch.Tensor, steps: int):
+def benchmark_linear(name: str, linear: Callable, x: torch.Tensor, y: torch.Tensor, b: torch.Tensor, steps: int, weight_grad: bool) -> float:
     assert x.ndim == 2
     try:
         print(name)
@@ -80,7 +80,7 @@ def benchmark_linear(name: str, linear: Callable, x: torch.Tensor, y: torch.Tens
             loss.backward()
             sync_func(x.device)
         t1 = time.time()
-        return get_tflops(steps/(t1 - t0), x.shape[0],z.shape[1],x.shape[1])
+        return get_tflops(steps/(t1 - t0), x.shape[0],z.shape[1],x.shape[1], weight_grad)
     except Exception:
         print(f"{name} test failed")
         return 0
@@ -91,6 +91,7 @@ def main(
     mnk: int = 8192,
     dtype: torch.dtype | str = None,
     device: str | None = None,
+    weight_grad: bool = True,
     m: int | None = None,
     n: int | None = None,
     k: int | None = None,
@@ -113,92 +114,92 @@ def main(
         k = mnk//2
 
     x = torch.randn(m,k, device=device, dtype=dtype).requires_grad_(True)
-    y = torch.randn(n,k, device=device, dtype=dtype).requires_grad_(True)
+    y = torch.randn(n,k, device=device, dtype=dtype).requires_grad_(weight_grad)
     b = torch.randn(n, device=device, dtype=dtype).requires_grad_(True)
 
-    pytorch_float_tflops = benchmark_linear("PyTorch Float", torch.nn.functional.linear, x, y, b, steps)
-    sdnq_float_tflops = benchmark_linear("SDNQ Float", quantized_linear_with_backward, x, y, b, steps)
+    pytorch_float_tflops = benchmark_linear("PyTorch Float", torch.nn.functional.linear, x, y, b, steps, weight_grad)
+    sdnq_float_tflops = benchmark_linear("SDNQ Float", quantized_linear_with_backward, x, y, b, steps, weight_grad)
 
-    sdnq_int8_tflops = benchmark_linear("SDNQ INT8", int8_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8", group_size=-1).requires_grad_(True), b, steps)
-    sdnq_uint8_tflops = benchmark_linear("SDNQ UINT8", uint8_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8", group_size=-1).requires_grad_(True), b, steps)
-    sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", fp8_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8", group_size=-1).requires_grad_(True), b, steps)
-    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", fp16_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="float16", group_size=-1).requires_grad_(True), b, steps)
+    sdnq_int8_tflops = benchmark_linear("SDNQ INT8", int8_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8", group_size=-1).requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_tflops = benchmark_linear("SDNQ UINT8", uint8_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8", group_size=-1).requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", fp8_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8", group_size=-1).requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", fp16_matmul_with_backward, x, SDNQTensor.from_float(y, weights_dtype="float16", group_size=-1).requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_float_uint16_tflops = benchmark_linear("SDNQ Float UINT16", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(True), b, steps)
-    sdnq_float_int16_tflops = benchmark_linear("SDNQ Float INT16", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(True), b, steps)
-    sdnq_float_fp16_tflops = benchmark_linear("SDNQ Float FP16", quantized_linear_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(True), b, steps)
-    sdnq_float_uint8_tflops = benchmark_linear("SDNQ Float UINT8", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(True), b, steps)
-    sdnq_float_int8_tflops = benchmark_linear("SDNQ Float INT8", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(True), b, steps)
-    sdnq_float_fp8_tflops = benchmark_linear("SDNQ Float FP8", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(True), b, steps)
+    sdnq_float_uint16_tflops = benchmark_linear("SDNQ Float UINT16", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_float_int16_tflops = benchmark_linear("SDNQ Float INT16", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_float_fp16_tflops = benchmark_linear("SDNQ Float FP16", quantized_linear_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_float_uint8_tflops = benchmark_linear("SDNQ Float UINT8", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_float_int8_tflops = benchmark_linear("SDNQ Float INT8", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_float_fp8_tflops = benchmark_linear("SDNQ Float FP8", quantized_linear_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_int8_dyn_float_tflops = benchmark_linear("SDNQ INT8 Dynamic Float", int8_matmul_dynamic_with_backward, x, y, b, steps)
-    sdnq_int8_dyn_uint16_tflops = benchmark_linear("SDNQ INT8 Dynamic UINT16", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_int16_tflops = benchmark_linear("SDNQ INT8 Dynamic INT16", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_fp16_tflops = benchmark_linear("SDNQ INT8 Dynamic FP16", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_uint8_tflops = benchmark_linear("SDNQ INT8 Dynamic UINT8", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_int8_tflops = benchmark_linear("SDNQ INT8 Dynamic INT8", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_fp8_tflops = benchmark_linear("SDNQ INT8 Dynamic FP8", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(True), b, steps)
+    sdnq_int8_dyn_float_tflops = benchmark_linear("SDNQ INT8 Dynamic Float", int8_matmul_dynamic_with_backward, x, y, b, steps, weight_grad)
+    sdnq_int8_dyn_uint16_tflops = benchmark_linear("SDNQ INT8 Dynamic UINT16", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_int16_tflops = benchmark_linear("SDNQ INT8 Dynamic INT16", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_fp16_tflops = benchmark_linear("SDNQ INT8 Dynamic FP16", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_uint8_tflops = benchmark_linear("SDNQ INT8 Dynamic UINT8", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_int8_tflops = benchmark_linear("SDNQ INT8 Dynamic INT8", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_fp8_tflops = benchmark_linear("SDNQ INT8 Dynamic FP8", int8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_uint8_dyn_float_tflops = benchmark_linear("SDNQ UINT8 Dynamic Float", uint8_matmul_dynamic_with_backward, x, y, b, steps)
-    sdnq_uint8_dyn_uint16_tflops = benchmark_linear("SDNQ UINT8 Dynamic UINT16", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_int16_tflops = benchmark_linear("SDNQ UINT8 Dynamic INT16", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_fp16_tflops = benchmark_linear("SDNQ UINT8 Dynamic FP16", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_uint8_tflops = benchmark_linear("SDNQ UINT8 Dynamic UINT8", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_int8_tflops = benchmark_linear("SDNQ UINT8 Dynamic INT8", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_fp8_tflops = benchmark_linear("SDNQ UINT8 Dynamic FP8", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(True), b, steps)
+    sdnq_uint8_dyn_float_tflops = benchmark_linear("SDNQ UINT8 Dynamic Float", uint8_matmul_dynamic_with_backward, x, y, b, steps, weight_grad)
+    sdnq_uint8_dyn_uint16_tflops = benchmark_linear("SDNQ UINT8 Dynamic UINT16", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_int16_tflops = benchmark_linear("SDNQ UINT8 Dynamic INT16", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_fp16_tflops = benchmark_linear("SDNQ UINT8 Dynamic FP16", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_uint8_tflops = benchmark_linear("SDNQ UINT8 Dynamic UINT8", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_int8_tflops = benchmark_linear("SDNQ UINT8 Dynamic INT8", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_fp8_tflops = benchmark_linear("SDNQ UINT8 Dynamic FP8", uint8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_fp8_dyn_float_tflops = benchmark_linear("SDNQ FP8 Dynamic Float", fp8_matmul_dynamic_with_backward, x, y, b, steps)
-    sdnq_fp8_dyn_uint16_tflops = benchmark_linear("SDNQ FP8 Dynamic UINT16", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_int16_tflops = benchmark_linear("SDNQ FP8 Dynamic INT16", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_fp16_tflops = benchmark_linear("SDNQ FP8 Dynamic FP16", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_uint8_tflops = benchmark_linear("SDNQ FP8 Dynamic UINT8", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_int8_tflops = benchmark_linear("SDNQ FP8 Dynamic INT8", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_fp8_tflops = benchmark_linear("SDNQ FP8 Dynamic FP8", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(True), b, steps)
+    sdnq_fp8_dyn_float_tflops = benchmark_linear("SDNQ FP8 Dynamic Float", fp8_matmul_dynamic_with_backward, x, y, b, steps, weight_grad)
+    sdnq_fp8_dyn_uint16_tflops = benchmark_linear("SDNQ FP8 Dynamic UINT16", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_int16_tflops = benchmark_linear("SDNQ FP8 Dynamic INT16", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_fp16_tflops = benchmark_linear("SDNQ FP8 Dynamic FP16", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_uint8_tflops = benchmark_linear("SDNQ FP8 Dynamic UINT8", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_int8_tflops = benchmark_linear("SDNQ FP8 Dynamic INT8", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_fp8_tflops = benchmark_linear("SDNQ FP8 Dynamic FP8", fp8_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_fp16_dyn_float_tflops = benchmark_linear("SDNQ FP16 Dynamic Float", fp16_matmul_dynamic_with_backward, x, y, b, steps)
-    sdnq_fp16_dyn_uint16_tflops = benchmark_linear("SDNQ FP16 Dynamic UINT16", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_int16_tflops = benchmark_linear("SDNQ FP16 Dynamic INT16", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_fp16_tflops = benchmark_linear("SDNQ FP16 Dynamic FP16", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_uint8_tflops = benchmark_linear("SDNQ FP16 Dynamic UINT8", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_int8_tflops = benchmark_linear("SDNQ FP16 Dynamic INT8", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_fp8_tflops = benchmark_linear("SDNQ FP16 Dynamic FP8", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(True), b, steps)
+    sdnq_fp16_dyn_float_tflops = benchmark_linear("SDNQ FP16 Dynamic Float", fp16_matmul_dynamic_with_backward, x, y, b, steps, weight_grad)
+    sdnq_fp16_dyn_uint16_tflops = benchmark_linear("SDNQ FP16 Dynamic UINT16", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_int16_tflops = benchmark_linear("SDNQ FP16 Dynamic INT16", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_fp16_tflops = benchmark_linear("SDNQ FP16 Dynamic FP16", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_uint8_tflops = benchmark_linear("SDNQ FP16 Dynamic UINT8", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_int8_tflops = benchmark_linear("SDNQ FP16 Dynamic INT8", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_fp8_tflops = benchmark_linear("SDNQ FP16 Dynamic FP8", fp16_matmul_dynamic_with_backward, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_int8_ckpt_tflops = benchmark_linear("SDNQ INT8 CKPT", int8_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8", group_size=-1).requires_grad_(True), b, steps)
-    sdnq_uint8_ckpt_tflops = benchmark_linear("SDNQ UINT8 CKPT", uint8_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8", group_size=-1).requires_grad_(True), b, steps)
-    sdnq_fp8_ckpt_tflops = benchmark_linear("SDNQ FP8 CKPT", fp8_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8", group_size=-1).requires_grad_(True), b, steps)
-    sdnq_fp16_ckpt_tflops = benchmark_linear("SDNQ FP16 CKPT", fp16_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8", group_size=-1).requires_grad_(True), b, steps)
+    sdnq_int8_ckpt_tflops = benchmark_linear("SDNQ INT8 CKPT", int8_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8", group_size=-1).requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_ckpt_tflops = benchmark_linear("SDNQ UINT8 CKPT", uint8_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8", group_size=-1).requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_ckpt_tflops = benchmark_linear("SDNQ FP8 CKPT", fp8_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8", group_size=-1).requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_ckpt_tflops = benchmark_linear("SDNQ FP16 CKPT", fp16_matmul_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8", group_size=-1).requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_int8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT Float", int8_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
-    sdnq_int8_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT UINT16", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT INT16", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT FP16", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT UINT8", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT INT8", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(True), b, steps)
-    sdnq_int8_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT FP8", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(True), b, steps)
+    sdnq_int8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT Float", int8_matmul_dynamic_with_backward_ckpt, x, y, b, steps, weight_grad)
+    sdnq_int8_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT UINT16", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT INT16", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT FP16", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT UINT8", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT INT8", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_int8_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ INT8 Dynamic CKPT FP8", int8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_uint8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT Float", uint8_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
-    sdnq_uint8_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT UINT16", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT INT16", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT FP16", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT UINT8", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT INT8", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(True), b, steps)
-    sdnq_uint8_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT FP8", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(True), b, steps)
+    sdnq_uint8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT Float", uint8_matmul_dynamic_with_backward_ckpt, x, y, b, steps, weight_grad)
+    sdnq_uint8_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT UINT16", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT INT16", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT FP16", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT UINT8", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT INT8", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_uint8_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ UINT8 Dynamic CKPT FP8", uint8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_fp8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT Float", fp8_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
-    sdnq_fp8_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT UINT16", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT INT16", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT FP16", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT UINT8", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT INT8", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(True), b, steps)
-    sdnq_fp8_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT FP8", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(True), b, steps)
+    sdnq_fp8_dyn_ckpt_float_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT Float", fp8_matmul_dynamic_with_backward_ckpt, x, y, b, steps, weight_grad)
+    sdnq_fp8_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT UINT16", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT INT16", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT FP16", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT UINT8", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT INT8", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp8_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ FP8 Dynamic CKPT FP8", fp8_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad)
 
-    sdnq_fp16_dyn_ckpt_float_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT Float", fp16_matmul_dynamic_with_backward_ckpt, x, y, b, steps)
-    sdnq_fp16_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT UINT16", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT INT16", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT FP16", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT UINT8", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT INT8", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(True), b, steps)
-    sdnq_fp16_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT FP8", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(True), b, steps)
+    sdnq_fp16_dyn_ckpt_float_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT Float", fp16_matmul_dynamic_with_backward_ckpt, x, y, b, steps, weight_grad)
+    sdnq_fp16_dyn_ckpt_uint16_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT UINT16", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_ckpt_int16_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT INT16", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_ckpt_fp16_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT FP16", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y.clone(), weights_dtype="float16").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_ckpt_uint8_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT UINT8", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="uint8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_ckpt_int8_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT INT8", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="int8").requires_grad_(weight_grad), b, steps, weight_grad)
+    sdnq_fp16_dyn_ckpt_fp8_tflops = benchmark_linear("SDNQ FP16 Dynamic CKPT FP8", fp16_matmul_dynamic_with_backward_ckpt, x, SDNQTensor.from_float(y, weights_dtype="fp8").requires_grad_(weight_grad), b, steps, weight_grad)
 
 
     print("")
@@ -207,6 +208,7 @@ def main(
     print("Device:", get_device_name(device))
     print("Steps:", steps, "| MNK:", round((m*n*k)**(1/3)), "| Float:", dtype)
     print("M:", m, "| N:", n, "| K:", k)
+    print("Weight Gradients:", weight_grad)
     print("Torch Compile:", sdnq.common.use_torch_compile)
     print("MM Kernel in Compile:", sdnq.kernel_wrappers.include_mm_kernel_in_compile)
     print("Contiguous INT8 MM:", sdnq.kernel_wrappers.use_contiguous_int8_mm)
@@ -311,9 +313,10 @@ if __name__ == "__main__":
     parser.add_argument("--mnk", default=8192, type=int)
     parser.add_argument("--dtype", default=None, type=str)
     parser.add_argument("--device", default=None, type=str)
+    parser.add_argument('--no_weight_grad', action=argparse.BooleanOptionalAction)
     parser.add_argument("-m", default=None, type=int)
     parser.add_argument("-n", default=None, type=int)
     parser.add_argument("-k", default=None, type=int)
 
     parser_args = parser.parse_args()
-    main(steps=parser_args.steps, mnk=parser_args.mnk, dtype=parser_args.dtype, device=parser_args.device, m=parser_args.m, n=parser_args.n, k=parser_args.k)
+    main(steps=parser_args.steps, mnk=parser_args.mnk, dtype=parser_args.dtype, device=parser_args.device, weight_grad=(not parser_args.no_weight_grad), m=parser_args.m, n=parser_args.n, k=parser_args.k)
