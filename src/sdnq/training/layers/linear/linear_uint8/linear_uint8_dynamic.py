@@ -129,7 +129,7 @@ def uint8_matmul_dynamic_backward(
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
-) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
@@ -183,7 +183,7 @@ class UINT8MatmulDynamicBackward(torch.autograd.Function):
         )
 
     @staticmethod
-    def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
         input, weight, bias, svd_up, svd_down = ctx.saved_tensors
         if ctx.use_hadamard:
             hadamard = get_hadamard(ctx.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)

@@ -109,7 +109,7 @@ def fp16_matmul_backward(
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
-) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
     grad_input = grad_weight = grad_bias = None
     grad_output = grad_output.flatten(0,-2)
     if do_grad_input:
@@ -155,7 +155,7 @@ class FP16MatmulBackward(torch.autograd.Function):
         )
 
     @staticmethod
-    def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+    def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
         input, weight, bias = ctx.saved_tensors
         if weight.sdnq_dequantizer.use_hadamard:
             hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
