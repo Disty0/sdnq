@@ -10,8 +10,8 @@ from .utils import lerp_buffer_stochastic_
 
 
 class AdamW(SDNQOptimizer):
-    _extra_group_keys = {}
-    _keep_in_fp32_keys = {}
+    _extra_group_keys = {} # noqa: RUF012
+    _keep_in_fp32_keys = {} # noqa: RUF012
     _group_keys = set.union(SDNQOptimizer._base_group_keys, _extra_group_keys)
 
     def __init__(self, params, **kwargs):

@@ -11,8 +11,8 @@ from .adafactor import approx_sq_grad
 
 
 class CAME(SDNQOptimizer):
-    _extra_group_keys = {"norm_mode"}
-    _keep_in_fp32_keys = {"exp_avg_sq", "exp_avg_sq_row", "exp_avg_sq_col", "exp_avg_res_row", "exp_avg_res_col"}
+    _extra_group_keys = {"norm_mode"} # noqa: RUF012
+    _keep_in_fp32_keys = {"exp_avg_sq", "exp_avg_sq_row", "exp_avg_sq_col", "exp_avg_res_row", "exp_avg_res_col"} # noqa: RUF012
     _group_keys = set.union(SDNQOptimizer._base_group_keys, _extra_group_keys)
 
     def __init__(self, params, **kwargs):

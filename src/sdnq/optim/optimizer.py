@@ -10,7 +10,7 @@ from .utils import get_param_grad, get_param_grad_compiled, update_param_, updat
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
-    _base_group_keys = {
+    _base_group_keys = { # noqa: RUF012
         "params",
         "lr",
         "betas",
@@ -35,8 +35,8 @@ class SDNQOptimizer(torch.optim.Optimizer):
         "offload_non_blocking",
         "offload_non_blocking_cpu",
     }
-    _extra_group_keys = {}
-    _keep_in_fp32_keys = {}
+    _extra_group_keys = {} # noqa: RUF012
+    _keep_in_fp32_keys = {} # noqa: RUF012
     _group_keys = set.union(_base_group_keys, _extra_group_keys)
     _step_supports_amp_scaling = True
 
@@ -73,12 +73,10 @@ class SDNQOptimizer(torch.optim.Optimizer):
     @torch.no_grad()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
         raise NotImplementedError
-        return state # noqa: F821 # pylint: disable=unreachable
 
     @torch.no_grad()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
         raise NotImplementedError
-        return update # noqa: F821 # pylint: disable=unreachable,undefined-variable
 
     @torch.no_grad()
     def step(self, closure=None):

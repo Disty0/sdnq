@@ -127,14 +127,14 @@ def uint8_matmul(
 
 def uint8_matmul_backward(
     grad_output: torch.FloatTensor,
-    input: torch.FloatTensor,
-    weight: torch.Tensor,
-    scale: torch.FloatTensor,
-    zero_point: torch.FloatTensor,
-    bias: torch.FloatTensor | None = None,
+    input: torch.FloatTensor | None,
+    weight: torch.Tensor | None,
+    scale: torch.FloatTensor | None,
+    zero_point: torch.FloatTensor | None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
+    input_shape: torch.Size | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -148,7 +148,7 @@ def uint8_matmul_backward(
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
-            output_shape=input.shape,
+            output_shape=input_shape if input_shape is not None else input.shape,
             do_input_reshape=False,
         )
     if do_grad_weight:
@@ -160,7 +160,7 @@ def uint8_matmul_backward(
             output_shape=None,
             do_input_reshape=False,
         )
-    if do_grad_bias and bias is not None:
+    if do_grad_bias:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
 
@@ -168,7 +168,10 @@ def uint8_matmul_backward(
 class UINT8MatmulBackward(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input: torch.FloatTensor, weight: SDNQTensor, bias: torch.FloatTensor | None = None) -> torch.FloatTensor:
-        ctx.save_for_backward(input, weight, bias)
+        ctx.input_shape = input.shape
+        ctx.use_hadamard = weight.sdnq_dequantizer.use_hadamard
+        ctx.hadamard_group_size = weight.sdnq_dequantizer.hadamard_group_size
+        ctx.save_for_backward(input if ctx.needs_input_grad[1] else None, weight if ctx.needs_input_grad[0] else None)
         if weight.sdnq_dequantizer.use_hadamard:
             hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=input.dtype, device=input.device)
         else:
@@ -186,19 +189,28 @@ class UINT8MatmulBackward(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
-        input, weight, bias = ctx.saved_tensors
-        if weight.sdnq_dequantizer.use_hadamard:
-            hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
+        input, weight = ctx.saved_tensors
+        if weight is not None:
+            scale = weight.scale
+            svd_up = weight.svd_up
+            svd_down = weight.svd_down
+            zero_point = weight.zero_point
+            weight = weight.weight
+        else:
+            weight = scale = svd_up = svd_down = zero_point = hadamard = None
+        if ctx.use_hadamard and (weight is not None or input is not None):
+            hadamard = get_hadamard(ctx.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
         else:
             hadamard = None
 
         return uint8_matmul_backward(
-            grad_output, input, weight.weight,
-            weight.scale, weight.zero_point,
-            bias=bias,
-            svd_up=weight.svd_up,
-            svd_down=weight.svd_down,
+            grad_output,
+            input, weight,
+            scale, zero_point,
+            svd_up=svd_up,
+            svd_down=svd_down,
             hadamard=hadamard,
+            input_shape=ctx.input_shape,
             do_grad_input=ctx.needs_input_grad[0],
             do_grad_weight=ctx.needs_input_grad[1],
             do_grad_bias=ctx.needs_input_grad[2],

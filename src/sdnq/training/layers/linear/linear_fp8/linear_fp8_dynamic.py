@@ -113,13 +113,13 @@ def fp8_matmul_dynamic(
 
 
 def fp8_matmul_dynamic_backward(
-    grad_output: torch.FloatTensor,
-    input: torch.FloatTensor,
-    weight: torch.FloatTensor,
-    bias: torch.FloatTensor | None = None,
+    grad_output: torch.FloatTensor | None,
+    input: torch.FloatTensor | None,
+    weight: torch.FloatTensor | None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
+    input_shape: torch.Size | None = None,
     do_grad_input: bool = True,
     do_grad_weight: bool = True,
     do_grad_bias: bool = True,
@@ -133,7 +133,7 @@ def fp8_matmul_dynamic_backward(
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
-            output_shape=input.shape,
+            output_shape=input_shape if input_shape is not None else input.shape,
             do_input_reshape=False,
         )
     if do_grad_weight:
@@ -145,7 +145,7 @@ def fp8_matmul_dynamic_backward(
             output_shape=None,
             do_input_reshape=False,
         )
-    if do_grad_bias and bias is not None:
+    if do_grad_bias:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
 
@@ -167,8 +167,7 @@ class FP8MatmulDynamicBackward(torch.autograd.Function):
         else:
             hadamard = None
 
-        ctx.save_for_backward(input, weight, bias, svd_up, svd_down)
-        return fp8_matmul_dynamic(
+        result = fp8_matmul_dynamic(
             input, weight,
             bias=bias,
             svd_up=svd_up,
@@ -176,20 +175,27 @@ class FP8MatmulDynamicBackward(torch.autograd.Function):
             hadamard=hadamard,
         )
 
+        ctx.input_shape = input.shape
+        if not ctx.needs_input_grad[0]:
+            weight = svd_up = svd_down = None
+        ctx.save_for_backward(input if ctx.needs_input_grad[1] else None, weight, svd_up, svd_down)
+        return result
+
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
-        input, weight, bias, svd_up, svd_down = ctx.saved_tensors
-        if ctx.use_hadamard:
+        input, weight, svd_up, svd_down = ctx.saved_tensors
+        if ctx.use_hadamard and (weight is not None or input is not None):
             hadamard = get_hadamard(ctx.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
         else:
             hadamard = None
 
         return fp8_matmul_dynamic_backward(
-            grad_output, input, weight,
-            bias=bias,
+            grad_output,
+            input, weight,
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
+            input_shape=ctx.input_shape,
             do_grad_input=ctx.needs_input_grad[0],
             do_grad_weight=ctx.needs_input_grad[1],
             do_grad_bias=ctx.needs_input_grad[2],

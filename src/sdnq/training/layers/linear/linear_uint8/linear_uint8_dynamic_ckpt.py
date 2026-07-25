@@ -9,23 +9,32 @@ from .linear_uint8 import uint8_matmul
 from .linear_uint8_dynamic import uint8_matmul_dynamic
 
 
-def get_uint8_matmul_dynamic_backward_inputs(input: torch.FloatTensor, weight: torch.FloatTensor, hadamard: torch.FloatTensor | None, do_grad_weight: bool = True) -> tuple[torch.Tensor | None, torch.FloatTensor, torch.FloatTensor | None, torch.FloatTensor, torch.FloatTensor | None, torch.FloatTensor]:
-    weight, scale, zero_point = quantize_uint_mm(weight.to(dtype=torch.float32), dim=0)
+def get_uint8_matmul_dynamic_backward_inputs(
+    input: torch.FloatTensor,
+    weight: torch.FloatTensor,
+    hadamard: torch.FloatTensor | None = None,
+    do_grad_input: bool = True,
+    do_grad_weight: bool = True,
+) -> tuple[torch.Tensor | None, torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
+    if do_grad_input:
+        weight, scale, zero_point = quantize_uint_mm(weight.to(dtype=torch.float32), dim=0)
+    else:
+        weight = scale = zero_point = None
     if do_grad_weight:
         input, input_scale, input_zero_point = quantize_uint_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0, hadamard=hadamard)
-        return input, weight, input_scale, scale, input_zero_point, zero_point
-    return None, weight, None, scale, None, zero_point
+    else:
+        input = input_scale = input_zero_point = None
+    return input, weight, input_scale, scale, input_zero_point, zero_point
 
 
 def uint8_matmul_dynamic_backward_ckpt(
     grad_output: torch.FloatTensor,
-    input: torch.FloatTensor,
-    weight: torch.FloatTensor,
-    input_scale: torch.FloatTensor,
-    weight_scale: torch.FloatTensor,
-    input_zero_point: torch.FloatTensor,
-    weight_zero_point: torch.FloatTensor,
-    bias: torch.FloatTensor | None = None,
+    input: torch.FloatTensor | None,
+    weight: torch.FloatTensor | None,
+    input_scale: torch.FloatTensor | None,
+    weight_scale: torch.FloatTensor | None,
+    input_zero_point: torch.FloatTensor | None,
+    weight_zero_point: torch.FloatTensor | None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
@@ -58,7 +67,7 @@ def uint8_matmul_dynamic_backward_ckpt(
             do_input_reshape=False,
             do_transpose=False,
         )
-    if do_grad_bias and bias is not None:
+    if do_grad_bias:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
 
@@ -88,15 +97,22 @@ class UINT8MatmulDynamicBackwardCKPT(torch.autograd.Function):
             hadamard=hadamard,
         )
 
-        new_input, new_weight, input_scale, weight_scale, input_zero_point, weight_zero_point = get_uint8_matmul_dynamic_backward_inputs(input, weight, hadamard, do_grad_weight=ctx.needs_input_grad[1])
-        ctx.save_for_backward(new_input, new_weight, input_scale, weight_scale, input_zero_point, weight_zero_point, bias, svd_up, svd_down)
+        new_input, new_weight, input_scale, weight_scale, input_zero_point, weight_zero_point = get_uint8_matmul_dynamic_backward_inputs(
+            input, weight,
+            hadamard=hadamard,
+            do_grad_input=ctx.needs_input_grad[0],
+            do_grad_weight=ctx.needs_input_grad[1],
+        )
+        if not ctx.needs_input_grad[0]:
+            svd_up = svd_down = None
+        ctx.save_for_backward(new_input, new_weight, input_scale, weight_scale, input_zero_point, weight_zero_point, svd_up, svd_down)
         ctx.input_shape = input.shape
         return result
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
-        input, weight, input_scale, weight_scale, input_zero_point, weight_zero_point, bias, svd_up, svd_down = ctx.saved_tensors
-        if ctx.use_hadamard:
+        input, weight, input_scale, weight_scale, input_zero_point, weight_zero_point, svd_up, svd_down = ctx.saved_tensors
+        if ctx.use_hadamard and (weight is not None or input is not None):
             hadamard = get_hadamard(ctx.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
         else:
             hadamard = None
@@ -105,7 +121,6 @@ class UINT8MatmulDynamicBackwardCKPT(torch.autograd.Function):
             grad_output, input, weight,
             input_scale, weight_scale,
             input_zero_point, weight_zero_point,
-            bias=bias,
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,

@@ -17,13 +17,12 @@ def get_uint8_matmul_backward_inputs(input: torch.FloatTensor, hadamard: torch.F
 
 def uint8_matmul_backward_ckpt(
     grad_output: torch.FloatTensor,
-    input: torch.FloatTensor,
-    weight: torch.Tensor,
-    input_scale: torch.FloatTensor,
-    scale: torch.FloatTensor,
-    input_zero_point: torch.FloatTensor,
-    zero_point: torch.FloatTensor,
-    bias: torch.FloatTensor | None = None,
+    input: torch.FloatTensor | None,
+    weight: torch.Tensor | None,
+    input_scale: torch.FloatTensor | None,
+    scale: torch.FloatTensor | None,
+    input_zero_point: torch.FloatTensor | None,
+    zero_point: torch.FloatTensor | None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
@@ -55,7 +54,7 @@ def uint8_matmul_backward_ckpt(
             do_input_reshape=False,
             do_transpose=False,
         )
-    if do_grad_bias and bias is not None:
+    if do_grad_bias:
         grad_bias = grad_output.sum(dim=0)
     return grad_input, grad_weight, grad_bias
 
@@ -69,8 +68,10 @@ class UINT8MatmulBackwardCKPT(torch.autograd.Function):
             hadamard = None
 
         result = uint8_matmul(
-            input, weight.weight,
-            weight.scale, weight.zero_point,
+            input,
+            weight.weight,
+            weight.scale,
+            weight.zero_point,
             bias=bias,
             svd_up=weight.svd_up,
             svd_down=weight.svd_down,
@@ -82,25 +83,35 @@ class UINT8MatmulBackwardCKPT(torch.autograd.Function):
             new_input, input_scale, input_zero_point = get_uint8_matmul_backward_inputs(input,hadamard)
         else:
             new_input = input_scale = input_zero_point = None
-        ctx.save_for_backward(new_input, weight, input_scale, input_zero_point, bias)
         ctx.input_shape = input.shape
+        ctx.use_hadamard = weight.sdnq_dequantizer.use_hadamard
+        ctx.hadamard_group_size = weight.sdnq_dequantizer.hadamard_group_size
+        ctx.save_for_backward(new_input, weight if ctx.needs_input_grad[0] else None, input_scale, input_zero_point)
         return result
 
     @staticmethod
     def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
-        input, weight, input_scale, input_zero_point, bias = ctx.saved_tensors
-        if weight.sdnq_dequantizer.use_hadamard:
-            hadamard = get_hadamard(weight.sdnq_dequantizer.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
+        input, weight, input_scale, input_zero_point = ctx.saved_tensors
+        if weight is not None:
+            scale = weight.scale
+            svd_up = weight.svd_up
+            svd_down = weight.svd_down
+            zero_point = weight.zero_point
+            weight = weight.weight
+        else:
+            weight = scale = svd_up = svd_down = zero_point = hadamard = None
+        if ctx.use_hadamard and (weight is not None or input is not None):
+            hadamard = get_hadamard(ctx.hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
         else:
             hadamard = None
 
         return uint8_matmul_backward_ckpt(
-            grad_output, input, weight.weight,
-            input_scale, weight.scale,
-            input_zero_point, weight.zero_point,
-            bias=bias,
-            svd_up=weight.svd_up,
-            svd_down=weight.svd_down,
+            grad_output,
+            input, weight,
+            input_scale, scale,
+            input_zero_point, zero_point,
+            svd_up=svd_up,
+            svd_down=svd_down,
             hadamard=hadamard,
             input_shape=ctx.input_shape,
             do_grad_input=ctx.needs_input_grad[0],

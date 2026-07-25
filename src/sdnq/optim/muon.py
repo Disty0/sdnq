@@ -35,12 +35,12 @@ default_gram_ns_coefficients = (
 
 
 class Muon(SDNQOptimizer):
-    _extra_group_keys = [
+    _extra_group_keys = [ # noqa: RUF012
         {"use_muon", "nesterov", "adaptive", "final_norm_mode", "ns_dtype", "ns_coefficients", "use_gram_ns", "gram_ns_resets", "gram_ns_coefficients", "use_quantized_matmul", "quantized_matmul_dtype"},
         {"use_muon"},
     ]
-    _keep_in_fp32_keys = {}
-    _group_keys = [
+    _keep_in_fp32_keys = {} # noqa: RUF012
+    _group_keys = [ # noqa: RUF012
         set.union(SDNQOptimizer._base_group_keys, _extra_group_keys[0]),
         set.union(SDNQOptimizer._base_group_keys, _extra_group_keys[1]),
     ]
@@ -271,7 +271,7 @@ def zeropower_via_newtonschulz5(
         gram_ns_coefficients_lenght = len(gram_ns_coefficients)
 
         R = torch.mm(X, X.t())
-        I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype) # noqa:E741
+        I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype)
         Q = None
         for i, (a, b, c) in enumerate(gram_ns_coefficients):
             if i in gram_ns_resets and i != 0:
@@ -327,7 +327,7 @@ def zeropower_via_newtonschulz5_quantized_matmul(
     if use_gram_ns and X.shape[0] != X.shape[1]:
         gram_ns_coefficients_lenght = len(gram_ns_coefficients)
         R = mm_func(X, X, do_input_reshape=True)
-        I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype) # noqa:E741
+        I = torch.eye(R.shape[1], device=X.device, dtype=X.dtype)
         Q = None
         for i, (a, b, c) in enumerate(gram_ns_coefficients):
             if i in gram_ns_resets and i != 0:

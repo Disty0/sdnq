@@ -26,6 +26,7 @@ Issues = "https://github.com/Disty0/sdnq/issues"
 [tool.ruff.lint]
 ignore = [
     "I001",
+    "RUF022",
     "FURB105",
     "PLR2044",
     "BLE001",

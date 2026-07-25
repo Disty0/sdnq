@@ -38,8 +38,8 @@ def get_sync_func(device: torch.device):
     return do_nothing
 
 
-def get_tflops(it_s: float, m: int, n: int, k: int) -> float:
-    return round(it_s * ((2*m*k*n) + (n * m)) / (10**12), 2)
+def get_tflops(it_s: float, m: int, n: int, k: int, bias: bool) -> float:
+    return round(it_s * ((2*m*k*n) + ((1 if bias else 0) * n * m)) / (10**12), 2)
 
 
 def benchmark_linear(name: str, linear: torch.nn.Linear, x: torch.Tensor, steps: int):
@@ -54,7 +54,7 @@ def benchmark_linear(name: str, linear: torch.nn.Linear, x: torch.Tensor, steps:
             z = linear(x)
             sync_func(x.device)
         t1 = time.time()
-        return get_tflops(steps/(t1 - t0), x.shape[0],z.shape[1],x.shape[1])
+        return get_tflops(steps/(t1 - t0), x.shape[0],z.shape[1],x.shape[1], linear.bias is not None)
     except Exception:
         print(f"{name} test failed")
         return 0
@@ -66,6 +66,7 @@ def main(
     mnk: int = 8192,
     dtype: torch.dtype | str = None,
     device: str | None = None,
+    bias: bool = True,
     m: int | None = None,
     n: int | None = None,
     k: int | None = None,
@@ -89,25 +90,25 @@ def main(
 
     x = torch.randn(m,k, device=device, dtype=dtype).requires_grad_(False)
 
-    pytorch_float_tflops = benchmark_linear("PyTorch Float", torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), x, steps)
-    sdnq_int8_tflops = benchmark_linear("SDNQ INT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
-    sdnq_int8_hadamard_tflops = benchmark_linear("SDNQ INT8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
+    pytorch_float_tflops = benchmark_linear("PyTorch Float", torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), x, steps)
+    sdnq_int8_tflops = benchmark_linear("SDNQ INT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_int8_hadamard_tflops = benchmark_linear("SDNQ INT8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="int8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
-    sdnq_uint8_tflops = benchmark_linear("SDNQ UINT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="uint8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
-    sdnq_uint8_hadamard_tflops = benchmark_linear("SDNQ UINT8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="uint8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
+    sdnq_uint8_tflops = benchmark_linear("SDNQ UINT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="uint8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_uint8_hadamard_tflops = benchmark_linear("SDNQ UINT8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="uint8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
-    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
-    sdnq_fp16_hadamard_tflops = benchmark_linear("SDNQ FP16 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
+    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_fp16_hadamard_tflops = benchmark_linear("SDNQ FP16 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
-    sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
-    sdnq_fp8_hadamard_tflops = benchmark_linear("SDNQ FP8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=True).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
+    sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_fp8_hadamard_tflops = benchmark_linear("SDNQ FP8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
     print("")
     print("==================================================")
     print("Platform:", platform.platform())
     print("Device:", get_device_name(device))
     print("Steps:", steps, "| MNK:", round((m*n*k)**(1/3)), "| Float:", dtype)
-    print("M:", m, "| N:", n, "| K:", k)
+    print("M:", m, "| N:", n, "| K:", k, "| Bias:", bias)
     print("Torch Compile:", sdnq.common.use_torch_compile)
     print("MM Kernel in Compile:", sdnq.kernel_wrappers.include_mm_kernel_in_compile)
     print("Contiguous INT8 MM:", sdnq.kernel_wrappers.use_contiguous_int8_mm)
@@ -140,9 +141,10 @@ if __name__ == "__main__":
     parser.add_argument("--mnk", default=8192, type=int)
     parser.add_argument("--dtype", default=None, type=str)
     parser.add_argument("--device", default=None, type=str)
+    parser.add_argument('--no_bias', action=argparse.BooleanOptionalAction)
     parser.add_argument("-m", default=None, type=int)
     parser.add_argument("-n", default=None, type=int)
     parser.add_argument("-k", default=None, type=int)
 
     parser_args = parser.parse_args()
-    main(steps=parser_args.steps, mnk=parser_args.mnk, dtype=parser_args.dtype, device=parser_args.device, m=parser_args.m, n=parser_args.n, k=parser_args.k)
+    main(steps=parser_args.steps, mnk=parser_args.mnk, dtype=parser_args.dtype, device=parser_args.device, bias=(not parser_args.no_bias), m=parser_args.m, n=parser_args.n, k=parser_args.k)
