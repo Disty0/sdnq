@@ -11,8 +11,11 @@ SD.Next Quantization provides full cross-platform quantization to reduce memory 
 - SDNQ supports full parameter quantized training with quantized weights and / or quantized matmul and also offers quantized optimizers for training.  
 - SDNQ supports direct math to be done on the quantized model on training (aka supports updating the quantized model weights directy).  
 - SDNQ also offers fast Quantized Attention kernels for Nvidia, AMD and Intel Arc GPUs with Triton.  
+- SDNQ is natively supported in upstream Diffusers with `diffusers=>0.40.0`.  
 
-For more info, please see SD.Next SDNQ Wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
+For more info, please see the SD.Next SDNQ Wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
+You can also check out the Diffusers SDNQ Docs page: https://huggingface.co/docs/diffusers/main/en/quantization/sdnq
+
 
 ### Install command:  
 ```sh
@@ -25,7 +28,7 @@ Pre-quantized models can be found here: https://huggingface.co/collections/Disty
 
 ```py
 import torch
-from sdnq import SDNQConfig # import sdnq to register it into diffusers and transformers
+from sdnq import SDNQConfig # import sdnq to register it into transformers
 pipe_or_quantized_model = AutoModel.from_pretrained(model_path, torch_dtype=torch.bfloat16)
 ```
 
