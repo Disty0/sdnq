@@ -140,6 +140,7 @@ def main(
     print("Device:", get_device_name(device))
     print("Steps:", steps, "| MNK:", round((m*n*k)**(1/3)), "| Float:", dtype)
     print("M:", m, "| N:", n, "| K:", k, "| Bias:", bias)
+    print("==================================================")
     print("Torch Compile:", sdnq.common.use_torch_compile)
     print("MM Kernel in Compile:", sdnq.kernel_wrappers.include_mm_kernel_in_compile)
     print("Contiguous INT8 MM:", sdnq.kernel_wrappers.use_contiguous_int8_mm)
