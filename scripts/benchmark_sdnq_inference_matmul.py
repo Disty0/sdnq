@@ -97,11 +97,11 @@ def main(
     sdnq_uint8_tflops = benchmark_linear("SDNQ UINT8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="uint8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
     sdnq_uint8_hadamard_tflops = benchmark_linear("SDNQ UINT8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="uint8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
-    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
-    sdnq_fp16_hadamard_tflops = benchmark_linear("SDNQ FP16 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
-
     sdnq_fp8_tflops = benchmark_linear("SDNQ FP8", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
     sdnq_fp8_hadamard_tflops = benchmark_linear("SDNQ FP8 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp8", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
+
+    sdnq_fp16_tflops = benchmark_linear("SDNQ FP16", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1))[0], x, steps)
+    sdnq_fp16_hadamard_tflops = benchmark_linear("SDNQ FP16 Hadamard", sdnq_quantize_layer(torch.nn.Linear(k,n, bias=bias).to(device, dtype=dtype), SDNQConfig(weights_dtype="fp16", torch_dtype=dtype, use_quantized_matmul=True, group_size=-1, use_hadamard=True))[0], x, steps)
 
     print("")
     print("==================================================")
