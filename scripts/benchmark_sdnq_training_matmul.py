@@ -34,9 +34,9 @@ from sdnq.training.layers.linear.linear_fp16.linear_fp16_dynamic_ckpt import fp1
 
 def get_device_name(device: torch.device):
     device = torch.device(device)
-    if sdnq.kernel_wrappers.use_openvino_mm:
+    if sdnq.kernel_wrappers.use_openvino_mm and device.type == "cpu":
         from sdnq.kernels.openvino_mm import OV_DEVICE
-        extra_device_str = OV_DEVICE + " of "
+        extra_device_str = str(OV_DEVICE) + " of "
     else:
         extra_device_str = ""
     if device.type in {"xpu", "cuda"}:
