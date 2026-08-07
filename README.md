@@ -11,7 +11,7 @@ SD.Next Quantization provides full cross-platform quantization to reduce memory 
 - SDNQ supports full parameter quantized training with quantized weights and / or quantized matmul and also offers quantized optimizers for training.  
 - SDNQ supports direct math to be done on the quantized model on training (aka supports updating the quantized model weights directy).  
 - SDNQ also offers fast Quantized Attention kernels for Nvidia, AMD and Intel Arc GPUs with Triton.  
-- SDNQ is natively supported in upstream Diffusers with `diffusers=>0.40.0`.  
+- SDNQ is natively supported in upstream Diffusers with `diffusers>=0.40.0`.  
 
 For more info, please see the SD.Next SDNQ Wiki page: https://github.com/vladmandic/sdnext/wiki/SDNQ-Quantization  
 You can also check out the Diffusers SDNQ Docs page: https://huggingface.co/docs/diffusers/main/en/quantization/sdnq
@@ -252,8 +252,9 @@ state["exp_avg"] = SDNQTensor.from_float(
 - **SDNQ_USE_TRITON_SCALED_MM**:  
   Set this to `0` to disable fused SDNQ Triton MM kernels and use the regular unfused Triton MM kernels instead.  
   Can be `0` or `1`. Default is `1`  
-- **SDNQ_USE_OPENVINO_MM**: Force the use of OpenVINO MM kernels for INT8 MM instead of torch._int_mm.  
-  OpenVINO MM kernels will outperform torch._int_mm on CPUs.  
+- **SDNQ_USE_OPENVINO_MM**: Force the use of OpenVINO MM kernels instead of PyTorch for CPUs.  
+  OpenVINO MM kernels can outperform PyTorch by 30x on CPUs that doesn't have AVX512 support.  
+  OpenVINO MM can still outperform PyTorch on CPUs with AVX512 support.  
   Requires manual installation of OpenVINO via `pip install openvino`.  
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_OPENVINO_DEVICE**: Overrides the default OpenVINO device used for OpenVINO MM.  
