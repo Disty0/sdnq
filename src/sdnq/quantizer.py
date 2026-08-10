@@ -173,10 +173,15 @@ def sdnq_quantize_layer_weight(
     if group_size == 0:
         if use_quantized_matmul and not re_quantize_for_matmul and dtype_dict[weights_dtype]["num_bits"] >= 6:
             group_size = -1
-        elif is_linear_type:
-            group_size = 2 ** ((3 if (svd_up is not None or using_pre_calculated_svd) else 2) + dtype_dict[weights_dtype]["num_bits"])
         else:
-            group_size = 2 ** ((2 if (svd_up is not None or using_pre_calculated_svd) else 1) + dtype_dict[weights_dtype]["num_bits"])
+            group_size_pow2 = 1 + dtype_dict[weights_dtype]["num_bits"]
+            if not is_linear_type:
+                group_size_pow2 += 1
+            if svd_up is not None or using_pre_calculated_svd:
+                group_size_pow2 += 1
+            if use_codebook:
+                group_size_pow2 += 1
+            group_size = 2 ** group_size_pow2
 
     if group_size > 0:
         if group_size >= channel_size:
