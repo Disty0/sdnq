@@ -91,10 +91,10 @@ class Devices:
                 triton_is_available = True
             except Exception as e:
                 triton_is_available = False
-                logger.warning(f"SDNQ: Triton test failed! Falling back to PyTorch Eager mode. Error message: {e}")
+                logger.warning(f"SDNQ: Torch Compile test failed! Falling back to PyTorch Eager mode. Error message: {e}")
             torch._dynamo.config.suppress_errors = backup_suppress_errors
         else:
-            logger.warning("SDNQ: Triton is not available. Falling back to PyTorch Eager mode.")
+            logger.warning("SDNQ: Torch Compile is not available. Falling back to PyTorch Eager mode.")
         return triton_is_available
 
     def get_hip_agent(self) -> HIPAgent:
