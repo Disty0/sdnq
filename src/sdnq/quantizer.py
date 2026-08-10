@@ -180,7 +180,7 @@ def sdnq_quantize_layer_weight(
             if svd_up is not None or using_pre_calculated_svd:
                 group_size_pow2 += 1
             if use_codebook:
-                group_size_pow2 += 1
+                group_size_pow2 += 3
             group_size = 2 ** group_size_pow2
 
     if group_size > 0:
