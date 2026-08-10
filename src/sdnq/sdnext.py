@@ -102,7 +102,6 @@ class Devices:
 
 class SharedOpts:
     def __init__(self, devices): # pylint: disable=redefined-outer-name
-        self.diffusers_offload_mode = os.environ.get("SDNQ_OFFLOAD_MODE", "none").lower()
         if os.environ.get("SDNQ_USE_TORCH_COMPILE", None) is None:
             self.sdnq_dequantize_compile = devices.has_triton()
         else:

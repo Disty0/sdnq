@@ -736,11 +736,11 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
                 dequantize_fp32=self.quantization_config.dequantize_fp32,
             )
 
-        if shared.opts.diffusers_offload_mode != "none":
+        if torch.device(self.quantization_config.return_device) == devices.cpu:
             try:
                 model = model.to(device=devices.cpu)
             except Exception:
-                model = model.to_empty(device=devices.cpu)
+                pass
         devices.torch_gc(force=True, reason="sdnq")
         return model
 
