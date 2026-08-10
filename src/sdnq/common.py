@@ -2,7 +2,7 @@ import os
 import json
 import torch
 
-from .sdnext import shared
+from .sdnext import shared, devices
 
 sdnq_version = "0.2.5"
 sdnq_keys = {"weight", "scale", "zero_point", "svd_up", "svd_down"}
@@ -334,7 +334,11 @@ weights_dtype_order = [
 ]
 
 
-use_torch_compile = shared.opts.sdnq_dequantize_compile # this setting requires a full restart of the webui to apply
+
+if os.environ.get("SDNQ_USE_TORCH_COMPILE", None) is None:
+    use_torch_compile = devices.has_triton()
+else:
+    use_torch_compile = bool(os.environ.get("SDNQ_USE_TORCH_COMPILE", "1").lower() not in {"0", "false", "no"})
 
 
 def check_torch_compile() -> bool: # dynamo can be disabled after startup

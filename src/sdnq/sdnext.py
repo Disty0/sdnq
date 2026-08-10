@@ -97,19 +97,12 @@ class Devices:
 
     def get_hip_agent(self) -> HIPAgent:
         return HIPAgent(int("0x" + getattr(torch.cuda.get_device_properties(self.device), "gcnArchName", "gfx0000")[3:], 16))
-
-class SharedOpts:
-    def __init__(self, devices): # pylint: disable=redefined-outer-name
-        if os.environ.get("SDNQ_USE_TORCH_COMPILE", None) is None:
-            self.sdnq_dequantize_compile = devices.has_triton()
-        else:
-            self.sdnq_dequantize_compile = bool(os.environ.get("SDNQ_USE_TORCH_COMPILE", "1").lower() not in {"0", "false", "no"})
+        
 
 
 class Shared:
     def __init__(self, devices, logger): # pylint: disable=redefined-outer-name
         self.log = logger
-        self.opts = SharedOpts(devices=devices)
 
 
 devices = Devices()
