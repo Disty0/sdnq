@@ -97,13 +97,12 @@ class Devices:
 
     def get_hip_agent(self) -> HIPAgent:
         return HIPAgent(int("0x" + getattr(torch.cuda.get_device_properties(self.device), "gcnArchName", "gfx0000")[3:], 16))
-        
 
 
 class Shared:
-    def __init__(self, devices, logger): # pylint: disable=redefined-outer-name
-        self.log = logger
+    def __init__(self, log):
+        self.log = log
 
 
 devices = Devices()
-shared = Shared(devices=devices, logger=logger)
+shared = Shared(log=logger)

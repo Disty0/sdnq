@@ -334,7 +334,6 @@ weights_dtype_order = [
 ]
 
 
-
 if os.environ.get("SDNQ_USE_TORCH_COMPILE", None) is None:
     use_torch_compile = devices.has_triton()
 else:
