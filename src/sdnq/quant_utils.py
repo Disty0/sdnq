@@ -78,10 +78,10 @@ def quantize_weight_codebook(weight: torch.FloatTensor, dim: int,  weights_dtype
         assignment = torch.searchsorted(midpoints, weight)
         if ones is None:
             ones = torch.ones_like(assignment, dtype=torch.int32)
-        counts = torch.zeros_like(levels, dtype=torch.int32).scatter_add(1, assignment, ones)
+        counts = torch.zeros_like(levels, dtype=torch.int32).scatter_add_(1, assignment, ones)
         occupied = counts > 0
         counts = counts.clamp_(min=1)
-        sums = torch.zeros_like(levels).scatter_add(1, assignment, weight).div_(counts)
+        sums = torch.zeros_like(levels).scatter_add_(1, assignment, weight).div_(counts)
         levels = torch.where(occupied, sums, levels)
     levels = torch.sort(levels, dim=-1).values
     midpoints = torch.add(levels[:, 1:], levels[:, :-1]).mul_(0.5)
