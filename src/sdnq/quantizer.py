@@ -734,7 +734,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
                 dequantize_fp32=self.quantization_config.dequantize_fp32,
             )
 
-        if torch.device(self.quantization_config.return_device) == devices.cpu:
+        if devices.same_device(self.quantization_config.return_device, devices.cpu):
             try:
                 model = model.to(device=devices.cpu)
             except Exception:
