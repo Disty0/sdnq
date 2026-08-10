@@ -2,13 +2,17 @@
 Platform: Linux-6.8.0-117-lowlatency-x86_64-with-glibc2.39
 Device: NVIDIA GeForce RTX 4090
 Steps: 100 | MNK: 8192 | Float: torch.bfloat16
-M: 16384 | N: 8192 | K: 4096
+M: 16384 | N: 8192 | K: 4096 | Bias: True
+==================================================
 Torch Compile: True
+MM Kernel in Compile: False
 Contiguous INT8 MM: False
 Contiguous FP16 MM: False
+Contiguous FP8 MM: False
 Tensorwise FP8 MM: True
 Triton MM: True
-OpenVINO MM: False
+Triton Scaled MM: True
+OpenVINO MM: True
 ==================================================
 PyTorch Float TFLOPS: 161.05
 ==================================================
