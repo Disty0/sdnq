@@ -1,5 +1,3 @@
-# pylint: disable=redefined-builtin,no-member,protected-access
-
 from dataclasses import dataclass
 
 import torch

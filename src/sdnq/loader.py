@@ -13,7 +13,7 @@ from .file_loader import load_files
 
 
 def get_module_names(model: torch.nn.Module) -> list:
-    modules_names = model._internal_dict.keys() # pylint: disable=protected-access
+    modules_names = model._internal_dict.keys()
     modules_names = [m for m in modules_names if not m.startswith("_")]
     modules_names = [m for m in modules_names if isinstance(getattr(model, m, None), torch.nn.Module)]
     modules_names = sorted(set(modules_names))
@@ -36,13 +36,13 @@ def normalize_tied_weights_keys_for_save(model: torch.nn.Module, is_pipeline: bo
             tied_weights_keys = getattr(submodule, "_tied_weights_keys", None)
             if isinstance(tied_weights_keys, list):
                 normalized_modules.append((submodule, tied_weights_keys))
-                submodule._tied_weights_keys = {key: key for key in tied_weights_keys} # pylint: disable=protected-access
+                submodule._tied_weights_keys = {key: key for key in tied_weights_keys}
     return normalized_modules
 
 
 def restore_tied_weights_keys_after_save(normalized_modules: list[tuple[torch.nn.Module, object]]) -> None:
     for submodule, tied_weights_keys in normalized_modules:
-        submodule._tied_weights_keys = tied_weights_keys # pylint: disable=protected-access
+        submodule._tied_weights_keys = tied_weights_keys
 
 
 def save_sdnq_model(
@@ -161,7 +161,7 @@ def load_sdnq_model(
     state_dict = load_files(files, key_mapping=key_mapping, device=device, method=load_method)
 
     if isinstance(getattr(model, "_tied_weights_keys", None), dict):
-        for key, value in model._tied_weights_keys.items(): # pylint: disable=protected-access
+        for key, value in model._tied_weights_keys.items():
             if value in state_dict and key not in state_dict:
                 state_dict[key] = state_dict[value]
     else:

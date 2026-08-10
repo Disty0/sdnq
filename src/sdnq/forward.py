@@ -1,5 +1,3 @@
-# pylint: disable=protected-access
-
 from collections.abc import Callable
 
 from .common import dtype_dict, embedding_types, conv_types, conv_transpose_types

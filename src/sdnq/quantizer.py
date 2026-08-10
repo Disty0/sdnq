@@ -1,5 +1,3 @@
-# pylint: disable=redefined-builtin,no-member,protected-access
-
 from dataclasses import dataclass
 from enum import Enum
 
@@ -663,7 +661,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
                     _, param_value = prepare_svd_for_matmul(None, param_value, layer.sdnq_dequantizer.use_quantized_matmul)
 
                 param_value = torch.nn.Parameter(param_value, requires_grad=False)
-                param_value._is_hf_initialized = True # pylint: disable=protected-access
+                param_value._is_hf_initialized = True
             setattr(layer, tensor_name, param_value)
             return
 

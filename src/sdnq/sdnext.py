@@ -1,5 +1,3 @@
-# pylint: disable=redefined-builtin,no-member,protected-access
-
 import os
 import logging
 from dataclasses import dataclass

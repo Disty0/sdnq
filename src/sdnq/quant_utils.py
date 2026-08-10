@@ -1,5 +1,3 @@
-# pylint: disable=redefined-builtin
-
 import torch
 
 from .sdnext import devices

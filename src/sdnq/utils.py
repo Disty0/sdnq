@@ -187,13 +187,13 @@ def get_quantized_matmul_dtype(weights_dtype: str, quantized_matmul_dtype: str |
 
 def add_module_skip_keys(model: torch.nn.Module, quantization_config):
     if getattr(model, "_keep_in_fp32_modules", None) is not None:
-        quantization_config.modules_to_not_convert.extend(model._keep_in_fp32_modules) # pylint: disable=protected-access
+        quantization_config.modules_to_not_convert.extend(model._keep_in_fp32_modules)
     if getattr(model, "_tied_weights_keys", None) is not None:
-        if isinstance(model._tied_weights_keys, dict): # pylint: disable=protected-access
-            quantization_config.modules_to_not_convert.extend(model._tied_weights_keys.keys()) # pylint: disable=protected-access
-            quantization_config.modules_to_not_convert.extend(model._tied_weights_keys.values()) # pylint: disable=protected-access
+        if isinstance(model._tied_weights_keys, dict):
+            quantization_config.modules_to_not_convert.extend(model._tied_weights_keys.keys())
+            quantization_config.modules_to_not_convert.extend(model._tied_weights_keys.values())
         else:
-            quantization_config.modules_to_not_convert.extend(model._tied_weights_keys) # pylint: disable=protected-access
+            quantization_config.modules_to_not_convert.extend(model._tied_weights_keys)
 
     skip_key_list = module_skip_keys_dict.get(model.__class__.__name__, None)
     if skip_key_list is not None:
@@ -209,7 +209,7 @@ def add_module_skip_keys(model: torch.nn.Module, quantization_config):
     else:
         quantization_config.modules_to_not_convert.extend(common_skip_keys)
         if getattr(model, "_skip_layerwise_casting_patterns", None) is not None:
-            quantization_config.modules_to_not_convert.extend(model._skip_layerwise_casting_patterns) # pylint: disable=protected-access
+            quantization_config.modules_to_not_convert.extend(model._skip_layerwise_casting_patterns)
 
     # dedupe
     quantization_config.modules_to_not_convert = list(set(quantization_config.modules_to_not_convert))

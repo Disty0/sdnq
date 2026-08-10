@@ -1,5 +1,3 @@
-# pylint: disable=redefined-builtin,no-member,protected-access
-
 import os
 import json
 import torch
