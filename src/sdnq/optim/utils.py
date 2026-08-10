@@ -4,6 +4,22 @@ from ..common import compile_func, dtype_dict, torch_dtype_dict
 from ..training import SDNQTensor
 
 
+def create_quantized_buffer(buffer: torch.FloatTensor, group: dict) -> SDNQTensor:
+    return SDNQTensor.from_float(
+        buffer.to(dtype=torch.float32),
+        weights_dtype=group["quantized_buffers_dtype"],
+        group_size=group["quantized_buffers_group_size"],
+        hadamard_group_size=group["quantized_buffers_hadamard_group_size"],
+        svd_rank=group["quantized_buffers_svd_rank"],
+        svd_steps=group["quantized_buffers_svd_steps"],
+        codebook_steps=group["quantized_buffers_codebook_steps"],
+        use_svd=group["quantized_buffers_use_svd"],
+        use_hadamard=group["quantized_buffers_use_hadamard"],
+        use_codebook=group["quantized_buffers_use_codebook"],
+        use_stochastic_rounding=group["use_stochastic_buffers"],
+)
+
+
 def get_param_grad(
     param: torch.nn.Parameter,
     clip: float = 1.0,

@@ -2,11 +2,10 @@ from collections.abc import Iterator
 
 import torch
 
-from ..training import SDNQTensor
 from ..common import compile_func
 
 from .optimizer import SDNQOptimizer
-from .utils import lerp_buffer_stochastic_, apply_norm_to_update_
+from .utils import create_quantized_buffer, lerp_buffer_stochastic_, apply_norm_to_update_
 
 
 class Adafactor(SDNQOptimizer):
@@ -40,7 +39,7 @@ class Adafactor(SDNQOptimizer):
         if group["use_first_moment"]:
             use_quantized_buffers = group["use_quantized_buffers"] and param.grad.ndim >= group["quantized_buffers_minimum_ndim"] and param.grad.numel() >= group["quantized_buffers_minimum_numel"]
             if use_quantized_buffers:
-                state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], hadamard_group_size=group["quantized_buffers_hadamard_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["quantized_buffers_use_svd"], use_hadamard=group["quantized_buffers_use_hadamard"], use_stochastic_rounding=group["use_stochastic_buffers"])
+                state["exp_avg"] = create_quantized_buffer(torch.zeros_like(param, dtype=torch.float32), group)
             else:
                 state["exp_avg"] = torch.zeros_like(param)
         return state

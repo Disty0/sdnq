@@ -28,6 +28,7 @@ from .common import (
 
 from .quant_utils import (
     quantize_weight,
+    quantize_weight_codebook,
     apply_svdquant,
     apply_hadamard,
     prepare_weight_for_matmul,
@@ -71,8 +72,10 @@ def sdnq_quantize_layer_weight(
     hadamard_group_size: int = 256,
     svd_rank: int = 32,
     svd_steps: int = 8,
+    codebook_steps: int = 24,
     use_svd: bool = False,
     use_hadamard: bool = False,
+    use_codebook: bool = False,
     use_quantized_matmul: bool = False,
     use_stochastic_rounding: bool = False,
     dequantize_fp32: bool = True,
@@ -99,7 +102,8 @@ def sdnq_quantize_layer_weight(
     quantized_matmul_dtype = get_quantized_matmul_dtype(weights_dtype, quantized_matmul_dtype)
 
     re_quantize_for_matmul = bool(
-        dtype_dict[weights_dtype]["num_bits"] > dtype_dict[quantized_matmul_dtype]["num_bits"]
+        use_codebook
+        or dtype_dict[weights_dtype]["num_bits"] > dtype_dict[quantized_matmul_dtype]["num_bits"]
         or dtype_dict[weights_dtype]["is_integer"] != dtype_dict[quantized_matmul_dtype]["is_integer"]
         or (dtype_dict[weights_dtype]["is_unsigned"] and not dtype_dict[quantized_matmul_dtype]["is_integer"])
         or (
@@ -156,7 +160,7 @@ def sdnq_quantize_layer_weight(
 
     if use_svd:
         try:
-            weight, svd_up, svd_down = apply_svdquant(weight, rank=svd_rank, niter=svd_steps, dtype=torch_dtype)
+            weight, svd_up, svd_down = apply_svdquant(weight, rank=svd_rank, steps=svd_steps, dtype=torch_dtype)
             if use_quantized_matmul:
                 svd_up = svd_up.t_()
                 svd_down = svd_down.t_()
@@ -219,7 +223,11 @@ def sdnq_quantize_layer_weight(
         if not use_tensorwise_fp8_matmul and not dtype_dict[quantized_matmul_dtype]["is_integer"]:
             cast_scale = False
 
-    weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype, dtype=(scale_dtype if cast_scale else None), use_stochastic_rounding=(use_stochastic_rounding and not skip_sr))
+    if use_codebook:
+        weight, scale = quantize_weight_codebook(weight, reduction_axes, weights_dtype, dtype=(scale_dtype if cast_scale else None), steps=codebook_steps)
+        zero_point = None
+    else:
+        weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype, dtype=(scale_dtype if cast_scale else None), use_stochastic_rounding=(use_stochastic_rounding and not skip_sr))
 
     if transpose_weights:
         scale = scale.t_().contiguous()
@@ -249,10 +257,12 @@ def sdnq_quantize_layer_weight(
         group_size=group_size,
         svd_rank=svd_rank,
         svd_steps=svd_steps,
+        codebook_steps=codebook_steps,
         use_quantized_matmul=use_quantized_matmul,
         re_quantize_for_matmul=re_quantize_for_matmul,
         use_stochastic_rounding=use_stochastic_rounding,
         use_hadamard=bool(use_hadamard or using_pre_rotated_hadamard),
+        use_codebook=use_codebook,
         layer_class_name=layer_class_name,
     )
 
@@ -269,9 +279,11 @@ def sdnq_quantize_layer_weight_dynamic(
     hadamard_group_size: int = 256,
     svd_rank: int = 32,
     svd_steps: int = 8,
+    codebook_steps: int = 24,
     dynamic_loss_threshold: float | None =None,
     use_svd: bool = False,
     use_hadamard: bool = False,
+    use_codebook: bool = False,
     use_quantized_matmul: bool = False,
     use_stochastic_rounding: bool = False,
     dequantize_fp32: bool = True,
@@ -296,7 +308,7 @@ def sdnq_quantize_layer_weight_dynamic(
 
     if use_svd:
         try:
-            weight, svd_up, svd_down = apply_svdquant(weight, rank=svd_rank, niter=svd_steps, dtype=torch_dtype)
+            weight, svd_up, svd_down = apply_svdquant(weight, rank=svd_rank, steps=svd_steps, dtype=torch_dtype)
             svd_up, svd_down = prepare_svd_for_matmul(svd_up, svd_down, False)
             if use_quantized_matmul:
                 svd_up_t, svd_down_t = svd_up.clone().t_(), svd_down.clone().t_()
@@ -312,8 +324,10 @@ def sdnq_quantize_layer_weight_dynamic(
 
     quantization_loss = None
     for i in range(weights_dtype_order.index(weights_dtype), len(weights_dtype_order)):
-        add_param_to_not_use_matmul = False
         current_weights_dtype = weights_dtype_order[i]
+        if use_codebook and not (dtype_dict[current_weights_dtype]["is_unsigned"] and dtype_dict[current_weights_dtype]["is_integer"]):
+            continue
+        add_param_to_not_use_matmul = False
         current_quantized_matmul_dtype = get_quantized_matmul_dtype(current_weights_dtype, quantized_matmul_dtype)
         if quantized_matmul_dtype is None and not is_fp8_mm_supported and current_quantized_matmul_dtype in {"fp8", "float8_e4m3fn", "float8_e5m2"}:
             current_use_quantized_matmul = False
@@ -345,8 +359,10 @@ def sdnq_quantize_layer_weight_dynamic(
             group_size=group_size,
             svd_rank=svd_rank,
             svd_steps=svd_steps,
+            codebook_steps=codebook_steps,
             use_svd=False,
             use_hadamard=False,
+            use_codebook=use_codebook,
             use_quantized_matmul=current_use_quantized_matmul,
             use_stochastic_rounding=use_stochastic_rounding,
             dequantize_fp32=dequantize_fp32,
@@ -481,9 +497,11 @@ def sdnq_post_load_quant(
     group_size: int = 0,
     svd_rank: int = 32,
     svd_steps: int = 8,
+    codebook_steps: int = 24,
     dynamic_loss_threshold: float | None = None,
     use_svd: bool = False,
     use_hadamard: bool = False,
+    use_codebook: bool = False,
     quant_conv: bool = False,
     quant_embedding: bool = False,
     use_quantized_matmul: bool = False,
@@ -526,9 +544,11 @@ def sdnq_post_load_quant(
             group_size=group_size,
             svd_rank=svd_rank,
             svd_steps=svd_steps,
+            codebook_steps=codebook_steps,
             dynamic_loss_threshold=dynamic_loss_threshold,
             use_svd=use_svd,
             use_hadamard=use_hadamard,
+            use_codebook=use_codebook,
             quant_conv=quant_conv,
             quant_embedding=quant_embedding,
             use_quantized_matmul=use_quantized_matmul,
@@ -838,6 +858,8 @@ class SDNQConfig(QuantizationConfigMixin):
             The rank size used for the SVDQuant algorithm.
         svd_steps (`int`, *optional*, defaults to `8`):
             The number of iterations to use in svd lowrank estimation.
+        codebook_steps (`int`, *optional*, defaults to `24`):
+            The number of iterations to use in Lloyd-Max quantization.
         dynamic_loss_threshold (`float`, *optional*, defaults to `None`):
             The target quantization mse loss threshold to use for dynamic quantization.
             The value `None` or negative values means auto select a threshold based on the weights_dtype.
@@ -845,6 +867,8 @@ class SDNQConfig(QuantizationConfigMixin):
             Enabling this option will use SVDQuant algorithm on top of SDNQ quantization.
         use_hadamard (`bool`, *optional*, defaults to `False`):
             Enabling this option will use Hadamard rotation on top of SDNQ quantization.
+        use_codebook (`bool`, *optional*, defaults to `False`):
+            Enabling this option will use Lloyd-Max quantization and create an optimal floating point lookup table format for the quantized weights.
         use_grad_ckpt (`bool`, *optional*, defaults to `True`):
             This option is only used for training models when `is_training` is enabled or with `sdnq.training.sdnq_training_post_load_quant`.
             Disabling this option will quantize the tensors needed for the backward pass before saving in the forward pass.
@@ -909,9 +933,11 @@ class SDNQConfig(QuantizationConfigMixin):
         group_size: int = 0,
         svd_rank: int = 32,
         svd_steps: int = 8,
+        codebook_steps: int = 24,
         dynamic_loss_threshold: float | None = None,
         use_svd: bool = False,
         use_hadamard: bool = False,
+        use_codebook: bool = False,
         use_grad_ckpt: bool = True,
         quant_conv: bool = False,
         quant_embedding: bool = False,
@@ -942,9 +968,11 @@ class SDNQConfig(QuantizationConfigMixin):
         self.group_size = group_size
         self.svd_rank = svd_rank
         self.dynamic_loss_threshold = dynamic_loss_threshold
-        self.svd_steps = svd_steps
         self.use_svd = use_svd
+        self.svd_steps = svd_steps
+        self.codebook_steps = codebook_steps
         self.use_hadamard = use_hadamard
+        self.use_codebook = use_codebook
         self.use_grad_ckpt = use_grad_ckpt
         self.quant_conv = quant_conv
         self.quant_embedding = quant_embedding
@@ -966,6 +994,7 @@ class SDNQConfig(QuantizationConfigMixin):
         self.return_device = return_device
         self.sdnq_version = current_sdnq_version if sdnq_version is None else sdnq_version
         self.is_integer = dtype_dict[self.weights_dtype]["is_integer"]
+        self.is_unsigned = dtype_dict[self.weights_dtype]["is_unsigned"]
         if self.is_training:
             self.quant_method = QuantizationMethod.SDNQ_TRAINING
         else:
@@ -982,6 +1011,8 @@ class SDNQConfig(QuantizationConfigMixin):
             raise ValueError(f"SDNQ only support weight dtypes in {accepted_weight_dtypes} but found {self.weights_dtype}")
         if self.quantized_matmul_dtype is not None and self.quantized_matmul_dtype not in accepted_matmul_dtypes:
             raise ValueError(f"SDNQ only support quantized matmul dtypes in {accepted_matmul_dtypes} but found {self.quantized_matmul_dtype}")
+        if self.use_codebook and not (self.is_integer and self.is_unsigned):
+            raise ValueError(f"SDNQ: use_codebook is only supported with unsigned integer dtypes but found {self.weights_dtype}")
 
         if self.modules_to_not_convert is None:
             self.modules_to_not_convert = []
@@ -1038,7 +1069,7 @@ class SDNQConfig(QuantizationConfigMixin):
         return quantization_config_dict
 
     def __str__(self) -> str:
-        return f"SDNQConfig(weights_dtype={self.weights_dtype} quantization_device={self.quantization_device} return_device={self.return_device} group_size={self.group_size} use_quantized_matmul={self.use_quantized_matmul} quantized_matmul_dtype={self.quantized_matmul_dtype} quant_conv={self.quant_conv} quant_embedding={self.quant_embedding} use_quantized_matmul_conv={self.use_quantized_matmul_conv} use_static_quantization={self.use_static_quantization} use_dynamic_quantization={self.use_dynamic_quantization} dynamic_loss_threshold={self.dynamic_loss_threshold} use_stochastic_rounding={self.use_stochastic_rounding} use_hadamard={self.use_hadamard} hadamard_group_size={self.hadamard_group_size} use_svd={self.use_svd} svd_rank={self.svd_rank} svd_steps={self.svd_steps} dequantize_fp32={self.dequantize_fp32} non_blocking={self.non_blocking} add_skip_keys={self.add_skip_keys} modules_to_not_convert={self.modules_to_not_convert} modules_to_not_use_matmul={self.modules_to_not_use_matmul} modules_dtype_dict={self.modules_dtype_dict} modules_quant_config={self.modules_quant_config} )"
+        return f"SDNQConfig(weights_dtype={self.weights_dtype} quantization_device={self.quantization_device} return_device={self.return_device} group_size={self.group_size} use_quantized_matmul={self.use_quantized_matmul} quantized_matmul_dtype={self.quantized_matmul_dtype} quant_conv={self.quant_conv} quant_embedding={self.quant_embedding} use_quantized_matmul_conv={self.use_quantized_matmul_conv} use_static_quantization={self.use_static_quantization} use_dynamic_quantization={self.use_dynamic_quantization} dynamic_loss_threshold={self.dynamic_loss_threshold} use_stochastic_rounding={self.use_stochastic_rounding} use_hadamard={self.use_hadamard} hadamard_group_size={self.hadamard_group_size} use_svd={self.use_svd} svd_rank={self.svd_rank} svd_steps={self.svd_steps} use_codebook={self.use_codebook} codebook_steps={self.codebook_steps} dequantize_fp32={self.dequantize_fp32} non_blocking={self.non_blocking} add_skip_keys={self.add_skip_keys} modules_to_not_convert={self.modules_to_not_convert} modules_to_not_use_matmul={self.modules_to_not_use_matmul} modules_dtype_dict={self.modules_dtype_dict} modules_quant_config={self.modules_quant_config} )"
 
 
 if (

@@ -3,9 +3,17 @@ from collections.abc import Callable
 from ..common import dtype_dict
 
 
-def get_forward_func(param_weights_dtype: str, quantized_matmul_dtype: str, use_grad_ckpt: bool, use_quantized_matmul: bool, use_static_quantization: bool, current_group_size: int) -> Callable:
+def get_forward_func(
+    param_weights_dtype: str,
+    quantized_matmul_dtype: str,
+    use_grad_ckpt: bool,
+    use_quantized_matmul: bool,
+    use_static_quantization: bool,
+    current_group_size: int,
+    use_codebook: bool = False,
+) -> Callable:
     can_use_static_matmul = bool(
-        use_static_quantization and current_group_size < 0
+        use_static_quantization and not use_codebook and current_group_size < 0
         and (
             param_weights_dtype == quantized_matmul_dtype
             or (param_weights_dtype in {"int8", "uint8"} and quantized_matmul_dtype in {"int8", "uint8"})

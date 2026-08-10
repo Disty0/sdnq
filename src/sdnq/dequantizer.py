@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import torch
 
 from .sdnext import devices
-from .common import dtype_dict, compile_func
+from .common import dtype_dict, compile_func, conv_types, conv_transpose_types
 from .kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm, use_tensorwise_fp8_matmul, is_fp8_compile_supported
 from .quant_utils import quantize_int_mm, quantize_uint_mm, quantize_fp_mm, rotate_hadamard, get_hadamard
 from .packed_int import unpack_int
@@ -84,6 +84,50 @@ def dequantize_symmetric(
     return result
 
 
+@devices.inference_context()
+def dequantize_codebook(
+    weight: torch.Tensor,
+    scale: torch.FloatTensor,
+    svd_up: torch.FloatTensor | None = None,
+    svd_down: torch.FloatTensor | None = None,
+    hadamard: torch.FloatTensor | None = None,
+    dtype: torch.dtype | None = None,
+    result_shape: torch.Size | None = None,
+    skip_quantized_matmul: bool = False,
+    re_quantize_for_matmul: bool = False,
+    group_size: int = -1,
+    layer_class_name: str = "Linear",
+) -> torch.FloatTensor:
+    if layer_class_name in conv_types:
+        reduction_axes = 2 if group_size != -1 else 1
+    elif layer_class_name in conv_transpose_types:
+        reduction_axes = 1 if group_size != -1 else 0
+    else:
+        reduction_axes = -1
+    result = scale.gather(reduction_axes, weight.to(dtype=torch.int32))
+    if skip_quantized_matmul and not re_quantize_for_matmul:
+        result.t_()
+    if result_shape is not None:
+        result = result.view(result_shape)
+    is_conv = bool(result.ndim > 2 and weight.ndim > 2)
+    if svd_up is not None:
+        if skip_quantized_matmul:
+            svd_up = svd_up.t().contiguous()
+            if use_contiguous_fp16_mm:
+                svd_down = svd_down.t().contiguous()
+            else:
+                svd_down = svd_down.contiguous().t()
+        if is_conv:
+            result = result.add_(torch.mm(svd_up, svd_down).unflatten(-1, (*result.shape[1:],)))
+        else:
+            result = result.to(dtype=svd_up.dtype).addmm_(svd_up, svd_down)
+    if dtype is not None:
+        result = result.to(dtype=dtype)
+    if hadamard is not None:
+        result = rotate_hadamard(result, hadamard=hadamard, is_conv=is_conv)
+    return result
+
+
 def dequantize_weight(
     weights_dtype: str,
     weight: torch.Tensor,
@@ -92,18 +136,23 @@ def dequantize_weight(
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
+    use_codebook: bool = False,
+    group_size: int = -1,
     dtype: torch.dtype | None = None,
     result_shape: torch.Size | None = None,
     quantized_weight_shape: torch.Size | None = None,
     skip_quantized_matmul: bool = False,
     re_quantize_for_matmul: bool = False,
+    layer_class_name: str = "Linear",
 ) -> torch.FloatTensor:
     if dtype_dict[weights_dtype]["is_packed"]:
         if dtype_dict[weights_dtype]["is_integer"]:
-            weight = unpack_int(weight, weights_dtype, quantized_weight_shape, dtype=scale.dtype)
+            weight = unpack_int(weight, weights_dtype, quantized_weight_shape, dtype=scale.dtype if not use_codebook else torch.int32)
         else:
             weight = unpack_float(weight, weights_dtype, quantized_weight_shape)
-    if dtype_dict[weights_dtype]["is_unsigned"]:
+    if use_codebook:
+        return dequantize_codebook(weight, scale, svd_up=svd_up, svd_down=svd_down, hadamard=hadamard, dtype=dtype, result_shape=result_shape, skip_quantized_matmul=skip_quantized_matmul, re_quantize_for_matmul=re_quantize_for_matmul, layer_class_name=layer_class_name, group_size=group_size)
+    elif dtype_dict[weights_dtype]["is_unsigned"]:
         return dequantize_asymmetric(weight, scale, zero_point, svd_up=svd_up, svd_down=svd_down, hadamard=hadamard, dtype=dtype, result_shape=result_shape, skip_quantized_matmul=skip_quantized_matmul, re_quantize_for_matmul=re_quantize_for_matmul)
     else:
         return dequantize_symmetric(weight, scale, svd_up=svd_up, svd_down=svd_down, hadamard=hadamard, dtype=dtype, result_shape=result_shape, skip_quantized_matmul=skip_quantized_matmul, re_quantize_for_matmul=re_quantize_for_matmul)
@@ -155,19 +204,27 @@ def re_quantize_matmul(
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
+    use_codebook: bool = False,
+    group_size: int = -1,
     matmul_dtype: str = "int8",
     result_shape: torch.Size | None = None,
     quantized_weight_shape: torch.Size | None = None,
+    layer_class_name: str = "Linear",
 ) -> tuple[torch.Tensor, torch.FloatTensor] | tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
-    if dtype_dict[weights_dtype]["is_packed"]:
-        if dtype_dict[weights_dtype]["is_integer"]:
-            weight = unpack_int(weight, weights_dtype, quantized_weight_shape, dtype=scale.dtype)
-        else:
-            weight = unpack_float(weight, weights_dtype, quantized_weight_shape)
-    if dtype_dict[weights_dtype]["is_unsigned"]:
-        weight = dequantize_asymmetric(weight, scale, zero_point, svd_up=svd_up, svd_down=svd_down, hadamard=hadamard, dtype=scale.dtype, result_shape=result_shape)
-    else:
-        weight = dequantize_symmetric(weight, scale, svd_up=svd_up, svd_down=svd_down, hadamard=hadamard, dtype=scale.dtype, result_shape=result_shape)
+    weight = dequantize_weight(
+        weights_dtype,
+        weight, scale,
+        zero_point=zero_point,
+        svd_up=svd_up,
+        svd_down=svd_down,
+        hadamard=hadamard,
+        use_codebook=use_codebook,
+        group_size=group_size,
+        dtype=scale.dtype,
+        result_shape=result_shape,
+        quantized_weight_shape=quantized_weight_shape,
+        layer_class_name=layer_class_name,
+    )
     if dtype_dict[matmul_dtype]["is_integer"]:
         if dtype_dict[matmul_dtype]["is_unsigned"]:
             return re_quantize_uint_mm(weight, matmul_dtype=matmul_dtype)
@@ -227,10 +284,13 @@ class SDNQDequantizer:
     group_size: int
     svd_rank: int
     svd_steps: int
+    codebook_steps: int
     use_quantized_matmul: bool
     re_quantize_for_matmul: bool
     use_stochastic_rounding: bool
     layer_class_name: str
+    use_hadamard: bool
+    use_codebook: bool
     is_packed: bool
     is_unsigned: bool
     is_integer: bool
@@ -249,10 +309,12 @@ class SDNQDequantizer:
         group_size: int,
         svd_rank: int,
         svd_steps: int,
+        codebook_steps: int,
         use_quantized_matmul: bool,
         re_quantize_for_matmul: bool,
         use_stochastic_rounding: bool,
         use_hadamard: bool,
+        use_codebook: bool,
         layer_class_name: str,
     ):
         self.result_dtype = result_dtype
@@ -266,10 +328,12 @@ class SDNQDequantizer:
         self.group_size = group_size
         self.svd_rank = svd_rank
         self.svd_steps = svd_steps
+        self.codebook_steps = codebook_steps
         self.use_quantized_matmul = use_quantized_matmul
         self.re_quantize_for_matmul = re_quantize_for_matmul
         self.use_stochastic_rounding = use_stochastic_rounding
         self.use_hadamard = use_hadamard
+        self.use_codebook = use_codebook
         self.layer_class_name = layer_class_name
         self.num_bits = dtype_dict[weights_dtype]["num_bits"]
         self.is_packed = dtype_dict[weights_dtype]["is_packed"]
@@ -308,9 +372,12 @@ class SDNQDequantizer:
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
+            use_codebook=self.use_codebook,
+            group_size=self.group_size,
             matmul_dtype=self.quantized_matmul_dtype,
             result_shape=self.result_shape,
             quantized_weight_shape=self.quantized_weight_shape,
+            layer_class_name=self.layer_class_name,
         )
 
     @devices.inference_context()
@@ -346,11 +413,14 @@ class SDNQDequantizer:
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
-            dtype=dtype,
+            use_codebook=self.use_codebook,
+            group_size=self.group_size,
             result_shape=self.result_shape,
             quantized_weight_shape=self.quantized_weight_shape,
             skip_quantized_matmul=skip_quantized_matmul,
             re_quantize_for_matmul=re_quantize_for_matmul,
+            layer_class_name=self.layer_class_name,
+            dtype=dtype,
         )
 
 

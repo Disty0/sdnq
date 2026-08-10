@@ -2,7 +2,6 @@ from collections.abc import Callable, Iterator
 
 import torch
 
-from ..training import SDNQTensor
 from ..common import compile_func
 
 from ..training.layers.linear.linear_int8.linear_int8_dynamic import int8_matmul_dynamic
@@ -11,7 +10,7 @@ from ..training.layers.linear.linear_fp8.linear_fp8_dynamic import fp8_matmul_dy
 from ..training.layers.linear.linear_fp16.linear_fp16_dynamic import fp16_matmul_dynamic
 
 from .optimizer import SDNQOptimizer
-from .utils import lerp_buffer_stochastic_
+from .utils import create_quantized_buffer, lerp_buffer_stochastic_
 from .adamw import adam_update, adam_update_compiled
 
 
@@ -119,17 +118,17 @@ class Muon(SDNQOptimizer):
         use_quantized_buffers = group["use_quantized_buffers"] and param.grad.ndim >= group["quantized_buffers_minimum_ndim"] and param.grad.numel() >= group["quantized_buffers_minimum_numel"]
         if group["use_muon"]:
             if use_quantized_buffers:
-                state["momentum_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], hadamard_group_size=group["quantized_buffers_hadamard_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["quantized_buffers_use_svd"], use_hadamard=group["quantized_buffers_use_hadamard"], use_stochastic_rounding=group["use_stochastic_buffers"])
+                state["momentum_buffer"] = create_quantized_buffer(torch.zeros_like(param, dtype=torch.float32), group)
                 if group["adaptive"]:
-                    state["v_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], hadamard_group_size=group["quantized_buffers_hadamard_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["quantized_buffers_use_svd"], use_hadamard=group["quantized_buffers_use_hadamard"], use_stochastic_rounding=group["use_stochastic_buffers"])
+                    state["v_buffer"] = create_quantized_buffer(torch.zeros_like(param, dtype=torch.float32), group)
             else:
                 state["momentum_buffer"] = torch.zeros_like(param)
                 if group["adaptive"]:
                     state["v_buffer"] = torch.zeros_like(param)
         else:
             if use_quantized_buffers:
-                state["exp_avg"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], hadamard_group_size=group["quantized_buffers_hadamard_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["quantized_buffers_use_svd"], use_hadamard=group["quantized_buffers_use_hadamard"], use_stochastic_rounding=group["use_stochastic_buffers"])
-                state["exp_avg_sq"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], hadamard_group_size=group["quantized_buffers_hadamard_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["quantized_buffers_use_svd"], use_hadamard=group["quantized_buffers_use_hadamard"], use_stochastic_rounding=group["use_stochastic_buffers"])
+                state["exp_avg"] = create_quantized_buffer(torch.zeros_like(param, dtype=torch.float32), group)
+                state["exp_avg_sq"] = create_quantized_buffer(torch.zeros_like(param, dtype=torch.float32), group)
             else:
                 state["exp_avg"] = torch.zeros_like(param)
                 state["exp_avg_sq"] = torch.zeros_like(param)

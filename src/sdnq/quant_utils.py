@@ -52,8 +52,57 @@ def quantize_weight(weight: torch.FloatTensor, dim: int | list[int], weights_dty
     return quantized_weight, scale, zero_point
 
 
+def quantize_weight_codebook(weight: torch.FloatTensor, dim: int,  weights_dtype: str = "uint8",  steps: int = 24, dtype: torch.dtype | None = None) -> tuple[torch.Tensor, torch.FloatTensor]:
+    assert dtype_dict[weights_dtype]["is_integer"] and dtype_dict[weights_dtype]["is_unsigned"], "Codebook quantization only supports unsigned integer types."
+    if weight.dtype != torch.float64:
+        weight = weight.to(dtype=torch.float32, copy=False)
+
+    weight_shape = weight.shape
+    weight_ndim = weight.ndim
+    permuted_shape = None
+    if dim < 0:
+        dim = weight_ndim + dim
+    if weight_ndim > 1 and dim not in {-1, weight_ndim - 1}:
+        weight = weight.permute(*[i for i in range(weight_ndim) if i != dim], dim)
+        permuted_shape = weight.shape
+    if weight_ndim > 2:
+        weight = weight.flatten(0,-2)
+
+    zero_point, scale = torch.aminmax(weight, dim=-1, keepdim=True)
+    scale = scale.sub_(zero_point).div_(dtype_dict[weights_dtype]["max"])
+    levels = torch.addcmul(zero_point, torch.arange(dtype_dict[weights_dtype]["max"] + 1, dtype=weight.dtype, device=weight.device), scale)
+    ones = None
+    for _ in range(steps):
+        levels = torch.sort(levels, dim=-1).values
+        midpoints = torch.add(levels[:, 1:], levels[:, :-1]).mul_(0.5)
+        assignment = torch.searchsorted(midpoints, weight)
+        if ones is None:
+            ones = torch.ones_like(assignment, dtype=torch.int32)
+        counts = torch.zeros_like(levels, dtype=torch.int32).scatter_add(1, assignment, ones)
+        occupied = counts > 0
+        counts = counts.clamp_(min=1)
+        sums = torch.zeros_like(levels).scatter_add(1, assignment, weight).div_(counts)
+        levels = torch.where(occupied, sums, levels)
+    levels = torch.sort(levels, dim=-1).values
+    midpoints = torch.add(levels[:, 1:], levels[:, :-1]).mul_(0.5)
+    weight = torch.searchsorted(midpoints, weight, out_int32=True)
+
+    if permuted_shape is not None:
+        permute_dims = list(range(weight_ndim-1))
+        permute_dims.insert(dim, weight_ndim-1)
+        weight = weight.view(permuted_shape).permute(permute_dims)
+        levels = levels.view(*permuted_shape[:-1], levels.shape[-1]).permute(permute_dims)
+    else:
+        weight = weight.unflatten(0, weight_shape[:-1])
+        levels = levels.unflatten(0, weight_shape[:-1])
+    if dtype is not None:
+        levels = levels.to(dtype=dtype)
+    weight = weight.to(dtype_dict[weights_dtype]["torch_dtype"])
+    return weight, levels
+
+
 @devices.inference_context()
-def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, niter: int = 8, dtype: torch.dtype = None) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
+def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, steps: int = 8, dtype: torch.dtype = None) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     reshape_weight = False
     if weight.ndim > 2: # convs
         reshape_weight = True
@@ -61,7 +110,7 @@ def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, niter: int = 8, dt
         weight = weight.flatten(1,-1)
     if weight.dtype != torch.float64:
         weight = weight.to(dtype=torch.float32)
-    U, S, svd_down = torch.svd_lowrank(weight, q=rank, niter=niter)
+    U, S, svd_down = torch.svd_lowrank(weight, q=rank, niter=steps)
     svd_up = torch.mul(U, S.unsqueeze(0))
     svd_down = svd_down.t_()
     if dtype is not None:
