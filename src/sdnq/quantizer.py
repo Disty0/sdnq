@@ -527,6 +527,8 @@ def sdnq_post_load_quant(
     torch_dtype: torch.dtype | None = None,
     quantization_config: "SDNQConfig" = None,
     pre_quantized: bool = False,
+    *args, # pylint: disable=unused-argument
+    **kwargs, # pylint: disable=unused-argument
 ) -> torch.nn.Module:
     if pre_quantized:
         add_skip_keys = False
