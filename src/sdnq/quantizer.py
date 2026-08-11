@@ -175,12 +175,12 @@ def sdnq_quantize_layer_weight(
             group_size = -1
         else:
             group_size_pow2 = 1 + dtype_dict[weights_dtype]["num_bits"]
-            if not is_linear_type:
+            if is_linear_type:
                 group_size_pow2 += 1
             if svd_up is not None or using_pre_calculated_svd:
                 group_size_pow2 += 1
             if use_codebook:
-                group_size_pow2 += 3
+                group_size_pow2 += 2
             group_size = 2 ** group_size_pow2
 
     if group_size > 0:
