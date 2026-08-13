@@ -99,10 +99,15 @@ model = sdnq_post_load_quant(
 ```
 
 
-### Example code for using SDNQ Attention as SDPA replacement for Inference:  
+### Example code for using SDNQ Attention as SDPA replacement:  
 ```py
 from functools import wraps
+
+# inference only kernel:
 from sdnq.kernels.triton_atten import sdnq_triton_atten
+
+# for training:
+#from sdnq.kernels.triton_atten_backward import sdnq_triton_atten_with_backward as sdnq_triton_atten
 
 sdpa_pre_sdnq_atten = torch.nn.functional.scaled_dot_product_attention
 @wraps(sdpa_pre_sdnq_atten)
