@@ -46,6 +46,7 @@ messages_control.disable=[
     "chained-comparison",
     "broad-exception-caught",
     "import-outside-toplevel",
+    "relative-beyond-top-level",
     "logging-fstring-interpolation",
     "missing-function-docstring",
     "missing-module-docstring",
