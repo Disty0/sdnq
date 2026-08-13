@@ -164,8 +164,9 @@ def sdnq_attn_bwd_dq_kernel(
             else:
                 dp = tl.dot(do, v, out_dtype=tl.float32)
 
+            ds = tl.mul(p, tl.sub(dp, delta[:, None]))
             if qk_is_quantized:
-                ds = tl.mul(p, tl.mul(tl.sub(dp, delta[:, None]), k_scale))
+                ds *= k_scale
                 ds_scale = tl.max(tl.abs(ds), 1)[:, None]
                 if k.dtype == tl.int8:
                     ds_scale *= 1.0 / 127.0
@@ -178,7 +179,6 @@ def sdnq_attn_bwd_dq_kernel(
                     ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(k_load.dtype)
                     dq = tl.fma(tl.dot(ds, k_load, out_dtype=tl.float32), ds_scale, dq)
             else:
-                ds = tl.mul(p, tl.sub(dp, delta[:, None]))
                 ds = ds.to(k_load.dtype)
                 dq = tl.dot(ds, k_load, dq, out_dtype=tl.float32)
 
@@ -358,8 +358,9 @@ def sdnq_attn_bwd_dkv_kernel(
 
                     delta = delta_desc.load([start_m]).to(tl.float32)
 
+                    ds = tl.mul(p, tl.mul(tl.sub(dp, delta[:, None]), 0.6931471805599453))
                     if qk_is_quantized:
-                        ds = tl.mul(p, tl.mul(tl.sub(dp, delta[:, None]), tl.mul(q_scale, 0.6931471805599453)))
+                        ds *= q_scale
                         ds = ds.T
                         ds_scale = tl.max(tl.abs(ds), 1)[:, None]
                         if q.dtype == tl.int8:
@@ -373,7 +374,6 @@ def sdnq_attn_bwd_dkv_kernel(
                             ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(q.dtype)
                             dk = tl.fma(tl.dot(ds, q, out_dtype=tl.float32), ds_scale, dk)
                     else:
-                        ds = tl.mul(p, tl.mul(tl.sub(dp, delta[:, None]), 0.6931471805599453))
                         ds = ds.T
                         ds = ds.to(q.dtype)
                         dk = tl.dot(ds, q, dk, out_dtype=tl.float32)
