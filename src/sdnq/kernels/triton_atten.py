@@ -88,7 +88,7 @@ def sdnq_attn_kernel(
     tl.assume(qk_is_quantized == 0 or qk_is_quantized == 1) # pylint: disable=consider-using-in
     tl.assume(pv_is_quantized == 0 or pv_is_quantized == 1) # pylint: disable=consider-using-in
 
-    sm_scale = sm_scale * 1.4426950408889634
+    log2_sm_scale = sm_scale * 1.4426950408889634
     do_k_mask = KN % BLOCK_SIZE_N != 0
     start_m_block = start_m * BLOCK_SIZE_M
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
@@ -137,11 +137,11 @@ def sdnq_attn_kernel(
             if qk_is_quantized:
                 k_scale = k_scale_desc.load([start_n])[None, :]
                 if q.dtype == tl.int8:
-                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), sm_scale)
+                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
                 else:
-                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale), sm_scale)
+                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale), log2_sm_scale)
             else:
-                qk = tl.mul(tl.dot(q, k, out_dtype=tl.float32), sm_scale)
+                qk = tl.mul(tl.dot(q, k, out_dtype=tl.float32), log2_sm_scale)
 
             if is_causal and start_m_block < (start_n + BLOCK_SIZE_N):
                 qk = tl.where(offs_m[:, None] >= (start_n + offs_n[None, :]), qk, float("-inf"))
@@ -365,7 +365,7 @@ def sdnq_triton_atten(
         out = rotate_hadamard_compiled(out, group_size=hadamard_group_size, hadamard=hadamard)
 
     if return_backward:
-        return out, lse, query, key, value, query_scale, key_scale, value_scale, attn_mask, use_hadamard, hadamard_group_size
+        return out, lse, query, key, value, query_scale, key_scale, value_scale, attn_mask, scale, use_hadamard, hadamard_group_size
     return out[..., :VHD]
 
 

@@ -27,7 +27,7 @@ from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size
 def sdnq_attn_bwd_dq_kernel(
     q_ptr, k_ptr, v_ptr, do_ptr,
     q_scale_ptr, k_scale_ptr, v_scale_ptr, do_scale_ptr,
-    dq_ptr, lse_ptr, delta_ptr, mask_ptr,
+    dq_ptr, lse_ptr, delta_ptr, mask_ptr, sm_scale,
     is_causal: tl.constexpr,
     do_mask: tl.constexpr,
     QZ: tl.constexpr, QH: tl.constexpr, QN: tl.constexpr, QHD: tl.constexpr,
@@ -77,6 +77,7 @@ def sdnq_attn_bwd_dq_kernel(
     tl.assume(qk_is_quantized == 0 or qk_is_quantized == 1) # pylint: disable=consider-using-in
     tl.assume(pv_is_quantized == 0 or pv_is_quantized == 1) # pylint: disable=consider-using-in
 
+    log2_sm_scale = sm_scale * 1.4426950408889634
     do_k_mask = KN % BLOCK_SIZE_N != 0
     start_m_block = start_m * BLOCK_SIZE_M
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
@@ -135,11 +136,11 @@ def sdnq_attn_bwd_dq_kernel(
             if qk_is_quantized:
                 k_scale = k_scale_desc.load([start_n])[None, :]
                 if q.dtype == tl.int8:
-                    qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale)
+                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
                 else:
-                    qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale)
+                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale), log2_sm_scale)
             else:
-                qk = tl.dot(q, k, out_dtype=tl.float32)
+                qk = tl.mul(tl.dot(q, k, out_dtype=tl.float32), log2_sm_scale)
 
             if is_causal and start_m_block < (start_n + BLOCK_SIZE_N):
                 qk = tl.where(offs_m[:, None] >= (start_n + offs_n[None, :]), qk, float("-inf"))
@@ -164,7 +165,7 @@ def sdnq_attn_bwd_dq_kernel(
             else:
                 dp = tl.dot(do, v, out_dtype=tl.float32)
 
-            ds = tl.mul(p, tl.sub(dp, delta[:, None]))
+            ds = tl.mul(tl.mul(p, tl.sub(dp, delta[:, None])), sm_scale)
             if qk_is_quantized:
                 ds *= k_scale
                 ds_scale = tl.max(tl.abs(ds), 1)[:, None]
@@ -207,7 +208,7 @@ def sdnq_attn_bwd_dq_kernel(
 def sdnq_attn_bwd_dkv_kernel(
     q_ptr, k_ptr, v_ptr, do_ptr,
     q_scale_ptr, k_scale_ptr, v_scale_ptr, do_scale_ptr,
-    dk_ptr, dv_ptr, lse_ptr, delta_ptr, mask_ptr,
+    dk_ptr, dv_ptr, lse_ptr, delta_ptr, mask_ptr, sm_scale,
     is_causal: tl.constexpr,
     do_mask: tl.constexpr,
     QZ: tl.constexpr, QH: tl.constexpr, QN: tl.constexpr, QHD: tl.constexpr,
@@ -259,6 +260,7 @@ def sdnq_attn_bwd_dkv_kernel(
     tl.assume(do_grad_k == 0 or do_grad_k == 1) # pylint: disable=consider-using-in
     tl.assume(do_grad_v == 0 or do_grad_v == 1) # pylint: disable=consider-using-in
 
+    log2_sm_scale = sm_scale * 1.4426950408889634
     do_k_mask = KN % BLOCK_SIZE_N != 0
     start_n_block = start_n * BLOCK_SIZE_N
     offs_m = tl.arange(0, BLOCK_SIZE_M)
@@ -323,11 +325,11 @@ def sdnq_attn_bwd_dkv_kernel(
                 if qk_is_quantized:
                     q_scale = q_scale_desc.load([start_m])[:, None]
                     if q.dtype == tl.int8:
-                        qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale)
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
                     else:
-                        qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale)
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale), log2_sm_scale)
                 else:
-                    qk = tl.dot(q, k, out_dtype=tl.float32)
+                    qk = tl.mul(tl.dot(q, k, out_dtype=tl.float32), log2_sm_scale)
 
                 if is_causal and start_m < (start_n_block + BLOCK_SIZE_N):
                     qk = tl.where((start_m + offs_m[:, None]) >= offs_n[None, :], qk, float("-inf"))
@@ -358,7 +360,7 @@ def sdnq_attn_bwd_dkv_kernel(
 
                     delta = delta_desc.load([start_m]).to(tl.float32)
 
-                    ds = tl.mul(p, tl.mul(tl.sub(dp, delta[:, None]), 0.6931471805599453))
+                    ds = tl.mul(tl.mul(p, tl.sub(dp, delta[:, None])), sm_scale)
                     if qk_is_quantized:
                         ds *= q_scale
                         ds = ds.T
@@ -439,6 +441,7 @@ def sdnq_triton_atten_bwd(
     KHD: int,
     VHD: int,
     attn_mask: torch.Tensor | None = None,
+    scale: float | None = None,
     is_causal: bool = False,
     use_hadamard: bool = False,
     hadamard_group_size: int = 256,
@@ -450,6 +453,9 @@ def sdnq_triton_atten_bwd(
 ) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
     if not do_grad_q and not do_grad_k and not do_grad_v:
         return None, None, None
+
+    if scale is None:
+        scale = QHD ** -0.5
 
     return_dtype = grad_output.dtype
     QZ, QH, QN, QHD = query.shape
@@ -483,7 +489,7 @@ def sdnq_triton_atten_bwd(
         sdnq_attn_bwd_dq_kernel[grid_dq](
             query, key, value, grad_output,
             query_scale, key_scale, value_scale, grad_output_scale,
-            dq, lse, delta, attn_mask, *other_args,
+            dq, lse, delta, attn_mask, scale, *other_args,
         )
         if use_hadamard:
             dq = rotate_hadamard_compiled(dq, group_size=hadamard_group_size, hadamard=hadamard)
@@ -499,7 +505,7 @@ def sdnq_triton_atten_bwd(
         sdnq_attn_bwd_dkv_kernel[grid_dkv](
             query, key, value, grad_output,
             query_scale, key_scale, value_scale, grad_output_scale,
-            dk, dv, lse, delta, attn_mask, *other_args,
+            dk, dv, lse, delta, attn_mask, scale, *other_args,
             (1 if do_grad_k else 0), (1 if do_grad_v else 0)
         )
         if do_grad_k:
@@ -545,7 +551,7 @@ class SDNQAttenBackward(torch.autograd.Function):
         (
             out, lse, query, key, value,
             query_scale, key_scale, value_scale,
-            attn_mask, use_hadamard, hadamard_group_size,
+            attn_mask, scale, use_hadamard, hadamard_group_size,
         ) = sdnq_triton_atten(
             query, key, value,
             attn_mask=attn_mask,
@@ -561,6 +567,7 @@ class SDNQAttenBackward(torch.autograd.Function):
             return_backward=True,
         )
 
+        ctx.scale = scale
         ctx.use_hadamard = use_hadamard
         ctx.hadamard_group_size = hadamard_group_size
         ctx.save_for_backward(out, lse, query, key, value, query_scale, key_scale, value_scale, attn_mask)
@@ -574,6 +581,7 @@ class SDNQAttenBackward(torch.autograd.Function):
             query_scale, key_scale, value_scale,
             ctx.QHD, ctx.KHD, ctx.VHD,
             attn_mask=attn_mask,
+            scale=ctx.scale,
             pv_matmul_dtype=ctx.pv_matmul_dtype,
             is_causal=ctx.is_causal,
             use_hadamard=ctx.use_hadamard,
