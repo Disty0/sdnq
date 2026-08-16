@@ -4,7 +4,7 @@ import triton
 import triton.language as tl
 
 from ..common import compile_func
-from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, apply_hadamard, rotate_hadamard_compiled
+from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, rotate_hadamard, rotate_hadamard_compiled
 from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size
 
 
@@ -415,7 +415,7 @@ def get_attn_backward_inputs(grad_output: torch.FloatTensor, out: torch.FloatTen
         pv_matmul_dtype = "int8"
     if pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
         if hadamard is not None:
-            grad_output = apply_hadamard(grad_output, group_size=hadamard.shape[-1], hadamard=hadamard)[0]
+            grad_output = rotate_hadamard(grad_output, group_size=hadamard.shape[-1], hadamard=hadamard)
         quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
         grad_output, grad_output_scale = quantize_mm_func_pv(grad_output.contiguous().to(dtype=torch.float32), dim=-1, matmul_dtype=pv_matmul_dtype)
         grad_output_scale = grad_output_scale.squeeze(-1)

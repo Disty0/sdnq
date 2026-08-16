@@ -5,7 +5,7 @@ import triton
 import triton.language as tl
 
 from ..common import compile_func
-from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_hadamard, get_hadamard_group_size, rotate_hadamard_compiled
+from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
 from ..utils import is_pow2, next_power_of_2
 
 
@@ -220,7 +220,7 @@ def quantize_attn(
         if hadamard is not None:
             q, use_hadamard, hadamard_group_size = apply_hadamard(q, group_size=hadamard_group_size, hadamard=hadamard, layer_class_name="Linear")
             if use_hadamard:
-                k = apply_hadamard(k.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard, layer_class_name="Linear")[0]
+                k = rotate_hadamard(k.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
         quantize_mm_func = quantize_int_mm if matmul_dtype.startswith("int") else quantize_fp_mm
         q_q, q_scale = quantize_mm_func(q.contiguous().to(dtype=torch.float32), dim=-1, matmul_dtype=matmul_dtype)
         k_q, k_scale = quantize_mm_func(k.contiguous().to(dtype=torch.float32), dim=-1, matmul_dtype=matmul_dtype)
@@ -233,7 +233,7 @@ def quantize_attn(
         k_scale = None
     if pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
         if use_hadamard:
-            v = apply_hadamard(v.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard, layer_class_name="Linear")[0]
+            v = rotate_hadamard(v.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
         quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
         v_q, v_scale = quantize_mm_func_pv(v.contiguous().to(dtype=torch.float32), dim=-1, matmul_dtype=pv_matmul_dtype)
         v_scale = v_scale.squeeze(-1)
