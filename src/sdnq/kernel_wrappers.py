@@ -118,8 +118,14 @@ def fp_mm_torch(a: torch.Tensor, b: torch.Tensor, out_dtype: torch.dtype = torch
     else:
         fp16_scale = 65536 * b.shape[-2]
     in_scale = fp16_scale**0.5
-    a = a.to(dtype=torch.float32).div_(in_scale).to(dtype=torch.float16)
-    b = b.to(dtype=torch.float32).div_(in_scale).to(dtype=torch.float16)
+    if a.dtype != torch.float32:
+        a = a.to(dtype=torch.float32).div_(in_scale).to(dtype=torch.float16)
+    else:
+        a = a.div(in_scale).to(dtype=torch.float16)
+    if b.dtype != torch.float32:
+        b = b.to(dtype=torch.float32).div_(in_scale).to(dtype=torch.float16)
+    else:
+        b = b.div(in_scale).to(dtype=torch.float16)
     return torch.mm(a,b).to(dtype=torch.float32).mul_(fp16_scale).to(dtype=out_dtype)
 
 
