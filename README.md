@@ -123,7 +123,7 @@ def sdpa_sdnq_atten(query: torch.FloatTensor, key: torch.FloatTensor, value: tor
             is_causal=is_causal, scale=scale, enable_gqa=enable_gqa,
             matmul_dtype="int8", # can be one of "disabled", "int8", "float8_e4m3fn", "float16".
             pv_matmul_dtype="disabled", # can be one of "disabled", "int8", "float8_e4m3fn", "float16".
-            smooth_k=False,
+            smooth_k=True,
             use_hadamard=False,
             hadamard_group_size=256,
             do_quantize=True, # Set this to False to disable the quantized matmul usage

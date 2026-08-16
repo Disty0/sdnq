@@ -594,7 +594,7 @@ def sdnq_triton_atten_with_backward(
         is_causal: bool = False,
         scale: float | None = None,
         enable_gqa: bool = False, # pylint: disable=unused-argument
-        smooth_k: bool = False,
+        smooth_k: bool = True,
         use_hadamard: bool = False,
         hadamard_group_size: int = 256,
         matmul_dtype: str = "int8",

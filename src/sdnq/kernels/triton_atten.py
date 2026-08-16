@@ -199,7 +199,7 @@ def sdnq_attn_kernel(
 
 def quantize_attn(
     q, k, v,
-    smooth_k: bool = False,
+    smooth_k: bool = True,
     hadamard: torch.FloatTensor | None = None,
     hadamard_group_size: int = 256,
     matmul_dtype: str = "int8",
@@ -253,7 +253,7 @@ def get_attn_inputs(
     is_causal: bool = False, # pylint: disable=unused-argument
     scale: float | None = None,
     enable_gqa: bool = False, # pylint: disable=unused-argument
-    smooth_k: bool = False,
+    smooth_k: bool = True,
     hadamard_group_size: int = 256,
     matmul_dtype: str = "int8",
     pv_matmul_dtype: str | None = None,
@@ -299,7 +299,7 @@ def sdnq_triton_atten(
     is_causal: bool = False,
     scale: float | None = None,
     enable_gqa: bool = False, # pylint: disable=unused-argument
-    smooth_k: bool = False,
+    smooth_k: bool = True,
     use_hadamard: bool = False,
     hadamard_group_size: int = 256,
     matmul_dtype: str = "int8",
