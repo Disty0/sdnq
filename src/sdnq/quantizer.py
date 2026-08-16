@@ -494,8 +494,9 @@ def apply_sdnq_to_module(model: torch.nn.Module, quantization_config: "SDNQConfi
 
 
 @devices.inference_context()
-def sdnq_post_load_quant(
+def sdnq_post_load_quant( # pylint: disable=unused-argument
     model: torch.nn.Module,
+    *args,
     weights_dtype: str = "int8",
     quantized_matmul_dtype: str | None = None,
     hadamard_group_size: int = 256,
@@ -527,8 +528,7 @@ def sdnq_post_load_quant(
     torch_dtype: torch.dtype | None = None,
     quantization_config: "SDNQConfig" = None,
     pre_quantized: bool = False,
-    *args, # pylint: disable=unused-argument
-    **kwargs, # pylint: disable=unused-argument
+    **kwargs,
 ) -> torch.nn.Module:
     if pre_quantized:
         add_skip_keys = False
