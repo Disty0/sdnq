@@ -302,14 +302,14 @@ def quantize_attn(
         matmul_dtype = "int8"
     if pv_matmul_dtype in {"enabled", "uint8"}:
         pv_matmul_dtype = "int8"
-    if smooth_k:
-        if k.dtype != torch.float32:
-            k = k.to(dtype=torch.float32)
-            k = k.sub_(k.mean(dim=2, keepdim=True))
-        else:
-            k = k.sub(k.mean(dim=2, keepdim=True))
     use_hadamard = False
     if matmul_dtype not in {None, "none", "no", "disabled"}:
+        if smooth_k:
+            if k.dtype != torch.float32:
+                k = k.to(dtype=torch.float32)
+                k = k.sub_(k.mean(dim=2, keepdim=True))
+            else:
+                k = k.sub(k.mean(dim=2, keepdim=True))
         if hadamard is not None:
             q, use_hadamard, hadamard_group_size = apply_hadamard(q, group_size=hadamard_group_size, hadamard=hadamard, layer_class_name="Linear")
             if use_hadamard:
@@ -321,7 +321,7 @@ def quantize_attn(
         k_scale = k_scale.squeeze(-1)
     else:
         q_q = q.contiguous()
-        k_q = k.contiguous().to(dtype=q.dtype)
+        k_q = k.contiguous()
         q_scale = None
         k_scale = None
     if pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
