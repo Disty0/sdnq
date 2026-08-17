@@ -13,24 +13,40 @@ min_block_size = int(os.environ.get("SDNQ_TRITON_ATTEN_MIN_BLOCK_SIZE", "256"))
 autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=w, num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128").replace(" ","").split(",")]
-    for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "32,64").replace(" ","").split(",")]
+    for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32").replace(" ","").split(",")]
     for w in [int(w) for w in os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_LIST", "8,16" if torch.xpu.is_available() else "4,8").replace(" ","").split(",")]
     for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "1" if (torch.cuda.is_available() and torch.version.hip) else "2").replace(" ","").split(",")]
 ]
 
+small_autotune_configs = [
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=w, num_stages=s)
+    for BM in [32,64] for BN in [16,32]
+    for w in ([4,8] if torch.xpu.is_available() else [2,4])
+    for s in ([1,] if (torch.cuda.is_available() and torch.version.hip) else [2,])
+]
 
-def prune_configs(configs, named_args, **kwargs): # pylint: disable=unused-argument
+
+def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
+    device = named_args["q_ptr"].device
+    if device.type == "xpu" and torch.int8 in {named_args["q_ptr"].dtype, named_args["v_ptr"].dtype}:
+        is_int8_xpu = True
+        pruned_configs = [conf for conf in configs if (conf.kwargs["BLOCK_SIZE_M"] >= 32 and conf.kwargs["BLOCK_SIZE_N"] >= 32)]
+        if pruned_configs:
+            configs = pruned_configs
+    else:
+        is_int8_xpu = False
+
     pruned_configs = [
         conf for conf in configs if (
-            conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["QN"], 64)
-            and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["KN"], 32)
+            conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["QN"], 32 if from_small else 64)
+            and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["KN"], 32 if is_int8_xpu else 16)
             and (conf.kwargs["BLOCK_SIZE_M"] >= conf.kwargs["BLOCK_SIZE_N"] or named_args["is_causal"] == 0)
         )
     ]
     if pruned_configs:
         configs = pruned_configs
 
-    cache_size, smem_size = get_cache_sizes(named_args["q_ptr"].device)
+    cache_size, smem_size = get_cache_sizes(device)
     if cache_size > 0 or smem_size > 0:
         pruned_configs = []
         for config in configs:
@@ -89,6 +105,8 @@ def prune_configs(configs, named_args, **kwargs): # pylint: disable=unused-argum
 
         if pruned_configs:
             configs = pruned_configs
+        elif not from_small:
+            return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
     return configs
 
 

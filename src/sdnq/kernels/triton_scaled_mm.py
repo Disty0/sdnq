@@ -19,19 +19,35 @@ autotune_configs = [
     for s in [int(s) for s in os.environ.get("SDNQ_TRITON_MM_NUM_STAGES_LIST", "1" if (torch.cuda.is_available() and torch.version.hip) else "2").replace(" ","").split(",")]
 ]
 
+small_autotune_configs = [
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=w, num_stages=s)
+    for BM in [32,64] for BN in [32,64,128] for BK in [16,32,64] for GM in [4,]
+    for w in ([8,] if torch.xpu.is_available() else [2,])
+    for s in ([1,] if (torch.cuda.is_available() and torch.version.hip) else [2,])
+]
 
-def prune_configs(configs, named_args, **kwargs): # pylint: disable=unused-argument
+
+def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
+    device = named_args["a_ptr"].device
+    if device.type == "xpu" and named_args["a_ptr"].dtype == torch.int8:
+        is_int8_xpu = True
+        pruned_configs = [conf for conf in configs if (conf.kwargs["BLOCK_SIZE_M"] >= 32 and conf.kwargs["BLOCK_SIZE_N"] >= 32 and conf.kwargs["BLOCK_SIZE_K"] >= 32)]
+        if pruned_configs:
+            configs = pruned_configs
+    else:
+        is_int8_xpu = False
+
     pruned_configs = [
         conf for conf in configs if (
-            conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["M"], 64)
-            and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["N"], 64)
-            and conf.kwargs["BLOCK_SIZE_K"] <= max(named_args["K"], 32)
+            conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["M"], 32 if from_small else 64)
+            and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["N"], 32 if from_small else 64)
+            and conf.kwargs["BLOCK_SIZE_K"] <= max(named_args["K"], 16 if (from_small and not is_int8_xpu) else 32)
         )
     ]
     if pruned_configs:
         configs = pruned_configs
 
-    cache_size, smem_size = get_cache_sizes(named_args["a_ptr"].device)
+    cache_size, smem_size = get_cache_sizes(device)
     if cache_size > 0 or smem_size > 0:
         pruned_configs = []
         for config in configs:
@@ -70,6 +86,8 @@ def prune_configs(configs, named_args, **kwargs): # pylint: disable=unused-argum
 
         if pruned_configs:
             configs = pruned_configs
+        else:
+            return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
     return configs
 
 
