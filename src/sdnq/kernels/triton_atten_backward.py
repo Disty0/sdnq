@@ -282,8 +282,8 @@ def sdnq_attn_bwd_dkv_kernel(
 
     k = k_desc.load([start_n_block, 0]).T
     v = v_desc.load([start_n_block, 0]).T
-    dk = tl.zeros([BLOCK_SIZE_N, KHD], dtype=tl.float32)
-    dv = tl.zeros([BLOCK_SIZE_N, VHD], dtype=tl.float32)
+    dk_t = tl.zeros([KHD, BLOCK_SIZE_N], dtype=tl.float32)
+    dv_t = tl.zeros([VHD, BLOCK_SIZE_N], dtype=tl.float32)
 
     qh_ratio = QH // KH
     for qh_idx in tl.range(0, qh_ratio):
@@ -365,49 +365,45 @@ def sdnq_attn_bwd_dkv_kernel(
                     ds = tl.mul(tl.mul(p, tl.sub(dp, delta[:, None])), sm_scale)
                     if qk_is_quantized:
                         ds *= q_scale
-                        ds = ds.T
-                        ds_scale = tl.max(tl.abs(ds), 1)[:, None]
+                        ds_scale = tl.max(tl.abs(ds), 0)[None, :]
                         if q.dtype == tl.int8:
                             ds_scale *= 1.0 / 127.0
                             ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
                             ds = tl.floor(tl.fma(ds, (1.0 / ds_scale), 0.5)).to(tl.int8)
-                            dk = tl.fma(tl.dot(ds, q, out_dtype=tl.int32).to(tl.float32), ds_scale, dk)
+                            dk_t = tl.fma(tl.dot(q.T, ds, out_dtype=tl.int32).to(tl.float32), ds_scale, dk_t)
                         else:
                             ds_scale *= 1.0 / (65504.0 if q.dtype == tl.float16 else 448.0)
                             ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
                             ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(q.dtype)
-                            dk = tl.fma(tl.dot(ds, q, out_dtype=tl.float32), ds_scale, dk)
+                            dk_t = tl.fma(tl.dot(q.T, ds, out_dtype=tl.float32), ds_scale, dk_t)
                     else:
-                        ds = ds.T
                         ds = ds.to(q.dtype)
-                        dk = tl.dot(ds, q, dk, out_dtype=tl.float32)
+                        dk_t = tl.dot(q.T, ds, dk_t, out_dtype=tl.float32)
 
                 if do_grad_v:
                     if pv_is_quantized:
                         p *= do_scale
-                        p = p.T
-                        p_scale = tl.max(p, 1)[:, None]
+                        p_scale = tl.max(p, 0)[None, :]
                         if do.dtype == tl.int8:
                             p_scale *= 1.0 / 127.0
                             p_scale = tl.where(p_scale <= 2e-38, 1.0, p_scale)
                             p = tl.floor(tl.fma(p, tl.fdiv(1.0, p_scale), 0.5)).to(tl.int8)
-                            dv = tl.fma(tl.dot(p, do, out_dtype=tl.int32).to(tl.float32), p_scale, dv)
+                            dv_t = tl.fma(tl.dot(do.T, p, out_dtype=tl.int32).to(tl.float32), p_scale, dv_t)
                         else:
                             p_scale *= 1.0 / (65504.0 if do.dtype == tl.float16 else 448.0)
                             p_scale = tl.where(p_scale <= 2e-38, 1.0, p_scale)
                             p = tl.mul(p, tl.fdiv(1.0, p_scale)).to(do.dtype)
-                            dv = tl.fma(tl.dot(p, do, out_dtype=tl.float32), p_scale, dv)
+                            dv_t = tl.fma(tl.dot(do.T, p, out_dtype=tl.float32), p_scale, dv_t)
                     else:
-                        p = p.T
                         p = p.to(do.dtype)
-                        dv = tl.dot(p, do, dv, out_dtype=tl.float32)
+                        dv_t = tl.dot(do.T, p, dv_t, out_dtype=tl.float32)
 
     if do_grad_k:
-        dk = dk.to(dk_ptr.type.element_ty)
+        dk = dk_t.T.to(dk_ptr.type.element_ty)
         dk_desc = tl.make_tensor_descriptor(dk_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, KHD])
         dk_desc.store([start_n_block, 0], dk)
     if do_grad_v:
-        dv = dv.to(dv_ptr.type.element_ty)
+        dv = dv_t.T.to(dv_ptr.type.element_ty)
         dv_desc = tl.make_tensor_descriptor(dv_ptr + offset_v * VHD, shape=[VN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_N, VHD])
         dv_desc.store([start_n_block, 0], dv)
 

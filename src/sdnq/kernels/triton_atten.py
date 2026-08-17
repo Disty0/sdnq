@@ -15,7 +15,7 @@ autotune_configs = [
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32").replace(" ","").split(",")]
     for w in [int(w) for w in os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_LIST", "8,16" if torch.xpu.is_available() else "4,8").replace(" ","").split(",")]
-    for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "1" if (torch.cuda.is_available() and torch.version.hip) else "2").replace(" ","").split(",")]
+    for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "1" if (torch.cuda.is_available() and torch.version.hip) else "1,2").replace(" ","").split(",")]
 ]
 
 small_autotune_configs = [
@@ -28,6 +28,7 @@ small_autotune_configs = [
 
 def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
     device = named_args["q_ptr"].device
+    is_dkv_backward = bool(named_args.get("dk_ptr") is not None or named_args.get("dv_ptr") is not None)
     if device.type == "xpu" and torch.int8 in {named_args["q_ptr"].dtype, named_args["v_ptr"].dtype}:
         is_int8_xpu = True
         pruned_configs = [conf for conf in configs if (conf.kwargs["BLOCK_SIZE_M"] >= 32 and conf.kwargs["BLOCK_SIZE_N"] >= 32)]
@@ -40,7 +41,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
         conf for conf in configs if (
             conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["QN"], 32 if from_small else 64)
             and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["KN"], 32 if is_int8_xpu else 16)
-            and (conf.kwargs["BLOCK_SIZE_M"] >= conf.kwargs["BLOCK_SIZE_N"] or named_args["is_causal"] == 0)
+            and (is_dkv_backward or named_args["is_causal"] == 0 or conf.kwargs["BLOCK_SIZE_M"] >= conf.kwargs["BLOCK_SIZE_N"])
         )
     ]
     if pruned_configs:
@@ -93,7 +94,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             smem_MN = size_MN
             cache_MN = size_MN
 
-            if named_args.get("dk_ptr") is not None or named_args.get("dv_ptr") is not None:
+            if is_dkv_backward:
                 smem_req = smem_N + ((smem_M + smem_MN) * config.num_stages)
                 cache_req = cache_N + ((cache_M + cache_MN) * config.num_stages)
             else:
