@@ -86,7 +86,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 
         if pruned_configs:
             configs = pruned_configs
-        else:
+        elif not from_small:
             return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
     return configs
 
