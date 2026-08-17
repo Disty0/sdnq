@@ -5,9 +5,11 @@ import torch
 import triton
 import triton.language as tl
 
+from ..utils import get_cache_sizes
+
 
 min_block_size = int(os.environ.get("SDNQ_TRITON_MM_MIN_BLOCK_SIZE", "256"))
-matmul_configs = [
+autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=w, num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_M_LIST", "64,128").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_N_LIST", "64,128,256").replace(" ","").split(",")]
@@ -18,7 +20,69 @@ matmul_configs = [
 ]
 
 
-@triton.autotune(configs=matmul_configs, key=["b_is_contiguous", "bias_ndim", "M_AT", "N_AT", "K_AT", "a_dtype", "out_dtype"], cache_results=True)
+def prune_configs(configs, named_args, **kwargs): # pylint: disable=unused-argument
+    pruned_configs = [
+        conf for conf in configs if (
+            conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["M"], 64)
+            and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["N"], 64)
+            and conf.kwargs["BLOCK_SIZE_K"] <= max(named_args["K"], 32)
+        )
+    ]
+    if pruned_configs:
+        configs = pruned_configs
+
+    cache_size, smem_size = get_cache_sizes(named_args["a_ptr"].device)
+    if cache_size > 0 or smem_size > 0:
+        pruned_configs = []
+        for config in configs:
+            block_size_m = config.kwargs["BLOCK_SIZE_M"]
+            block_size_n = config.kwargs["BLOCK_SIZE_N"]
+            block_size_k = config.kwargs["BLOCK_SIZE_K"]
+            group_size_m = config.kwargs["GROUP_SIZE_M"]
+
+            if smem_size > 0:
+                smem_req = block_size_m * block_size_k * named_args["a_ptr"].element_size()
+                smem_req += block_size_n * block_size_k * named_args["b_ptr"].element_size()
+                smem_req *= config.num_stages
+            else:
+                smem_req = 0
+
+            if cache_size > 0:
+                cache_req = group_size_m * block_size_m * block_size_k * named_args["a_ptr"].element_size()
+                cache_req += block_size_n * block_size_k * named_args["b_ptr"].element_size()
+                cache_req *= config.num_stages
+
+                cache_req += group_size_m * block_size_m * block_size_n * named_args["c_ptr"].element_size()
+                if named_args.get("scale_a_ptr") is not None:
+                    cache_req += group_size_m * block_size_m * named_args["scale_a_ptr"].element_size()
+                if named_args.get("scale_b_ptr") is not None:
+                    cache_req += block_size_n * named_args["scale_b_ptr"].element_size()
+                if named_args.get("bias_ptr") is not None:
+                    if named_args["bias_ndim"] == 1:
+                        cache_req += block_size_n * named_args["bias_ptr"].element_size()
+                    else:
+                        cache_req += group_size_m * block_size_m * block_size_n * named_args["bias_ptr"].element_size()
+            else:
+                cache_req = 0
+
+            if (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
+                pruned_configs.append(config)
+
+        if pruned_configs:
+            configs = pruned_configs
+    return configs
+
+
+@triton.autotune(
+    configs=autotune_configs,
+    key=[
+        "b_is_contiguous", "bias_ndim",
+        "M_AT", "N_AT", "K_AT",
+        "a_dtype", "out_dtype",
+    ],
+    prune_configs_by={'early_config_prune': prune_configs},
+    cache_results=True,
+)
 @triton.jit
 def sdnq_scaled_mm_kernel(
     a_ptr, b_ptr, c_ptr, bias_ptr,

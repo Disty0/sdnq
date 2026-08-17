@@ -5,7 +5,7 @@ import triton.language as tl
 
 from ..common import compile_func
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, rotate_hadamard, rotate_hadamard_compiled
-from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size
+from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size, prune_configs
 
 
 @triton.autotune(
@@ -21,6 +21,7 @@ from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size
         "out_dtype", "return_dtype",
         "mask_dtype",
     ],
+    prune_configs_by={'early_config_prune': prune_configs},
     cache_results=True,
 )
 @triton.jit
@@ -202,6 +203,7 @@ def sdnq_attn_bwd_dq_kernel(
         "mask_dtype",
         "do_grad_k", "do_grad_v",
     ],
+    prune_configs_by={'early_config_prune': prune_configs},
     cache_results=True,
 )
 @triton.jit
@@ -410,7 +412,12 @@ def sdnq_attn_bwd_dkv_kernel(
         dv_desc.store([start_n_block, 0], dv)
 
 
-def get_attn_backward_inputs(grad_output: torch.FloatTensor, out: torch.FloatTensor, hadamard: torch.Tensor | None, pv_matmul_dtype: str | None = None) -> tuple[torch.FloatTensor, torch.FloatTensor | None, torch.FloatTensor, torch.FloatTensor]:
+def get_attn_backward_inputs(
+    grad_output: torch.FloatTensor,
+    out: torch.FloatTensor,
+    hadamard: torch.Tensor | None,
+    pv_matmul_dtype: str | None = None,
+) -> tuple[torch.Tensor, torch.FloatTensor | None, torch.FloatTensor, torch.FloatTensor]:
     out = out.contiguous()
     delta = torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32)
     if pv_matmul_dtype in {"enabled", "uint8"}:
@@ -450,7 +457,7 @@ def sdnq_triton_atten_bwd(
     do_grad_q: bool = True,
     do_grad_k: bool = True,
     do_grad_v: bool = True,
-) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
+) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None, None]:
     if not do_grad_q and not do_grad_k and not do_grad_v:
         return None, None, None
 

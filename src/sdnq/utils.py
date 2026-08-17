@@ -26,6 +26,33 @@ def next_power_of_2(n: int) -> int:
     return 2 ** n.bit_length()
 
 
+def get_smem_size(dev: int) -> int:
+    try:
+        import triton
+        return triton.runtime.driver.active.utils.get_device_properties(dev).get("max_shared_mem", 0)
+    except Exception:
+        return 0
+
+
+def get_cache_sizes(device: torch.device) -> tuple[int, int]:
+    device = torch.device(device)
+    device_idx = device.index if device.index is not None else 0
+    match device.type:
+        case "cuda":
+            cache_size = getattr(torch.cuda.get_device_properties(device), "L2_cache_size", 0)
+            smem_size = get_smem_size(device_idx)
+        case "xpu":
+            props = torch.xpu.get_device_properties(device)
+            cache_size = getattr(props, "last_level_cache_size", 0)
+            smem_size = getattr(props, "local_mem_size", 0)
+            if smem_size == 0:
+                smem_size = get_smem_size(device_idx)
+        case _:
+            cache_size = 0
+            smem_size = get_smem_size(device_idx)
+    return cache_size, smem_size
+
+
 def check_param_name_in(param_name: str, param_list: list[str]) -> str:
     split_param_name = param_name.split(".")
     for param in param_list:

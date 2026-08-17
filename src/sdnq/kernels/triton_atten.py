@@ -6,7 +6,7 @@ import triton.language as tl
 
 from ..common import compile_func
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
-from ..utils import is_pow2, next_power_of_2
+from ..utils import is_pow2, next_power_of_2, get_cache_sizes
 
 
 min_block_size = int(os.environ.get("SDNQ_TRITON_ATTEN_MIN_BLOCK_SIZE", "256"))
@@ -17,6 +17,79 @@ autotune_configs = [
     for w in [int(w) for w in os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_LIST", "8,16" if torch.xpu.is_available() else "4,8").replace(" ","").split(",")]
     for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "1" if (torch.cuda.is_available() and torch.version.hip) else "2").replace(" ","").split(",")]
 ]
+
+
+def prune_configs(configs, named_args, **kwargs): # pylint: disable=unused-argument
+    pruned_configs = [
+        conf for conf in configs if (
+            conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["QN"], 64)
+            and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["KN"], 32)
+            and (conf.kwargs["BLOCK_SIZE_M"] >= conf.kwargs["BLOCK_SIZE_N"] or named_args["is_causal"] == 0)
+        )
+    ]
+    if pruned_configs:
+        configs = pruned_configs
+
+    cache_size, smem_size = get_cache_sizes(named_args["q_ptr"].device)
+    if cache_size > 0 or smem_size > 0:
+        pruned_configs = []
+        for config in configs:
+            block_size_m = config.kwargs["BLOCK_SIZE_M"]
+            block_size_n = config.kwargs["BLOCK_SIZE_N"]
+
+            smem_M = block_size_m * named_args["QHD"] * named_args["q_ptr"].element_size()
+            if named_args.get("do_ptr") is not None:
+                smem_M += block_size_m * named_args["VHD"] * named_args["do_ptr"].element_size()
+            if named_args.get("q_scale_ptr") is not None:
+                smem_M += block_size_m * named_args["q_scale_ptr"].element_size()
+            if named_args.get("do_scale_ptr") is not None:
+                smem_M += block_size_m * named_args["do_scale_ptr"].element_size()
+            if named_args.get("lse_ptr") is not None and named_args.get("out_ptr") is None:
+                smem_M += block_size_m * named_args["lse_ptr"].element_size()
+            if named_args.get("delta_ptr") is not None: # Read in BWD
+                smem_M += block_size_m * named_args["delta_ptr"].element_size()
+
+            cache_M = smem_M
+            if named_args.get("out_ptr") is not None:
+                cache_M += block_size_m * named_args["VHD"] * named_args["out_ptr"].element_size()
+            if named_args.get("dq_ptr") is not None:
+                cache_M += block_size_m * named_args["QHD"] * named_args["dq_ptr"].element_size()
+            if named_args.get("lse_ptr") is not None and named_args.get("out_ptr") is not None:
+                cache_M += block_size_m * named_args["lse_ptr"].element_size()
+
+            smem_N = block_size_n * named_args["KHD"] * named_args["k_ptr"].element_size()
+            smem_N += block_size_n * named_args["VHD"] * named_args["v_ptr"].element_size()
+            if named_args.get("k_scale_ptr") is not None:
+                smem_N += block_size_n * named_args["k_scale_ptr"].element_size()
+            if named_args.get("v_scale_ptr") is not None:
+                smem_N += block_size_n * named_args["v_scale_ptr"].element_size()
+
+            cache_N = smem_N
+            if named_args.get("dk_ptr") is not None:
+                cache_N += block_size_n * named_args["KHD"] * named_args["dk_ptr"].element_size()
+            if named_args.get("dv_ptr") is not None:
+                cache_N += block_size_n * named_args["VHD"] * named_args["dv_ptr"].element_size()
+
+            if named_args.get("mask_ptr") is not None:
+                size_MN = block_size_m * block_size_n * named_args["mask_ptr"].element_size()
+            else:
+                size_MN = 0
+            smem_MN = size_MN
+            cache_MN = size_MN
+
+            if named_args.get("dk_ptr") is not None or named_args.get("dv_ptr") is not None:
+                smem_req = smem_N + ((smem_M + smem_MN) * config.num_stages)
+                cache_req = cache_N + ((cache_M + cache_MN) * config.num_stages)
+            else:
+                smem_req = smem_M + ((smem_N + smem_MN) * config.num_stages)
+                cache_req = cache_M + ((cache_N + cache_MN) * config.num_stages)
+
+            if (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
+                pruned_configs.append(config)
+
+        if pruned_configs:
+            configs = pruned_configs
+    return configs
 
 
 @triton.autotune(
@@ -31,6 +104,7 @@ autotune_configs = [
         "q_dtype", "v_dtype",
         "out_dtype", "mask_dtype",
     ],
+    prune_configs_by={'early_config_prune': prune_configs},
     cache_results=True,
 )
 @triton.jit
@@ -204,7 +278,7 @@ def quantize_attn(
     hadamard_group_size: int = 256,
     matmul_dtype: str = "int8",
     pv_matmul_dtype: str | None = None,
-) -> tuple[torch.Tensor]:
+) -> tuple[torch.Tensor, torch.FloatTensor | None, torch.Tensor, torch.FloatTensor | None, torch.Tensor, torch.FloatTensor | None, bool, int]:
     if matmul_dtype in {"auto", "enabled", "uint8"}:
         matmul_dtype = "int8"
     if pv_matmul_dtype in {"enabled", "uint8"}:
@@ -259,7 +333,7 @@ def get_attn_inputs(
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
     out_dtype: torch.dtype | None = None,
-) -> tuple[torch.Tensor, float, torch.dtype]:
+) -> tuple[torch.Tensor, torch.FloatTensor | None, torch.Tensor, torch.FloatTensor | None, torch.Tensor, torch.FloatTensor | None, torch.Tensor | None, float, torch.dtype, bool, int]:
     QZ, QH, QN, QHD = query.shape
     _, _, KN, KHD = key.shape
     _, _, _, VHD = value.shape

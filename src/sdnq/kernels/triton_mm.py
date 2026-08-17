@@ -1,24 +1,22 @@
-import os
 import math
 import torch
 
 import triton
 import triton.language as tl
 
-
-min_block_size = int(os.environ.get("SDNQ_TRITON_MM_MIN_BLOCK_SIZE", "256"))
-matmul_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=w, num_stages=s)
-    for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_M_LIST", "64,128").replace(" ","").split(",")]
-    for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_N_LIST", "64,128,256").replace(" ","").split(",")]
-    for BK in [int(BK) for BK in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_K_LIST", "32,64,128").replace(" ","").split(",")]
-    for GM in [int(GM) for GM in os.environ.get("SDNQ_TRITON_MM_GROUP_SIZE_M_LIST", "8").replace(" ","").split(",")]
-    for w in [int(w) for w in os.environ.get("SDNQ_TRITON_MM_NUM_WARPS_LIST", "16" if torch.xpu.is_available() else "4").replace(" ","").split(",")]
-    for s in [int(s) for s in os.environ.get("SDNQ_TRITON_MM_NUM_STAGES_LIST", "1" if (torch.cuda.is_available() and torch.version.hip) else "2").replace(" ","").split(",")]
-]
+from .triton_scaled_mm import min_block_size, autotune_configs, prune_configs
 
 
-@triton.autotune(configs=matmul_configs, key=["b_is_contiguous", "bias_ndim", "M_AT", "N_AT", "K_AT", "a_dtype", "out_dtype"], cache_results=True)
+@triton.autotune(
+    configs=autotune_configs,
+    key=[
+        "b_is_contiguous", "bias_ndim",
+        "M_AT", "N_AT", "K_AT",
+        "a_dtype", "out_dtype",
+    ],
+    prune_configs_by={'early_config_prune': prune_configs},
+    cache_results=True,
+)
 @triton.jit
 def sdnq_triton_mm_kernel(
     a_ptr, b_ptr, c_ptr, bias_ptr,
