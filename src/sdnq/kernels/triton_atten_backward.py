@@ -132,16 +132,15 @@ def sdnq_attn_bwd_dq_kernel(
             elif mask_max == float("-inf"):
                 skip = True
         if not skip:
-            k_load = k_desc.load([start_n, 0])
-            k = k_load.T
+            k = k_desc.load([start_n, 0])
             if qk_is_quantized:
                 k_scale = k_scale_desc.load([start_n])[None, :]
                 if q.dtype == tl.int8:
-                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
+                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
                 else:
-                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale), log2_sm_scale)
+                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.float32), q_scale), k_scale), log2_sm_scale)
             else:
-                qk = tl.mul(tl.dot(q, k, out_dtype=tl.float32), log2_sm_scale)
+                qk = tl.mul(tl.dot(q, k.T, out_dtype=tl.float32), log2_sm_scale)
 
             if is_causal and start_m_block < (start_n + BLOCK_SIZE_N):
                 qk = tl.where(offs_m[:, None] >= (start_n + offs_n[None, :]), qk, float("-inf"))
@@ -174,15 +173,15 @@ def sdnq_attn_bwd_dq_kernel(
                     ds_scale *= 1.0 / 127.0
                     ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
                     ds = tl.floor(tl.fma(ds, (1.0 / ds_scale), 0.5)).to(tl.int8)
-                    dq = tl.fma(tl.dot(ds, k_load, out_dtype=tl.int32).to(tl.float32), ds_scale, dq)
+                    dq = tl.fma(tl.dot(ds, k, out_dtype=tl.int32).to(tl.float32), ds_scale, dq)
                 else:
-                    ds_scale *= 1.0 / (65504.0 if k_load.dtype == tl.float16 else 448.0)
+                    ds_scale *= 1.0 / (65504.0 if k.dtype == tl.float16 else 448.0)
                     ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
-                    ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(k_load.dtype)
-                    dq = tl.fma(tl.dot(ds, k_load, out_dtype=tl.float32), ds_scale, dq)
+                    ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(k.dtype)
+                    dq = tl.fma(tl.dot(ds, k, out_dtype=tl.float32), ds_scale, dq)
             else:
-                ds = ds.to(k_load.dtype)
-                dq = tl.dot(ds, k_load, dq, out_dtype=tl.float32)
+                ds = ds.to(k.dtype)
+                dq = tl.dot(ds, k, dq, out_dtype=tl.float32)
 
     dq = dq.to(dq_ptr.type.element_ty)
     dq_desc = tl.make_tensor_descriptor(dq_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, QHD])
