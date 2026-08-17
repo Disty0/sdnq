@@ -103,8 +103,8 @@ def sdnq_attn_bwd_dq_kernel(
 
     q = q_desc.load([start_m_block, 0])
     do = do_desc.load([start_m_block, 0])
-    lse = lse_desc.load([start_m_block]).to(tl.float32)
-    delta = delta_desc.load([start_m_block]).to(tl.float32)
+    lse = lse_desc.load([start_m_block])[:, None].to(tl.float32)
+    delta = delta_desc.load([start_m_block])[:, None].to(tl.float32)
     dq = tl.zeros([BLOCK_SIZE_M, QHD], dtype=tl.float32)
 
     if qk_is_quantized:
@@ -152,7 +152,7 @@ def sdnq_attn_bwd_dq_kernel(
             if do_k_mask and (start_n + BLOCK_SIZE_N) > KN:
                 qk = tl.where(offs_n[None, :] < (KN - start_n), qk, float("-inf"))
 
-            qk -= lse[:, None]
+            qk -= lse
             p = tl.exp2(qk)
 
             v = v_desc.load([start_n, 0]).T
@@ -165,7 +165,7 @@ def sdnq_attn_bwd_dq_kernel(
             else:
                 dp = tl.dot(do, v, out_dtype=tl.float32)
 
-            ds = tl.mul(tl.mul(p, tl.sub(dp, delta[:, None])), sm_scale)
+            ds = tl.mul(tl.mul(p, tl.sub(dp, delta)), sm_scale)
             if qk_is_quantized:
                 ds *= k_scale
                 ds_scale = tl.max(tl.abs(ds), 1)[:, None]
@@ -342,8 +342,8 @@ def sdnq_attn_bwd_dkv_kernel(
                 if do_k_mask and (start_n_block + BLOCK_SIZE_N) > KN:
                     qk = tl.where(offs_n[None, :] < KN, qk, float("-inf"))
 
-                lse = lse_desc.load([start_m]).to(tl.float32)
-                qk -= lse[:, None]
+                lse = lse_desc.load([start_m])[:, None].to(tl.float32)
+                qk -= lse
                 p = tl.exp2(qk)
 
                 do = do_desc.load([start_m, 0])
@@ -359,9 +359,9 @@ def sdnq_attn_bwd_dkv_kernel(
                     else:
                         dp = tl.dot(do, v, out_dtype=tl.float32)
 
-                    delta = delta_desc.load([start_m]).to(tl.float32)
+                    delta = delta_desc.load([start_m])[:, None].to(tl.float32)
 
-                    ds = tl.mul(tl.mul(p, tl.sub(dp, delta[:, None])), sm_scale)
+                    ds = tl.mul(tl.mul(p, tl.sub(dp, delta)), sm_scale)
                     if qk_is_quantized:
                         ds *= q_scale
                         ds_scale = tl.max(tl.abs(ds), 0)[None, :]
