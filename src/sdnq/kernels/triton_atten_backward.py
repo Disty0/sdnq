@@ -9,7 +9,7 @@ import triton.language as tl
 from ..sdnext import devices
 from ..common import compile_func
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, rotate_hadamard, rotate_hadamard_compiled
-from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size, prune_configs, USE_FP16_ACCUM
+from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size, prune_configs
 
 
 @triton.autotune(
@@ -489,6 +489,7 @@ def sdnq_triton_atten_bwd_dq(
     attn_mask: torch.Tensor | None = None,
     sm_scale: float | None = None,
     is_causal: bool = False,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
 ) -> torch.Tensor:
     QZ, QH, QN, _ = query.shape
@@ -503,7 +504,7 @@ def sdnq_triton_atten_bwd_dq(
         dq, lse, delta, attn_mask, sm_scale,
         (1 if is_causal else 0),
         (1 if attn_mask is not None else 0),
-        (1 if USE_FP16_ACCUM else 0),
+        (1 if use_fp16_accum else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         math.ceil(QN / min_block_size),
@@ -532,6 +533,7 @@ def sdnq_atten_bwd_dkv(
     attn_mask: torch.Tensor | None = None,
     sm_scale: float | None = None,
     is_causal: bool = False,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
     do_grad_k: bool = True,
     do_grad_v: bool = True,
@@ -551,7 +553,7 @@ def sdnq_atten_bwd_dkv(
         (1 if do_grad_v else 0),
         (1 if is_causal else 0),
         (1 if attn_mask is not None else 0),
-        (1 if USE_FP16_ACCUM else 0),
+        (1 if use_fp16_accum else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         math.ceil(QN / min_block_size),
@@ -581,6 +583,7 @@ def sdnq_triton_atten_bwd_dkv(
     attn_mask: torch.Tensor | None = None,
     sm_scale: float | None = None,
     is_causal: bool = False,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     return sdnq_atten_bwd_dkv(
@@ -593,6 +596,7 @@ def sdnq_triton_atten_bwd_dkv(
         attn_mask=attn_mask,
         sm_scale=sm_scale,
         is_causal=is_causal,
+        use_fp16_accum=use_fp16_accum,
         out_dtype=out_dtype,
         do_grad_k=True,
         do_grad_v=True,
@@ -615,6 +619,7 @@ def sdnq_triton_atten_bwd_dk(
     attn_mask: torch.Tensor | None = None,
     sm_scale: float | None = None,
     is_causal: bool = False,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
 ) -> torch.Tensor:
     return sdnq_atten_bwd_dkv(
@@ -627,6 +632,7 @@ def sdnq_triton_atten_bwd_dk(
         attn_mask=attn_mask,
         sm_scale=sm_scale,
         is_causal=is_causal,
+        use_fp16_accum=use_fp16_accum,
         out_dtype=out_dtype,
         do_grad_k=True,
         do_grad_v=False,
@@ -649,6 +655,7 @@ def sdnq_triton_atten_bwd_dv(
     attn_mask: torch.Tensor | None = None,
     sm_scale: float | None = None,
     is_causal: bool = False,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
 ) -> torch.Tensor:
     return sdnq_atten_bwd_dkv(
@@ -661,6 +668,7 @@ def sdnq_triton_atten_bwd_dv(
         attn_mask=attn_mask,
         sm_scale=sm_scale,
         is_causal=is_causal,
+        use_fp16_accum=use_fp16_accum,
         out_dtype=out_dtype,
         do_grad_k=False,
         do_grad_v=True,
@@ -711,6 +719,7 @@ def sdnq_triton_atten_bwd(
     hadamard_group_size: int = 256,
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
     do_grad_q: bool = True,
     do_grad_k: bool = True,
@@ -741,6 +750,7 @@ def sdnq_triton_atten_bwd(
             attn_mask=attn_mask,
             sm_scale=sm_scale,
             is_causal=is_causal,
+            use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
         )
         if use_hadamard:
@@ -760,6 +770,7 @@ def sdnq_triton_atten_bwd(
             attn_mask=attn_mask,
             sm_scale=sm_scale,
             is_causal=is_causal,
+            use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
         )
     elif do_grad_k:
@@ -774,6 +785,7 @@ def sdnq_triton_atten_bwd(
             attn_mask=attn_mask,
             sm_scale=sm_scale,
             is_causal=is_causal,
+            use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
         )
     elif do_grad_v:
@@ -788,6 +800,7 @@ def sdnq_triton_atten_bwd(
             attn_mask=attn_mask,
             sm_scale=sm_scale,
             is_causal=is_causal,
+            use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
         )
     if do_grad_k:
@@ -818,6 +831,7 @@ class SDNQAttenBackward(torch.autograd.Function):
         matmul_dtype: str,
         pv_matmul_dtype: str | None,
         do_quantize: bool,
+        use_fp16_accum: bool,
         out_dtype: torch.dtype | None,
     ) -> torch.Tensor:
         ctx.QHD = query.shape[-1]
@@ -825,6 +839,7 @@ class SDNQAttenBackward(torch.autograd.Function):
         ctx.VHD = value.shape[-1]
         ctx.is_causal = is_causal
         ctx.do_quantize = do_quantize
+        ctx.use_fp16_accum = use_fp16_accum
         ctx.pv_matmul_dtype = pv_matmul_dtype
 
         (
@@ -842,6 +857,7 @@ class SDNQAttenBackward(torch.autograd.Function):
             matmul_dtype=matmul_dtype,
             pv_matmul_dtype=pv_matmul_dtype,
             do_quantize=do_quantize,
+            use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
             return_backward=True,
         )
@@ -866,11 +882,12 @@ class SDNQAttenBackward(torch.autograd.Function):
             use_hadamard=ctx.use_hadamard,
             hadamard_group_size=ctx.hadamard_group_size,
             do_quantize=ctx.do_quantize,
+            use_fp16_accum=ctx.use_fp16_accum,
             do_grad_q=ctx.needs_input_grad[0],
             do_grad_k=ctx.needs_input_grad[1],
             do_grad_v=ctx.needs_input_grad[2],
         )
-        return dq, dk, dv, *(None,)*10
+        return dq, dk, dv, *(None,)*11
 
 
 def sdnq_triton_atten_with_backward(
@@ -888,6 +905,7 @@ def sdnq_triton_atten_with_backward(
         matmul_dtype: str = "int8",
         pv_matmul_dtype: str | None = None,
         do_quantize: bool = True,
+        use_fp16_accum: bool = False,
         out_dtype: torch.dtype | None = None,
     ) -> torch.Tensor:
     return SDNQAttenBackward.apply(
@@ -901,6 +919,7 @@ def sdnq_triton_atten_with_backward(
         matmul_dtype,
         pv_matmul_dtype,
         do_quantize,
+        use_fp16_accum,
         out_dtype
     )
 

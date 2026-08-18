@@ -13,8 +13,6 @@ from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_h
 from ..utils import is_pow2, next_power_of_2, get_cache_sizes
 
 
-USE_FP16_ACCUM = bool(os.environ.get("SDNQ_TRITON_ATTEN_USE_FP16_ACCUM", "0").lower() not in {"0", "false", "no"})
-
 min_block_size = int(os.environ.get("SDNQ_TRITON_ATTEN_MIN_BLOCK_SIZE", "256"))
 autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=w, num_stages=s)
@@ -334,6 +332,7 @@ def sdnq_atten_fwd(
     attn_mask: torch.Tensor | None = None,
     is_causal: bool = False,
     sm_scale: float = 1.0,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype = torch.float32,
     return_lse: bool = False,
 )-> tuple[torch.Tensor, torch.Tensor | None]:
@@ -351,7 +350,7 @@ def sdnq_atten_fwd(
         (1 if is_causal else 0),
         (1 if attn_mask is not None else 0),
         (1 if return_lse else 0),
-        (1 if USE_FP16_ACCUM else 0),
+        (1 if use_fp16_accum else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         math.ceil(QN / min_block_size),
@@ -377,6 +376,7 @@ def sdnq_triton_atten_fwd(
     attn_mask: torch.Tensor | None = None,
     is_causal: bool = False,
     sm_scale: float = 1.0,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     return sdnq_atten_fwd(
@@ -385,6 +385,7 @@ def sdnq_triton_atten_fwd(
         attn_mask=attn_mask,
         is_causal=is_causal,
         sm_scale=sm_scale,
+        use_fp16_accum=use_fp16_accum,
         out_dtype=out_dtype,
         return_lse=False,
     )[0]
@@ -402,6 +403,7 @@ def sdnq_triton_atten_lse_fwd(
     attn_mask: torch.Tensor | None = None,
     is_causal: bool = False,
     sm_scale: float = 1.0,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype = torch.float32,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     return sdnq_atten_fwd(
@@ -410,6 +412,7 @@ def sdnq_triton_atten_lse_fwd(
         attn_mask=attn_mask,
         is_causal=is_causal,
         sm_scale=sm_scale,
+        use_fp16_accum=use_fp16_accum,
         out_dtype=out_dtype,
         return_lse=True,
     )
@@ -526,6 +529,7 @@ def sdnq_triton_atten(
     matmul_dtype: str = "int8",
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
+    use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
     return_backward: bool = False,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, float, bool, int]:
@@ -562,18 +566,20 @@ def sdnq_triton_atten(
             query, key, value,
             query_scale, key_scale, value_scale,
             attn_mask=attn_mask,
+            is_causal=is_causal,
             sm_scale=sm_scale,
+            use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
-            is_causal=is_causal
         )
     else:
         out = sdnq_triton_atten_fwd(
             query, key, value,
             query_scale, key_scale, value_scale,
             attn_mask=attn_mask,
+            is_causal=is_causal,
             sm_scale=sm_scale,
+            use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
-            is_causal=is_causal
         )
 
     if use_hadamard and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
