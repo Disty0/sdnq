@@ -266,6 +266,13 @@ state["exp_avg"] = SDNQTensor.from_float(
 - **SDNQ_USE_TRITON_SCALED_MM**:  
   Set this to `0` to disable fused SDNQ Triton MM kernels and use the regular unfused Triton MM kernels instead.  
   Can be `0` or `1`. Default is `1`  
+- **SDNQ_TRITON_MM_USE_FP16_ACCUM**:  
+  Set this to `1` to enable FP16 accumulation with FP16 matmul on SDNQ Triton MM kernels.  
+  Can be `0` or `1`. Default is `0`  
+- **SDNQ_TRITON_ATTEN_USE_FP16_ACCUM**:  
+  Set this to `1` to enable FP16 accumulation with FP16 matmul on SDNQ Triton Atten kernels.  
+  This option also enables FP16 accumulation with PV matmul when quantized PV matmul disabled.  
+  Can be `0` or `1`. Default is `0`  
 - **SDNQ_USE_OPENVINO_MM**: Force the use of OpenVINO MM kernels instead of PyTorch for CPUs.  
   OpenVINO MM kernels can outperform PyTorch by 30x on CPUs that doesn't have AVX512 support.  
   OpenVINO MM can still outperform PyTorch on CPUs with AVX512 support.  
