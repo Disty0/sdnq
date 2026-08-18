@@ -1,12 +1,17 @@
 import os
 import math
+
 import torch
+from torch.library import triton_op, wrap_triton
 
 import triton
 import triton.language as tl
 
+from ..sdnext import devices
 from ..utils import get_cache_sizes
 
+
+USE_FP16_ACCUM = bool(os.environ.get("SDNQ_TRITON_MM_USE_FP16_ACCUM", "0").lower() not in {"0", "false", "no"})
 
 min_block_size = int(os.environ.get("SDNQ_TRITON_MM_MIN_BLOCK_SIZE", "256"))
 autotune_configs = [
@@ -94,7 +99,9 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 @triton.autotune(
     configs=autotune_configs,
     key=[
-        "b_is_contiguous", "bias_ndim",
+        "bias_ndim",
+        "b_is_contiguous",
+        "use_fp16_accum",
         "M_AT", "N_AT", "K_AT",
         "a_dtype", "out_dtype",
     ],
@@ -108,8 +115,9 @@ def sdnq_scaled_mm_kernel(
     M: tl.constexpr,
     N: tl.constexpr,
     K: tl.constexpr,
-    b_is_contiguous: tl.constexpr,
     bias_ndim: tl.constexpr,
+    b_is_contiguous: tl.constexpr,
+    use_fp16_accum: tl.constexpr,
     M_AT: tl.constexpr, # pylint: disable=unused-argument
     N_AT: tl.constexpr, # pylint: disable=unused-argument
     K_AT: tl.constexpr, # pylint: disable=unused-argument
@@ -143,8 +151,9 @@ def sdnq_scaled_mm_kernel(
     tl.assume(BLOCK_SIZE_N > 0)
     tl.assume(BLOCK_SIZE_K > 0)
     tl.assume(GROUP_SIZE_M > 0)
-    tl.assume(b_is_contiguous == 0 or b_is_contiguous == 1) # pylint: disable=consider-using-in
     tl.assume(bias_ndim >= 0 and bias_ndim <= 2) # pylint: disable=consider-using-in
+    tl.assume(b_is_contiguous == 0 or b_is_contiguous == 1) # pylint: disable=consider-using-in
+    tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
 
     a_desc = tl.make_tensor_descriptor(base=a_ptr, shape=(M, K), strides=(K, 1), block_shape=(BLOCK_SIZE_M, BLOCK_SIZE_K))
     if b_is_contiguous:
@@ -154,8 +163,14 @@ def sdnq_scaled_mm_kernel(
         offs_bn = (off_n + tl.arange(0, BLOCK_SIZE_N)) % N
         b_ptrs = b_ptr + (offs_k[:, None] + offs_bn[None, :] * K)
 
+    if use_fp16_accum and a_ptr.type.element_ty == tl.float16:
+        fp16_scale = 65536.0 * K
+        in_scale = 1.0 / (65536.0 * K)**0.5
+        accumulator_dtype = tl.float16
+    else:
+        accumulator_dtype = tl.int32 if a_ptr.type.element_ty == tl.int8 else tl.float32
+
     off_k = 0
-    accumulator_dtype = tl.int32 if a_ptr.type.element_ty == tl.int8 else tl.float32
     accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=accumulator_dtype)
     for _ in tl.range(0, tl.cdiv(K, BLOCK_SIZE_K)):
         a = a_desc.load([off_m, off_k])
@@ -164,8 +179,13 @@ def sdnq_scaled_mm_kernel(
         else:
             b = tl.load(b_ptrs, mask=offs_k[:, None] < K - off_k, other=0.0)
             b_ptrs += BLOCK_SIZE_K
+        if use_fp16_accum and a_ptr.type.element_ty == tl.float16:
+            a = tl.mul(a.to(tl.float32), in_scale).to(tl.float16)
+            b = tl.mul(b.to(tl.float32), in_scale).to(tl.float16)
         accumulator = tl.dot(a, b, accumulator, out_dtype=accumulator_dtype)
         off_k += BLOCK_SIZE_K
+    if use_fp16_accum and a_ptr.type.element_ty == tl.float16:
+        accumulator = tl.mul(accumulator.to(tl.float32), fp16_scale)
 
     scale_a_desc = tl.make_tensor_descriptor(base=scale_a_ptr, shape=(M,), strides=(1,), block_shape=(BLOCK_SIZE_M,))
     scale_b_desc = tl.make_tensor_descriptor(base=scale_b_ptr, shape=(N,), strides=(1,), block_shape=(BLOCK_SIZE_N,))
@@ -190,12 +210,14 @@ def sdnq_scaled_mm_kernel(
     c_desc.store([off_m, off_n], accumulator)
 
 
+@devices.inference_context()
+@triton_op("sdnq::scaled_mm", mutates_args={})
 def sdnq_scaled_mm(
     a: torch.Tensor,
     b: torch.Tensor,
     scale_a: torch.Tensor,
     scale_b: torch.Tensor,
-    bias: torch.FloatTensor | None = None,
+    bias: torch.Tensor | None = None,
     out_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     assert a.shape[1] == b.shape[0], "Incompatible dimensions"
@@ -210,12 +232,13 @@ def sdnq_scaled_mm(
     c = torch.empty((M, N), device=a.device, dtype=out_dtype)
     def grid(META):
         return (triton.cdiv(M, META["BLOCK_SIZE_M"]) * triton.cdiv(N, META["BLOCK_SIZE_N"]), )
-    sdnq_scaled_mm_kernel[grid](
+    wrap_triton(sdnq_scaled_mm_kernel)[grid](
         a, b, c, bias,
         scale_a, scale_b,
         M, N, K,
-        (1 if b.is_contiguous() else 0),
         (0 if bias is None else bias.ndim),
+        (1 if b.is_contiguous() else 0),
+        (1 if USE_FP16_ACCUM else 0),
         math.ceil(M / min_block_size),
         math.ceil(N / min_block_size),
         math.ceil(K / min_block_size),

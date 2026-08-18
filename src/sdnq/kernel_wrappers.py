@@ -114,18 +114,18 @@ def fp8_mm_torch(a: torch.Tensor, b: torch.Tensor, out_dtype: torch.dtype = torc
 
 def fp_mm_torch(a: torch.Tensor, b: torch.Tensor, out_dtype: torch.dtype = torch.float32) -> torch.FloatTensor:
     if b.dtype == torch.float8_e4m3fn:
-        fp16_scale = 4 * b.shape[-2]
+        fp16_scale = 4.0 * b.shape[-2]
     else:
-        fp16_scale = 65536 * b.shape[-2]
-    in_scale = fp16_scale**0.5
+        fp16_scale = 65536.0 * b.shape[-2]
+    in_scale = 1.0 / fp16_scale**0.5
     if a.dtype != torch.float32:
-        a = a.to(dtype=torch.float32).div_(in_scale).to(dtype=torch.float16)
+        a = a.to(dtype=torch.float32).mul_(in_scale).to(dtype=torch.float16)
     else:
-        a = a.div(in_scale).to(dtype=torch.float16)
+        a = a.mul(in_scale).to(dtype=torch.float16)
     if b.dtype != torch.float32:
-        b = b.to(dtype=torch.float32).div_(in_scale).to(dtype=torch.float16)
+        b = b.to(dtype=torch.float32).mul_(in_scale).to(dtype=torch.float16)
     else:
-        b = b.div(in_scale).to(dtype=torch.float16)
+        b = b.mul(in_scale).to(dtype=torch.float16)
     return torch.mm(a,b).to(dtype=torch.float32).mul_(fp16_scale).to(dtype=out_dtype)
 
 

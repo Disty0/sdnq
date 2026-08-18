@@ -1,25 +1,29 @@
 import math
+
 import torch
+from torch.library import triton_op, wrap_triton
+
 import triton
 import triton.language as tl
 
+from ..sdnext import devices
 from ..common import compile_func
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, rotate_hadamard, rotate_hadamard_compiled
-from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size, prune_configs
+from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size, prune_configs, USE_FP16_ACCUM
 
 
 @triton.autotune(
     configs=autotune_configs,
     key=[
         "is_causal", "do_mask",
+        "use_fp16_accum",
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
         "VZ", "VH", "VN_AT", "VHD",
         "qk_is_quantized",
         "pv_is_quantized",
         "q_dtype", "v_dtype",
-        "out_dtype", "return_dtype",
-        "mask_dtype",
+        "out_dtype", "mask_dtype",
     ],
     prune_configs_by={'early_config_prune': prune_configs},
     cache_results=True,
@@ -31,6 +35,7 @@ def sdnq_attn_bwd_dq_kernel(
     dq_ptr, lse_ptr, delta_ptr, mask_ptr, sm_scale,
     is_causal: tl.constexpr,
     do_mask: tl.constexpr,
+    use_fp16_accum: tl.constexpr,
     QZ: tl.constexpr, QH: tl.constexpr, QN: tl.constexpr, QHD: tl.constexpr,
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
@@ -43,7 +48,6 @@ def sdnq_attn_bwd_dq_kernel(
     q_dtype: tl.constexpr, # pylint: disable=unused-argument
     v_dtype: tl.constexpr, # pylint: disable=unused-argument
     out_dtype: tl.constexpr, # pylint: disable=unused-argument
-    return_dtype: tl.constexpr, # pylint: disable=unused-argument
     mask_dtype: tl.constexpr, # pylint: disable=unused-argument
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
@@ -73,11 +77,13 @@ def sdnq_attn_bwd_dq_kernel(
     tl.assume(start_m >= 0)
     tl.assume(BLOCK_SIZE_M > 0)
     tl.assume(BLOCK_SIZE_N > 0)
-    tl.assume(do_mask == 0 or do_mask == 1) # pylint: disable=consider-using-in
     tl.assume(is_causal == 0 or is_causal == 1) # pylint: disable=consider-using-in
+    tl.assume(do_mask == 0 or do_mask == 1) # pylint: disable=consider-using-in
+    tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
     tl.assume(qk_is_quantized == 0 or qk_is_quantized == 1) # pylint: disable=consider-using-in
     tl.assume(pv_is_quantized == 0 or pv_is_quantized == 1) # pylint: disable=consider-using-in
 
+    sm_scale = sm_scale.to(tl.float32)
     log2_sm_scale = sm_scale * 1.4426950408889634
     do_k_mask = KN % BLOCK_SIZE_N != 0
     start_m_block = start_m * BLOCK_SIZE_M
@@ -96,10 +102,14 @@ def sdnq_attn_bwd_dq_kernel(
 
     if qk_is_quantized:
         q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
+        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr + offset_k, shape=[KN], strides=[1,], block_shape=[BLOCK_SIZE_N])
         q_scale = q_scale_desc.load([start_m_block])[:, None]
     if pv_is_quantized:
+        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr + offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
         do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
         do_scale = do_scale_desc.load([start_m_block])[:, None]
+    if do_mask:
+        mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_q * MKN, shape=[MQN, MKN], strides=[MKN, 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
 
     q = q_desc.load([start_m_block, 0])
     do = do_desc.load([start_m_block, 0])
@@ -107,12 +117,19 @@ def sdnq_attn_bwd_dq_kernel(
     delta = delta_desc.load([start_m_block])[:, None].to(tl.float32)
     dq = tl.zeros([BLOCK_SIZE_M, QHD], dtype=tl.float32)
 
-    if qk_is_quantized:
-        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr + offset_k, shape=[KN], strides=[1,], block_shape=[BLOCK_SIZE_N])
-    if pv_is_quantized:
-        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr + offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
-    if do_mask:
-        mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_q * MKN, shape=[MQN, MKN], strides=[MKN, 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
+    if use_fp16_accum:
+        if qk_is_quantized and q_ptr.type.element_ty == tl.float16:
+            fp16_scale_qk = 65536.0 * KHD
+            in_scale_qk = 1.0 / (65536.0 * KHD)**0.5
+            fp16_scale_qk = fp16_scale_qk * log2_sm_scale
+            q = tl.mul(q.to(tl.float32), in_scale_qk).to(tl.float16)
+            fp16_scale_dq = 65536.0 * BLOCK_SIZE_N
+            in_scale_dq = 1.0 / (65536.0 * BLOCK_SIZE_N)**0.5
+        if pv_is_quantized and v_ptr.type.element_ty == tl.float16:
+            fp16_scale_pv = 65536.0 * VHD
+            in_scale_pv = 1.0 / (65536.0 * VHD)**0.5
+            do = tl.mul(do.to(tl.float32), in_scale_pv).to(tl.float16)
+            do_scale = tl.mul(do_scale, fp16_scale_pv)
 
     for start_n_idx in tl.range(0, tl.cdiv(KN, BLOCK_SIZE_N)):
         start_n = start_n_idx * BLOCK_SIZE_N
@@ -137,6 +154,9 @@ def sdnq_attn_bwd_dq_kernel(
                 k_scale = k_scale_desc.load([start_n])[None, :]
                 if q.dtype == tl.int8:
                     qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
+                elif use_fp16_accum and q.dtype == tl.float16:
+                    k_T = tl.mul(k.T.to(tl.float32), in_scale_qk).to(tl.float16)
+                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k_T, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk)
                 else:
                     qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.float32), q_scale), k_scale), log2_sm_scale)
             else:
@@ -161,7 +181,11 @@ def sdnq_attn_bwd_dq_kernel(
                 if do.dtype == tl.int8:
                     dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.int32).to(tl.float32), do_scale), v_scale)
                 else:
-                    dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.float32), do_scale), v_scale)
+                    if use_fp16_accum and v.dtype == tl.float16:
+                        v = tl.mul(v.to(tl.float32), in_scale_pv).to(tl.float16)
+                        dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.float16).to(tl.float32), do_scale), v_scale)
+                    else:
+                        dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.float32), do_scale), v_scale)
             else:
                 dp = tl.dot(do, v, out_dtype=tl.float32)
 
@@ -178,7 +202,13 @@ def sdnq_attn_bwd_dq_kernel(
                     ds_scale *= 1.0 / (65504.0 if k.dtype == tl.float16 else 448.0)
                     ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
                     ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(k.dtype)
-                    dq = tl.fma(tl.dot(ds, k, out_dtype=tl.float32), ds_scale, dq)
+                    if use_fp16_accum and k.dtype == tl.float16:
+                        ds_scale *= fp16_scale_dq # pylint: disable=used-before-assignment
+                        ds = tl.mul(ds.to(tl.float32), in_scale_dq).to(tl.float16) # pylint: disable=used-before-assignment
+                        k = tl.mul(k.to(tl.float32), in_scale_dq).to(tl.float16) # pylint: disable=used-before-assignment
+                        dq = tl.fma(tl.dot(ds, k, out_dtype=tl.float16).to(tl.float32), ds_scale, dq)
+                    else:
+                        dq = tl.fma(tl.dot(ds, k, out_dtype=tl.float32), ds_scale, dq)
             else:
                 ds = ds.to(k.dtype)
                 dq = tl.dot(ds, k, dq, out_dtype=tl.float32)
@@ -191,16 +221,16 @@ def sdnq_attn_bwd_dq_kernel(
 @triton.autotune(
     configs=autotune_configs,
     key=[
+        "do_grad_k", "do_grad_v",
         "is_causal", "do_mask",
+        "use_fp16_accum",
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
         "VZ", "VH", "VN_AT", "VHD",
         "qk_is_quantized",
         "pv_is_quantized",
         "q_dtype", "v_dtype",
-        "out_dtype", "return_dtype",
-        "mask_dtype",
-        "do_grad_k", "do_grad_v",
+        "out_dtype", "mask_dtype",
     ],
     prune_configs_by={'early_config_prune': prune_configs},
     cache_results=True,
@@ -210,8 +240,11 @@ def sdnq_attn_bwd_dkv_kernel(
     q_ptr, k_ptr, v_ptr, do_ptr,
     q_scale_ptr, k_scale_ptr, v_scale_ptr, do_scale_ptr,
     dk_ptr, dv_ptr, lse_ptr, delta_ptr, mask_ptr, sm_scale,
+    do_grad_k: tl.constexpr,
+    do_grad_v: tl.constexpr,
     is_causal: tl.constexpr,
     do_mask: tl.constexpr,
+    use_fp16_accum: tl.constexpr,
     QZ: tl.constexpr, QH: tl.constexpr, QN: tl.constexpr, QHD: tl.constexpr,
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
@@ -224,10 +257,7 @@ def sdnq_attn_bwd_dkv_kernel(
     q_dtype: tl.constexpr, # pylint: disable=unused-argument
     v_dtype: tl.constexpr, # pylint: disable=unused-argument
     out_dtype: tl.constexpr, # pylint: disable=unused-argument
-    return_dtype: tl.constexpr, # pylint: disable=unused-argument
     mask_dtype: tl.constexpr, # pylint: disable=unused-argument
-    do_grad_k: tl.constexpr,
-    do_grad_v: tl.constexpr,
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
 ) -> None:
@@ -254,13 +284,15 @@ def sdnq_attn_bwd_dkv_kernel(
     tl.assume(off_z >= 0)
     tl.assume(BLOCK_SIZE_M > 0)
     tl.assume(BLOCK_SIZE_N > 0)
-    tl.assume(do_mask == 0 or do_mask == 1) # pylint: disable=consider-using-in
     tl.assume(is_causal == 0 or is_causal == 1) # pylint: disable=consider-using-in
+    tl.assume(do_mask == 0 or do_mask == 1) # pylint: disable=consider-using-in
+    tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
     tl.assume(qk_is_quantized == 0 or qk_is_quantized == 1) # pylint: disable=consider-using-in
     tl.assume(pv_is_quantized == 0 or pv_is_quantized == 1) # pylint: disable=consider-using-in
     tl.assume(do_grad_k == 0 or do_grad_k == 1) # pylint: disable=consider-using-in
     tl.assume(do_grad_v == 0 or do_grad_v == 1) # pylint: disable=consider-using-in
 
+    sm_scale = sm_scale.to(tl.float32)
     log2_sm_scale = sm_scale * 1.4426950408889634
     do_k_mask = KN % BLOCK_SIZE_N != 0
     start_n_block = start_n * BLOCK_SIZE_N
@@ -283,6 +315,22 @@ def sdnq_attn_bwd_dkv_kernel(
     v = v_desc.load([start_n_block, 0]).T
     dk_t = tl.zeros([KHD, BLOCK_SIZE_N], dtype=tl.float32)
     dv_t = tl.zeros([VHD, BLOCK_SIZE_N], dtype=tl.float32)
+
+    if use_fp16_accum:
+        if qk_is_quantized and q_ptr.type.element_ty == tl.float16:
+            fp16_scale_qk = 65536.0 * KHD
+            in_scale_qk = 1.0 / (65536.0 * KHD)**0.5
+            fp16_scale_qk = fp16_scale_qk * log2_sm_scale
+            k = tl.mul(k.to(tl.float32), in_scale_qk).to(tl.float16)
+            fp16_scale_dk = 65536.0 * BLOCK_SIZE_M
+            in_scale_dk = 1.0 / (65536.0 * BLOCK_SIZE_M)**0.5
+        if pv_is_quantized and v_ptr.type.element_ty == tl.float16:
+            fp16_scale_pv = 65536.0 * VHD
+            in_scale_pv = 1.0 / (65536.0 * VHD)**0.5
+            v = tl.mul(v.to(tl.float32), in_scale_pv).to(tl.float16)
+            v_scale = tl.mul(v_scale, fp16_scale_pv)
+            fp16_scale_dv = 65536.0 * BLOCK_SIZE_M
+            in_scale_dv = 1.0 / (65536.0 * BLOCK_SIZE_M)**0.5
 
     qh_ratio = QH // KH
     for qh_idx in tl.range(0, qh_ratio):
@@ -327,6 +375,9 @@ def sdnq_attn_bwd_dkv_kernel(
                     q_scale = q_scale_desc.load([start_m])[:, None]
                     if q.dtype == tl.int8:
                         qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
+                    elif use_fp16_accum and q.dtype == tl.float16:
+                        q_k = tl.mul(q.to(tl.float32), in_scale_qk).to(tl.float16)
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q_k, k, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk)
                     else:
                         qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale), log2_sm_scale)
                 else:
@@ -354,6 +405,9 @@ def sdnq_attn_bwd_dkv_kernel(
                     if pv_is_quantized:
                         if do.dtype == tl.int8:
                             dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.int32).to(tl.float32), do_scale), v_scale)
+                        if use_fp16_accum and v.dtype == tl.float16:
+                            do_pv = tl.mul(do.to(tl.float32), in_scale_pv).to(tl.float16)
+                            dp = tl.mul(tl.mul(tl.dot(do_pv, v, out_dtype=tl.float16).to(tl.float32), do_scale), v_scale)
                         else:
                             dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.float32), do_scale), v_scale)
                     else:
@@ -374,7 +428,13 @@ def sdnq_attn_bwd_dkv_kernel(
                             ds_scale *= 1.0 / (65504.0 if q.dtype == tl.float16 else 448.0)
                             ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
                             ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(q.dtype)
-                            dk_t = tl.fma(tl.dot(q.T, ds, out_dtype=tl.float32), ds_scale, dk_t)
+                            if use_fp16_accum and q.dtype == tl.float16:
+                                ds_scale *= fp16_scale_dk # pylint: disable=used-before-assignment
+                                q_T = tl.mul(q.T.to(tl.float32), in_scale_dk).to(tl.float16) # pylint: disable=used-before-assignment
+                                ds = tl.mul(ds.to(tl.float32), in_scale_dk).to(tl.float16) # pylint: disable=used-before-assignment
+                                dk_t = tl.fma(tl.dot(q_T, ds, out_dtype=tl.float16).to(tl.float32), ds_scale, dk_t)
+                            else:
+                                dk_t = tl.fma(tl.dot(q.T, ds, out_dtype=tl.float32), ds_scale, dk_t)
                     else:
                         ds = ds.to(q.dtype)
                         dk_t = tl.dot(q.T, ds, dk_t, out_dtype=tl.float32)
@@ -392,7 +452,13 @@ def sdnq_attn_bwd_dkv_kernel(
                             p_scale *= 1.0 / (65504.0 if do.dtype == tl.float16 else 448.0)
                             p_scale = tl.where(p_scale <= 2e-38, 1.0, p_scale)
                             p = tl.mul(p, tl.fdiv(1.0, p_scale)).to(do.dtype)
-                            dv_t = tl.fma(tl.dot(do.T, p, out_dtype=tl.float32), p_scale, dv_t)
+                            if use_fp16_accum and do.dtype == tl.float16:
+                                p_scale *= fp16_scale_dv # pylint: disable=used-before-assignment
+                                do_T = tl.mul(do.T.to(tl.float32), in_scale_dv).to(tl.float16) # pylint: disable=used-before-assignment
+                                p = tl.mul(p.to(tl.float32), in_scale_dv).to(tl.float16) # pylint: disable=used-before-assignment
+                                dv_t = tl.fma(tl.dot(do_T, p, out_dtype=tl.float16).to(tl.float32), p_scale, dv_t)
+                            else:
+                                dv_t = tl.fma(tl.dot(do.T, p, out_dtype=tl.float32), p_scale, dv_t)
                     else:
                         p = p.to(do.dtype)
                         dv_t = tl.dot(do.T, p, dv_t, out_dtype=tl.float32)
@@ -407,12 +473,207 @@ def sdnq_attn_bwd_dkv_kernel(
         dv_desc.store([start_n_block, 0], dv)
 
 
+@devices.inference_context()
+@triton_op("sdnq::triton_atten_bwd_dq", mutates_args={})
+def sdnq_triton_atten_bwd_dq(
+    grad_output: torch.Tensor,
+    delta: torch.Tensor,
+    lse: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    grad_output_scale: torch.Tensor | None,
+    query_scale: torch.Tensor | None,
+    key_scale: torch.Tensor | None,
+    value_scale: torch.Tensor | None,
+    attn_mask: torch.Tensor | None = None,
+    sm_scale: float | None = None,
+    is_causal: bool = False,
+    out_dtype: torch.dtype | None = None,
+) -> torch.Tensor:
+    QZ, QH, QN, _ = query.shape
+    _, _, KN, _ = key.shape
+    _, _, VN, _ = value.shape
+    def grid_dq(META):
+        return (triton.cdiv(QN, META["BLOCK_SIZE_M"]), QH, QZ)
+    dq = torch.empty_like(query, dtype=out_dtype)
+    wrap_triton(sdnq_attn_bwd_dq_kernel)[grid_dq](
+        query, key, value, grad_output,
+        query_scale, key_scale, value_scale, grad_output_scale,
+        dq, lse, delta, attn_mask, sm_scale,
+        (1 if is_causal else 0),
+        (1 if attn_mask is not None else 0),
+        (1 if USE_FP16_ACCUM else 0),
+        *query.shape, *key.shape, *value.shape,
+        *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
+        math.ceil(QN / min_block_size),
+        math.ceil(KN / min_block_size),
+        math.ceil(VN / min_block_size),
+        (1 if query_scale is not None else 0),
+        (1 if value_scale is not None else 0),
+        str(query.dtype), str(value.dtype), str(out_dtype),
+        str(attn_mask.dtype if attn_mask is not None else None),
+    )
+    return dq
+
+
+@devices.inference_context()
+def sdnq_atten_bwd_dkv(
+    grad_output: torch.Tensor,
+    delta: torch.Tensor,
+    lse: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    grad_output_scale: torch.Tensor | None,
+    query_scale: torch.Tensor | None,
+    key_scale: torch.Tensor | None,
+    value_scale: torch.Tensor | None,
+    attn_mask: torch.Tensor | None = None,
+    sm_scale: float | None = None,
+    is_causal: bool = False,
+    out_dtype: torch.dtype | None = None,
+    do_grad_k: bool = True,
+    do_grad_v: bool = True,
+) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+    QZ, _, QN, _ = query.shape
+    _, KH, KN, _ = key.shape
+    _, _, VN, _ = value.shape
+    def grid_dkv(META):
+        return (triton.cdiv(KN, META["BLOCK_SIZE_N"]), KH, QZ)
+    dk = torch.empty_like(key, dtype=out_dtype) if do_grad_k else None
+    dv = torch.empty_like(value, dtype=out_dtype) if do_grad_v else None
+    wrap_triton(sdnq_attn_bwd_dkv_kernel)[grid_dkv](
+        query, key, value, grad_output,
+        query_scale, key_scale, value_scale, grad_output_scale,
+        dk, dv, lse, delta, attn_mask, sm_scale,
+        (1 if do_grad_k else 0),
+        (1 if do_grad_v else 0),
+        (1 if is_causal else 0),
+        (1 if attn_mask is not None else 0),
+        (1 if USE_FP16_ACCUM else 0),
+        *query.shape, *key.shape, *value.shape,
+        *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
+        math.ceil(QN / min_block_size),
+        math.ceil(KN / min_block_size),
+        math.ceil(VN / min_block_size),
+        (1 if query_scale is not None else 0),
+        (1 if value_scale is not None else 0),
+        str(query.dtype), str(value.dtype), str(out_dtype),
+        str(attn_mask.dtype if attn_mask is not None else None),
+    )
+    return dk, dv
+
+
+@devices.inference_context()
+@triton_op("sdnq::triton_atten_bwd_dkv", mutates_args={})
+def sdnq_triton_atten_bwd_dkv(
+    grad_output: torch.Tensor,
+    delta: torch.Tensor,
+    lse: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    grad_output_scale: torch.Tensor | None,
+    query_scale: torch.Tensor | None,
+    key_scale: torch.Tensor | None,
+    value_scale: torch.Tensor | None,
+    attn_mask: torch.Tensor | None = None,
+    sm_scale: float | None = None,
+    is_causal: bool = False,
+    out_dtype: torch.dtype | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    return sdnq_atten_bwd_dkv(
+        grad_output, delta, lse,
+        query, key, value,
+        grad_output_scale=grad_output_scale,
+        query_scale=query_scale,
+        key_scale=key_scale,
+        value_scale=value_scale,
+        attn_mask=attn_mask,
+        sm_scale=sm_scale,
+        is_causal=is_causal,
+        out_dtype=out_dtype,
+        do_grad_k=True,
+        do_grad_v=True,
+    )
+
+
+@devices.inference_context()
+@triton_op("sdnq::triton_atten_bwd_dk", mutates_args={})
+def sdnq_triton_atten_bwd_dk(
+    grad_output: torch.Tensor,
+    delta: torch.Tensor,
+    lse: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    grad_output_scale: torch.Tensor | None,
+    query_scale: torch.Tensor | None,
+    key_scale: torch.Tensor | None,
+    value_scale: torch.Tensor | None,
+    attn_mask: torch.Tensor | None = None,
+    sm_scale: float | None = None,
+    is_causal: bool = False,
+    out_dtype: torch.dtype | None = None,
+) -> torch.Tensor:
+    return sdnq_atten_bwd_dkv(
+        grad_output, delta, lse,
+        query, key, value,
+        grad_output_scale=grad_output_scale,
+        query_scale=query_scale,
+        key_scale=key_scale,
+        value_scale=value_scale,
+        attn_mask=attn_mask,
+        sm_scale=sm_scale,
+        is_causal=is_causal,
+        out_dtype=out_dtype,
+        do_grad_k=True,
+        do_grad_v=False,
+    )[0]
+
+
+@devices.inference_context()
+@triton_op("sdnq::triton_atten_bwd_dv", mutates_args={})
+def sdnq_triton_atten_bwd_dv(
+    grad_output: torch.Tensor,
+    delta: torch.Tensor,
+    lse: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    grad_output_scale: torch.Tensor | None,
+    query_scale: torch.Tensor | None,
+    key_scale: torch.Tensor | None,
+    value_scale: torch.Tensor | None,
+    attn_mask: torch.Tensor | None = None,
+    sm_scale: float | None = None,
+    is_causal: bool = False,
+    out_dtype: torch.dtype | None = None,
+) -> torch.Tensor:
+    return sdnq_atten_bwd_dkv(
+        grad_output, delta, lse,
+        query, key, value,
+        grad_output_scale=grad_output_scale,
+        query_scale=query_scale,
+        key_scale=key_scale,
+        value_scale=value_scale,
+        attn_mask=attn_mask,
+        sm_scale=sm_scale,
+        is_causal=is_causal,
+        out_dtype=out_dtype,
+        do_grad_k=False,
+        do_grad_v=True,
+    )[1]
+
+
+@devices.inference_context()
 def get_attn_backward_inputs(
-    grad_output: torch.FloatTensor,
-    out: torch.FloatTensor,
+    grad_output: torch.Tensor,
+    out: torch.Tensor,
     hadamard: torch.Tensor | None,
     pv_matmul_dtype: str | None = None,
-) -> tuple[torch.Tensor, torch.FloatTensor | None, torch.FloatTensor, torch.FloatTensor]:
+) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
     out = out.contiguous()
     delta = torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32)
     if pv_matmul_dtype in {"enabled", "uint8"}:
@@ -429,40 +690,39 @@ def get_attn_backward_inputs(
     return grad_output, grad_output_scale, out, delta
 
 
+@devices.inference_context()
 def sdnq_triton_atten_bwd(
-    grad_output: torch.FloatTensor,
-    out: torch.FloatTensor,
-    lse: torch.FloatTensor,
+    grad_output: torch.Tensor,
+    out: torch.Tensor,
+    lse: torch.Tensor,
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    query_scale: torch.FloatTensor | None,
-    key_scale: torch.FloatTensor | None,
-    value_scale: torch.FloatTensor | None,
+    query_scale: torch.Tensor | None,
+    key_scale: torch.Tensor | None,
+    value_scale: torch.Tensor | None,
     QHD: int,
     KHD: int,
     VHD: int,
     attn_mask: torch.Tensor | None = None,
-    scale: float | None = None,
+    sm_scale: float | None = None,
     is_causal: bool = False,
     use_hadamard: bool = False,
     hadamard_group_size: int = 256,
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
+    out_dtype: torch.dtype | None = None,
     do_grad_q: bool = True,
     do_grad_k: bool = True,
     do_grad_v: bool = True,
-) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None, None]:
+) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
     if not do_grad_q and not do_grad_k and not do_grad_v:
         return None, None, None
 
-    if scale is None:
-        scale = QHD ** -0.5
-
-    return_dtype = grad_output.dtype
-    QZ, QH, QN, QHD = query.shape
-    _, KH, KN, KHD = key.shape
-    _, _, VN, VHD = value.shape
+    if sm_scale is None:
+        sm_scale = QHD ** -0.5
+    if out_dtype is None:
+        out_dtype = grad_output.dtype
 
     if use_hadamard:
         hadamard = get_hadamard(hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
@@ -470,28 +730,18 @@ def sdnq_triton_atten_bwd(
         hadamard = None
     grad_output, grad_output_scale, out, delta = get_attn_backward_inputs(grad_output, out, hadamard=hadamard, pv_matmul_dtype=pv_matmul_dtype if do_quantize else "disabled")
 
-    other_args = (
-        (1 if is_causal else 0),
-        (1 if attn_mask is not None else 0),
-        *query.shape, *key.shape, *value.shape,
-        *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
-        math.ceil(QN / min_block_size),
-        math.ceil(KN / min_block_size),
-        math.ceil(VN / min_block_size),
-        (1 if query_scale is not None else 0),
-        (1 if value_scale is not None else 0),
-        str(query.dtype), str(value.dtype), str(out.dtype), str(return_dtype),
-        str(attn_mask.dtype if attn_mask is not None else None),
-    )
-
     if do_grad_q:
-        def grid_dq(META):
-            return (triton.cdiv(QN, META["BLOCK_SIZE_M"]), QH, QZ)
-        dq = torch.empty_like(query, dtype=return_dtype)
-        sdnq_attn_bwd_dq_kernel[grid_dq](
-            query, key, value, grad_output,
-            query_scale, key_scale, value_scale, grad_output_scale,
-            dq, lse, delta, attn_mask, scale, *other_args,
+        dq = sdnq_triton_atten_bwd_dq(
+            grad_output, delta, lse,
+            query, key, value,
+            grad_output_scale=grad_output_scale,
+            query_scale=query_scale,
+            key_scale=key_scale,
+            value_scale=value_scale,
+            attn_mask=attn_mask,
+            sm_scale=sm_scale,
+            is_causal=is_causal,
+            out_dtype=out_dtype,
         )
         if use_hadamard:
             dq = rotate_hadamard_compiled(dq, group_size=hadamard_group_size, hadamard=hadamard)
@@ -499,39 +749,66 @@ def sdnq_triton_atten_bwd(
     else:
         dq = None
 
-    if do_grad_k or do_grad_v:
-        def grid_dkv(META):
-            return (triton.cdiv(KN, META["BLOCK_SIZE_N"]), KH, QZ)
-        dk = torch.empty_like(key, dtype=return_dtype) if do_grad_k else None
-        dv = torch.empty_like(value, dtype=return_dtype) if do_grad_v else None
-        sdnq_attn_bwd_dkv_kernel[grid_dkv](
-            query, key, value, grad_output,
-            query_scale, key_scale, value_scale, grad_output_scale,
-            dk, dv, lse, delta, attn_mask, scale, *other_args,
-            (1 if do_grad_k else 0), (1 if do_grad_v else 0)
+    if do_grad_k and do_grad_v:
+        dk, dv = sdnq_triton_atten_bwd_dkv(
+            grad_output, delta, lse,
+            query, key, value,
+            grad_output_scale=grad_output_scale,
+            query_scale=query_scale,
+            key_scale=key_scale,
+            value_scale=value_scale,
+            attn_mask=attn_mask,
+            sm_scale=sm_scale,
+            is_causal=is_causal,
+            out_dtype=out_dtype,
         )
-        if do_grad_k:
-            if use_hadamard:
-                dk = rotate_hadamard_compiled(dk, group_size=hadamard_group_size, hadamard=hadamard)
-            dk = dk[..., :KHD]
-        if do_grad_v:
-            if use_hadamard and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
-                dv = rotate_hadamard_compiled(dv, group_size=hadamard_group_size, hadamard=hadamard)
-            dv = dv[..., :VHD]
-    else:
-        dk = None
+    elif do_grad_k:
         dv = None
+        dk = sdnq_triton_atten_bwd_dk(
+            grad_output, delta, lse,
+            query, key, value,
+            grad_output_scale=grad_output_scale,
+            query_scale=query_scale,
+            key_scale=key_scale,
+            value_scale=value_scale,
+            attn_mask=attn_mask,
+            sm_scale=sm_scale,
+            is_causal=is_causal,
+            out_dtype=out_dtype,
+        )
+    elif do_grad_v:
+        dk = None
+        dv = sdnq_triton_atten_bwd_dv(
+            grad_output, delta, lse,
+            query, key, value,
+            grad_output_scale=grad_output_scale,
+            query_scale=query_scale,
+            key_scale=key_scale,
+            value_scale=value_scale,
+            attn_mask=attn_mask,
+            sm_scale=sm_scale,
+            is_causal=is_causal,
+            out_dtype=out_dtype,
+        )
+    if do_grad_k:
+        if use_hadamard:
+            dk = rotate_hadamard_compiled(dk, group_size=hadamard_group_size, hadamard=hadamard)
+        dk = dk[..., :KHD]
+    if do_grad_v:
+        if use_hadamard and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
+            dv = rotate_hadamard_compiled(dv, group_size=hadamard_group_size, hadamard=hadamard)
+        dv = dv[..., :VHD]
 
-    return dq, dk, dv, *(None,)*10
+    return dq, dk, dv
 
 
 class SDNQAttenBackward(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
-        query: torch.FloatTensor,
-        key: torch.FloatTensor,
-        value: torch.FloatTensor,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
         attn_mask: torch.Tensor | None,
         is_causal: bool,
         scale: float | None,
@@ -542,7 +819,7 @@ class SDNQAttenBackward(torch.autograd.Function):
         pv_matmul_dtype: str | None,
         do_quantize: bool,
         out_dtype: torch.dtype | None,
-    ) -> torch.FloatTensor:
+    ) -> torch.Tensor:
         ctx.QHD = query.shape[-1]
         ctx.KHD = key.shape[-1]
         ctx.VHD = value.shape[-1]
@@ -553,7 +830,7 @@ class SDNQAttenBackward(torch.autograd.Function):
         (
             out, lse, query, key, value,
             query_scale, key_scale, value_scale,
-            attn_mask, scale, use_hadamard, hadamard_group_size,
+            attn_mask, sm_scale, use_hadamard, hadamard_group_size,
         ) = sdnq_triton_atten(
             query, key, value,
             attn_mask=attn_mask,
@@ -569,21 +846,21 @@ class SDNQAttenBackward(torch.autograd.Function):
             return_backward=True,
         )
 
-        ctx.scale = scale
+        ctx.sm_scale = sm_scale
         ctx.use_hadamard = use_hadamard
         ctx.hadamard_group_size = hadamard_group_size
         ctx.save_for_backward(out, lse, query, key, value, query_scale, key_scale, value_scale, attn_mask)
         return out[..., :ctx.VHD]
 
     @staticmethod
-    def backward(ctx, grad_output: torch.FloatTensor) -> tuple[torch.FloatTensor | None, torch.FloatTensor | None, torch.FloatTensor | None]:
+    def backward(ctx, grad_output: torch.Tensor) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
         out, lse, query, key, value, query_scale, key_scale, value_scale, attn_mask = ctx.saved_tensors
-        return sdnq_triton_atten_bwd(
+        dq, dk, dv = sdnq_triton_atten_bwd(
             grad_output, out, lse, query, key, value,
             query_scale, key_scale, value_scale,
             ctx.QHD, ctx.KHD, ctx.VHD,
             attn_mask=attn_mask,
-            scale=ctx.scale,
+            sm_scale=ctx.sm_scale,
             pv_matmul_dtype=ctx.pv_matmul_dtype,
             is_causal=ctx.is_causal,
             use_hadamard=ctx.use_hadamard,
@@ -593,12 +870,13 @@ class SDNQAttenBackward(torch.autograd.Function):
             do_grad_k=ctx.needs_input_grad[1],
             do_grad_v=ctx.needs_input_grad[2],
         )
+        return dq, dk, dv, *(None,)*10
 
 
 def sdnq_triton_atten_with_backward(
-        query: torch.FloatTensor,
-        key: torch.FloatTensor,
-        value: torch.FloatTensor,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
         attn_mask: torch.Tensor | None = None,
         dropout_p: float = 0.0, # pylint: disable=unused-argument
         is_causal: bool = False,
@@ -611,7 +889,7 @@ def sdnq_triton_atten_with_backward(
         pv_matmul_dtype: str | None = None,
         do_quantize: bool = True,
         out_dtype: torch.dtype | None = None,
-    ) -> torch.FloatTensor:
+    ) -> torch.Tensor:
     return SDNQAttenBackward.apply(
         query, key, value,
         attn_mask,

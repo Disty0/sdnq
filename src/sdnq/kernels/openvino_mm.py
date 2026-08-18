@@ -3,6 +3,8 @@ import torch
 import openvino as ov
 from openvino import opset16 as ov_ops
 
+from ..sdnext import devices
+
 OV_CORE = None
 OV_DEVICE: str = None
 OV_COMPILED_CACHE: dict[tuple[str, tuple[int,int] | None, str, tuple[int,int] | None], tuple[ov.InferRequest, str]] = {}
@@ -23,6 +25,7 @@ def get_ov_core():
     return OV_CORE, OV_DEVICE
 
 
+@devices.inference_context()
 def ov_mm(infer_request: ov.InferRequest, out_name: str, A: torch.Tensor, B: torch.Tensor, out_dtype: torch.dtype = torch.float32) -> torch.Tensor:
     C = torch.empty((A.shape[0], B.shape[-1]), device="cpu", dtype=torch.float32)
     A, B = A.contiguous(), B.contiguous()
@@ -34,6 +37,7 @@ def ov_mm(infer_request: ov.InferRequest, out_name: str, A: torch.Tensor, B: tor
     return C
 
 
+@devices.inference_context()
 @torch.library.custom_op("sdnq::openvino_int_mm", mutates_args=())
 def openvino_int_mm(Tensor_A: torch.Tensor, Tensor_B: torch.Tensor, out_dtype: torch.dtype = torch.float32) -> torch.Tensor:
     ov_core, ov_device = get_ov_core()
@@ -65,10 +69,10 @@ def openvino_int_mm(Tensor_A: torch.Tensor, Tensor_B: torch.Tensor, out_dtype: t
     # NPU uses FP16 x INT8 -> FP16 instead of INT8 x INT8 -> INT32 and FP16 output overflows
     if "NPU" in ov_device:
         fp16_scale = 0.25012213 * Tensor_B.shape[-2]
-        in_scale = ov_ops.constant(fp16_scale ** 0.5, dtype=ov.Type.f32)
+        in_scale = ov_ops.constant(1.0 / fp16_scale**0.5, dtype=ov.Type.f32)
         out_scale = ov_ops.constant(fp16_scale, dtype=ov.Type.f32, name="out_scale_const")
-        a = ov_ops.divide(a, in_scale)
-        b = ov_ops.divide(b, in_scale)
+        a = ov_ops.multiply(a, in_scale)
+        b = ov_ops.multiply(b, in_scale)
         out = ov_ops.matmul(a, b, False, False)
         out = ov_ops.multiply(out, out_scale, name="out_scale")
     else:
@@ -93,6 +97,7 @@ def openvino_int_mm_fake(A: torch.Tensor, B: torch.Tensor, out_dtype: torch.dtyp
     return torch.mm(A.to(dtype=torch.float32), B.to(dtype=torch.float32)).to(dtype=out_dtype)
 
 
+@devices.inference_context()
 @torch.library.custom_op("sdnq::openvino_fp_mm", mutates_args=())
 def openvino_fp_mm(Tensor_A: torch.Tensor, Tensor_B: torch.Tensor, out_dtype: torch.dtype = torch.float32) -> torch.Tensor:
     ov_core, ov_device = get_ov_core()
@@ -125,14 +130,14 @@ def openvino_fp_mm(Tensor_A: torch.Tensor, Tensor_B: torch.Tensor, out_dtype: to
         high = ov_ops.constant(448.0,  dtype=ov.Type.f32)
         a = ov_ops.fake_quantize(a, low, high, low, high, 256)
         b = ov_ops.fake_quantize(b, low, high, low, high, 256)
-        fp16_scale = 4 * Tensor_B.shape[-2]
+        fp16_scale = 4.0 * Tensor_B.shape[-2]
     else:
-        fp16_scale = 65536 * Tensor_B.shape[-2]
+        fp16_scale = 65536.0 * Tensor_B.shape[-2]
 
-    in_scale = ov_ops.constant(fp16_scale**0.5, dtype=ov.Type.f32)
+    in_scale = ov_ops.constant(1.0 / fp16_scale**0.5, dtype=ov.Type.f32)
     out_scale = ov_ops.constant(fp16_scale, dtype=ov.Type.f32, name="out_scale_const")
-    a = ov_ops.convert(ov_ops.divide(a, in_scale), ov.Type.f16)
-    b = ov_ops.convert(ov_ops.divide(b, in_scale), ov.Type.f16)
+    a = ov_ops.convert(ov_ops.multiply(a, in_scale), ov.Type.f16)
+    b = ov_ops.convert(ov_ops.multiply(b, in_scale), ov.Type.f16)
     out = ov_ops.matmul(a, b, False, False, name="fp_mm")
     out = ov_ops.multiply(ov_ops.convert(out, ov.Type.f32), out_scale, name="out_scale")
 
