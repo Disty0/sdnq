@@ -34,19 +34,19 @@ small_autotune_configs = [
 
 def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
     device = named_args["a_ptr"].device
-    if device.type == "xpu" and named_args["a_ptr"].dtype == torch.int8:
-        is_int8_xpu = True
+    if (device.type == "xpu" or (device.type == "cuda" and torch.version.cuda)) and named_args["a_ptr"].dtype == torch.int8:
+        is_int8 = True
         pruned_configs = [conf for conf in configs if (conf.kwargs["BLOCK_SIZE_M"] >= 32 and conf.kwargs["BLOCK_SIZE_N"] >= 32 and conf.kwargs["BLOCK_SIZE_K"] >= 32)]
         if pruned_configs:
             configs = pruned_configs
     else:
-        is_int8_xpu = False
+        is_int8 = False
 
     pruned_configs = [
         conf for conf in configs if (
             conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["M"], 32 if from_small else 64)
             and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["N"], 32 if from_small else 64)
-            and conf.kwargs["BLOCK_SIZE_K"] <= max(named_args["K"], 16 if (from_small and not is_int8_xpu) else 32)
+            and conf.kwargs["BLOCK_SIZE_K"] <= max(named_args["K"], 16 if (from_small and not is_int8) else 32)
         )
     ]
     if pruned_configs:

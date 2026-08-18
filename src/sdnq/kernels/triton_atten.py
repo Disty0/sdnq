@@ -35,18 +35,18 @@ small_autotune_configs = [
 def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
     device = named_args["q_ptr"].device
     is_dkv_backward = bool(named_args.get("dk_ptr") is not None or named_args.get("dv_ptr") is not None)
-    if device.type == "xpu" and torch.int8 in {named_args["q_ptr"].dtype, named_args["v_ptr"].dtype}:
-        is_int8_xpu = True
+    if (device.type == "xpu" or (device.type == "cuda" and torch.version.cuda)) and torch.int8 in {named_args["q_ptr"].dtype, named_args["v_ptr"].dtype}:
+        is_int8 = True
         pruned_configs = [conf for conf in configs if (conf.kwargs["BLOCK_SIZE_M"] >= 32 and conf.kwargs["BLOCK_SIZE_N"] >= 32)]
         if pruned_configs:
             configs = pruned_configs
     else:
-        is_int8_xpu = False
+        is_int8 = False
 
     pruned_configs = [
         conf for conf in configs if (
             conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["QN"], 32 if from_small else 64)
-            and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["KN"], 32 if is_int8_xpu else 16)
+            and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["KN"], 32 if is_int8 else 16)
             and (is_dkv_backward or named_args["is_causal"] == 0 or conf.kwargs["BLOCK_SIZE_M"] >= conf.kwargs["BLOCK_SIZE_N"])
         )
     ]
