@@ -1,5 +1,6 @@
 import torch
 
+from .....sdnext import devices
 from .....quant_utils import get_hadamard
 from ....tensor import SDNQTensor
 
@@ -9,6 +10,7 @@ from .linear_fp16 import fp16_matmul
 from .linear_fp16_dynamic import fp16_matmul_dynamic
 
 
+@devices.inference_context()
 def fp16_matmul_dynamic_backward_ckpt(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor | None,

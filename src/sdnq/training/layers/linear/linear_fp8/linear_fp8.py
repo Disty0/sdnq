@@ -1,5 +1,6 @@
 import torch
 
+from .....sdnext import devices
 from .....common import compile_func
 from .....kernel_wrappers import fp8_scaled_mm_func, use_contiguous_fp16_mm, is_fp8_mm_supported, include_mm_kernel_in_compile
 from .....dequantizer import dequantize_symmetric_compiled
@@ -10,6 +11,7 @@ from ..forward import check_mats, quantized_linear_with_backward
 from .linear_fp8_dynamic import fp8_matmul_dynamic
 
 
+@devices.inference_context()
 def quantize_fp_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
@@ -17,6 +19,7 @@ def quantize_fp_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_resha
     return input, input_scale
 
 
+@devices.inference_context()
 def get_fp8_matmul_inputs(
     input: torch.FloatTensor,
     weight: torch.Tensor,
@@ -68,6 +71,7 @@ def get_fp8_matmul_inputs(
     return input, weight, input_scale, scale, bias, bias_to_add_after, return_dtype, output_shape
 
 
+@devices.inference_context()
 def fp8_matmul(
     input: torch.FloatTensor,
     weight: torch.Tensor,
@@ -102,6 +106,7 @@ def fp8_matmul(
     return result
 
 
+@devices.inference_context()
 def fp8_matmul_backward(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor | None,

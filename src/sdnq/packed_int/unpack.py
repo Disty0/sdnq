@@ -1,6 +1,9 @@
 import torch
 
+from ..sdnext import devices
 
+
+@devices.inference_context()
 def unpack_uint15(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tensor:
     result = torch.cat(
         (
@@ -54,6 +57,7 @@ def unpack_uint15(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tenso
     return result
 
 
+@devices.inference_context()
 def unpack_uint14(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tensor:
     result = torch.cat(
         (
@@ -83,6 +87,7 @@ def unpack_uint14(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tenso
     return result
 
 
+@devices.inference_context()
 def unpack_uint13(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tensor:
     result = torch.cat(
         (
@@ -116,6 +121,7 @@ def unpack_uint13(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tenso
     return result
 
 
+@devices.inference_context()
 def unpack_uint12(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tensor:
     result = torch.cat(
         (
@@ -133,6 +139,7 @@ def unpack_uint12(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tenso
     return result
 
 
+@devices.inference_context()
 def unpack_uint11(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tensor:
     result = torch.cat(
         (
@@ -169,6 +176,7 @@ def unpack_uint11(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tenso
     return result
 
 
+@devices.inference_context()
 def unpack_uint10(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tensor:
     result_bitwise_right_shift = torch.bitwise_and(torch.bitwise_right_shift(packed_tensor[:, :3], 10), 63)
     result = torch.cat(
@@ -191,6 +199,7 @@ def unpack_uint10(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tenso
     return result
 
 
+@devices.inference_context()
 def unpack_uint9(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tensor:
     result = torch.cat(
         (
@@ -220,6 +229,7 @@ def unpack_uint9(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tensor
     return result
 
 
+@devices.inference_context()
 def unpack_uint7(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.ByteTensor:
     result = torch.cat(
         (
@@ -249,6 +259,7 @@ def unpack_uint7(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.By
     return result
 
 
+@devices.inference_context()
 def unpack_uint6(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.ByteTensor:
     result = torch.cat(
         (
@@ -266,6 +277,7 @@ def unpack_uint6(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.By
     return result
 
 
+@devices.inference_context()
 def unpack_uint5(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.ByteTensor:
     result_bitwise_right_shift = torch.bitwise_right_shift(packed_tensor[:, :3], 5)
     result = torch.cat(
@@ -288,11 +300,13 @@ def unpack_uint5(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.By
     return result
 
 
+@devices.inference_context()
 def unpack_uint4(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.ByteTensor:
     result = torch.stack((torch.bitwise_and(packed_tensor, 15), torch.bitwise_right_shift(packed_tensor, 4)), dim=-1).view(shape)
     return result
 
 
+@devices.inference_context()
 def unpack_uint3(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.ByteTensor:
     result = torch.bitwise_and(
         torch.cat(
@@ -320,6 +334,7 @@ def unpack_uint3(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.By
     return result
 
 
+@devices.inference_context()
 def unpack_uint2(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.ByteTensor:
     result = torch.bitwise_and(
         torch.stack(
@@ -336,6 +351,7 @@ def unpack_uint2(packed_tensor: torch.ByteTensor, shape: torch.Size) -> torch.By
     return result
 
 
+@devices.inference_context()
 def unpack_uint1(packed_tensor: torch.Tensor, shape: torch.Size) -> torch.Tensor:
     result = torch.bitwise_and(
         torch.stack(

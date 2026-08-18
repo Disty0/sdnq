@@ -1,5 +1,6 @@
 import torch
 
+from .....sdnext import devices
 from .....common import compile_func
 from .....dequantizer import dequantize_symmetric_compiled
 from .....quant_utils import quantize_fp_mm, get_hadamard
@@ -10,11 +11,13 @@ from .linear_fp8 import fp8_matmul
 from .linear_fp8_dynamic import fp8_matmul_dynamic
 
 
+@devices.inference_context()
 def get_fp_matmul_backward_inputs(input: torch.FloatTensor, hadamard: torch.FloatTensor | None, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
     input, input_scale = quantize_fp_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0, hadamard=hadamard, matmul_dtype=matmul_dtype)
     return input, input_scale
 
 
+@devices.inference_context()
 def fp8_matmul_backward_ckpt(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor | None,

@@ -1,5 +1,6 @@
 import torch
 
+from ..sdnext import devices
 from ..common import dtype_dict
 
 from .pack import (
@@ -72,12 +73,14 @@ packed_int_function_dict["int1"] = packed_int_function_dict["uint1"]
 packed_int_function_dict["bool"] = packed_int_function_dict["uint1"]
 
 
+@devices.inference_context()
 def pack_int(tensor: torch.Tensor, weights_dtype: str) -> torch.Tensor:
     if not dtype_dict[weights_dtype]["is_unsigned"]:
         tensor = tensor.sub(dtype_dict[weights_dtype]["min"])
     return packed_int_function_dict[weights_dtype]["pack"](tensor.to(dtype=dtype_dict[weights_dtype]["storage_dtype"]))
 
 
+@devices.inference_context()
 def unpack_int(packed_tensor: torch.Tensor, weights_dtype: str, shape: torch.Size, dtype: torch.dtype = None) -> torch.Tensor:
     packed_tensor = packed_int_function_dict[weights_dtype]["unpack"](packed_tensor, shape)
     if not dtype_dict[weights_dtype]["is_unsigned"]:

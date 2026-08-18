@@ -1,5 +1,6 @@
 import torch
 
+from .sdnext import devices
 from .common import dtype_dict
 from .packed_int import pack_int, unpack_int
 
@@ -22,6 +23,7 @@ float_bits_to_uint_dict = {
 }
 
 
+@devices.inference_context()
 def pack_float(x: torch.FloatTensor, weights_dtype: str) -> torch.Tensor:
     exponent_bits = dtype_dict[weights_dtype]["exponent"]
     mantissa_bits = dtype_dict[weights_dtype]["mantissa"]
@@ -80,6 +82,7 @@ def pack_float(x: torch.FloatTensor, weights_dtype: str) -> torch.Tensor:
     return x
 
 
+@devices.inference_context()
 def unpack_float(x: torch.Tensor, weights_dtype: str, shape: torch.Size) -> torch.FloatTensor:
     exponent_bits = dtype_dict[weights_dtype]["exponent"]
     mantissa_bits = dtype_dict[weights_dtype]["mantissa"]

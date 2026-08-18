@@ -128,6 +128,7 @@ def dequantize_codebook(
     return result
 
 
+@devices.inference_context()
 def dequantize_weight(
     weights_dtype: str,
     weight: torch.Tensor,
@@ -196,6 +197,7 @@ def re_quantize_fp_mm(weight: torch.FloatTensor, matmul_dtype: str = "float8_e4m
     return weight, scale
 
 
+@devices.inference_context()
 def re_quantize_matmul(
     weights_dtype: str,
     weight: torch.Tensor,

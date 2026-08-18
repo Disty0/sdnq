@@ -2,6 +2,7 @@ from collections.abc import Iterator
 
 import torch
 
+from ..sdnext import devices
 from ..common import compile_func
 
 from .optimizer import SDNQOptimizer
@@ -27,7 +28,7 @@ class CAME(SDNQOptimizer):
             assert set(group.keys()) == self._group_keys
         super().__init__(param_groups, {})
 
-    @torch.no_grad()
+    @devices.inference_context()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
         grad_shape = param.grad.shape
         use_quantized_buffers = group["use_quantized_buffers"] and param.grad.ndim >= group["quantized_buffers_minimum_ndim"] and param.grad.numel() >= group["quantized_buffers_minimum_numel"]
@@ -44,7 +45,7 @@ class CAME(SDNQOptimizer):
             state["exp_avg"] = torch.zeros_like(param)
         return state
 
-    @torch.no_grad()
+    @devices.inference_context()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
         update_func = came_update_compiled if group["use_torch_compile"] else came_update
         return update_func(
@@ -64,6 +65,7 @@ class CAME(SDNQOptimizer):
         )
 
 
+@devices.inference_context()
 def came_update(
     grad: torch.FloatTensor,
     param: torch.FloatTensor,

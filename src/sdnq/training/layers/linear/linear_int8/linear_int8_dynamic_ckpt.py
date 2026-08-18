@@ -1,5 +1,6 @@
 import torch
 
+from .....sdnext import devices
 from .....common import compile_func
 from .....quant_utils import quantize_int_mm, get_hadamard
 from ....tensor import SDNQTensor
@@ -9,6 +10,7 @@ from .linear_int8 import int8_matmul
 from .linear_int8_dynamic import int8_matmul_dynamic
 
 
+@devices.inference_context()
 def get_int8_matmul_dynamic_backward_inputs(
     input: torch.FloatTensor,
     weight: torch.FloatTensor,
@@ -27,6 +29,7 @@ def get_int8_matmul_dynamic_backward_inputs(
     return input, weight, input_scale, scale
 
 
+@devices.inference_context()
 def int8_matmul_dynamic_backward_ckpt(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor | None,

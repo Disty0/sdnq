@@ -1,5 +1,6 @@
 import torch
 
+from .....sdnext import devices
 from .....common import compile_func
 from .....kernel_wrappers import fp_scaled_mm_func, use_contiguous_fp16_mm, include_mm_kernel_in_compile
 from .....quant_utils import rotate_hadamard, rotate_hadamard_compiled, get_hadamard
@@ -9,6 +10,7 @@ from ..forward import check_mats, quantized_linear_with_backward
 from ..linear_fp8.linear_fp8_dynamic import quantize_fp_mm_matmul
 
 
+@devices.inference_context()
 def get_fp16_matmul_dynamic_inputs(
     input: torch.FloatTensor,
     weight: torch.Tensor,
@@ -62,6 +64,7 @@ def get_fp16_matmul_dynamic_inputs(
     return input, weight, input_scale, scale, bias, bias_to_add_after, return_dtype, output_shape
 
 
+@devices.inference_context()
 def fp16_matmul_dynamic(
     input: torch.FloatTensor,
     weight: torch.Tensor,
@@ -94,6 +97,7 @@ def fp16_matmul_dynamic(
     return result
 
 
+@devices.inference_context()
 def fp16_matmul_dynamic_backward(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor | None,

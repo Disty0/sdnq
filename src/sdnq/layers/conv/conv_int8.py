@@ -2,6 +2,7 @@
 
 import torch
 
+from ...sdnext import devices
 from ...common import compile_func
 from ...kernel_wrappers import int_mm_func, int_scaled_mm_func
 from ...dequantizer import dequantize_symmetric, dequantize_asymmetric
@@ -13,6 +14,7 @@ from ..linear.linear_int8 import quantize_int_mm_input
 from ..linear.forward import check_mats
 
 
+@devices.inference_context()
 def conv_int8_matmul(
     input: torch.FloatTensor,
     weight: torch.Tensor,
@@ -88,6 +90,7 @@ def conv_int8_matmul(
     return result
 
 
+@devices.inference_context()
 def quantized_conv_forward_int8_matmul(self, input) -> torch.FloatTensor:
     if torch.numel(input) / input.shape[2] < 32:
         return self._conv_forward(input, self.sdnq_dequantizer(self.weight, self.scale, zero_point=self.zero_point, svd_up=self.svd_up, svd_down=self.svd_down, skip_quantized_matmul=True), self.bias)
