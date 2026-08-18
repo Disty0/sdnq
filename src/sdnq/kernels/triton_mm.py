@@ -116,8 +116,8 @@ def sdnq_triton_mm_kernel(
     c_desc.store([off_m, off_n], accumulator)
 
 
-@devices.inference_context()
 @triton_op("sdnq::triton_mm", mutates_args={})
+@devices.inference_context()
 def sdnq_triton_mm(
     a: torch.Tensor,
     b: torch.Tensor,

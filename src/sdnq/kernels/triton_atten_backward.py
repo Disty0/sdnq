@@ -473,8 +473,8 @@ def sdnq_attn_bwd_dkv_kernel(
         dv_desc.store([start_n_block, 0], dv)
 
 
-@devices.inference_context()
 @triton_op("sdnq::triton_atten_bwd_dq", mutates_args={})
+@devices.inference_context()
 def sdnq_triton_atten_bwd_dq(
     grad_output: torch.Tensor,
     delta: torch.Tensor,
@@ -565,8 +565,8 @@ def sdnq_atten_bwd_dkv(
     return dk, dv
 
 
-@devices.inference_context()
 @triton_op("sdnq::triton_atten_bwd_dkv", mutates_args={})
+@devices.inference_context()
 def sdnq_triton_atten_bwd_dkv(
     grad_output: torch.Tensor,
     delta: torch.Tensor,
@@ -599,8 +599,8 @@ def sdnq_triton_atten_bwd_dkv(
     )
 
 
-@devices.inference_context()
 @triton_op("sdnq::triton_atten_bwd_dk", mutates_args={})
+@devices.inference_context()
 def sdnq_triton_atten_bwd_dk(
     grad_output: torch.Tensor,
     delta: torch.Tensor,
@@ -633,8 +633,8 @@ def sdnq_triton_atten_bwd_dk(
     )[0]
 
 
-@devices.inference_context()
 @triton_op("sdnq::triton_atten_bwd_dv", mutates_args={})
+@devices.inference_context()
 def sdnq_triton_atten_bwd_dv(
     grad_output: torch.Tensor,
     delta: torch.Tensor,

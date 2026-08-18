@@ -365,8 +365,8 @@ def sdnq_atten_fwd(
     return out, lse
 
 
-@devices.inference_context()
 @triton_op("sdnq::triton_atten_fwd", mutates_args={})
+@devices.inference_context()
 def sdnq_triton_atten_fwd(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -390,8 +390,8 @@ def sdnq_triton_atten_fwd(
     )[0]
 
 
-@devices.inference_context()
 @triton_op("sdnq::triton_atten_lse_fwd", mutates_args={})
+@devices.inference_context()
 def sdnq_triton_atten_lse_fwd(
     query: torch.Tensor,
     key: torch.Tensor,
