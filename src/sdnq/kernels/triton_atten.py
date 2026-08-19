@@ -144,6 +144,7 @@ def sdnq_attn_kernel(
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
     MZ: tl.constexpr, MH: tl.constexpr, MQN: tl.constexpr, MKN: tl.constexpr,
+    mask_stride_z, mask_stride_h, mask_stride_q, mask_stride_k,
     QN_AT: tl.constexpr, # pylint: disable=unused-argument
     KN_AT: tl.constexpr, # pylint: disable=unused-argument
     VN_AT: tl.constexpr, # pylint: disable=unused-argument
@@ -194,9 +195,12 @@ def sdnq_attn_kernel(
     start_m_block = start_m * BLOCK_SIZE_M
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
     offs_n = tl.arange(0, BLOCK_SIZE_N)
-    offset_q = off_z * (QN * QH) + off_h * QN
-    offset_k = off_z * (KN * KH) + ((off_h * KH) // QH) * KN
-    offset_v = off_z * (VN * VH) + ((off_h * VH) // QH) * VN
+
+    off_h_64 = off_h.to(tl.int64)
+    off_z_64 = off_z.to(tl.int64)
+    offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
+    offset_k = off_z_64 * (KN * KH) + ((off_h_64 * KH) // QH) * KN
+    offset_v = off_z_64 * (VN * VH) + ((off_h_64 * VH) // QH) * VN
 
     q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, QHD])
     k_desc = tl.make_tensor_descriptor(k_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, KHD])
@@ -209,7 +213,8 @@ def sdnq_attn_kernel(
     if pv_is_quantized:
         v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr + offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
     if do_mask:
-        mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_q * MKN, shape=[MQN, MKN],  strides=[MKN, 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
+        offset_mask = off_z_64 * mask_stride_z + off_h_64 * mask_stride_h
+        mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask, shape=[QN, KN], strides=[mask_stride_q, mask_stride_k], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
 
     q = q_desc.load([start_m_block, 0])
     m_i = tl.full([BLOCK_SIZE_M], float("-inf"), dtype=tl.float32)
@@ -353,6 +358,14 @@ def sdnq_atten_fwd(
         (1 if use_fp16_accum else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
+        *(
+            (
+                attn_mask.stride(0) if attn_mask.shape[0] != 1 else 0,
+                attn_mask.stride(1) if attn_mask.shape[1] != 1 else 0,
+                attn_mask.stride(2) if attn_mask.shape[2] != 1 else 0,
+                attn_mask.stride(3) if attn_mask.shape[3] != 1 else 0,
+            ) if attn_mask is not None else (0, 0, 0, 0)
+        ),
         math.ceil(QN / min_block_size),
         math.ceil(KN / min_block_size),
         math.ceil(VN / min_block_size),
@@ -483,9 +496,9 @@ def get_attn_inputs(
     do_quantize: bool = True,
     out_dtype: torch.dtype | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor | None, float, torch.dtype, bool, int]:
-    QZ, QH, QN, QHD = query.shape
-    _, _, KN, KHD = key.shape
-    _, _, _, VHD = value.shape
+    QHD = query.shape[-1]
+    KHD = key.shape[-1]
+    VHD = value.shape[-1]
     if out_dtype is None:
         out_dtype = query.dtype
     if sm_scale is None:
@@ -495,12 +508,10 @@ def get_attn_inputs(
         key = torch.nn.functional.pad(key, (0, next_power_of_2(KHD) - KHD))
         value = torch.nn.functional.pad(value, (0, next_power_of_2(VHD) - VHD))
     if attn_mask is not None:
-        attn_mask = attn_mask.expand((QZ, QH, QN, KN))
-        if not is_pow2(KN):
-            pad_value = float("-inf") if torch.is_floating_point(attn_mask) else 0
-            attn_mask = torch.nn.functional.pad(attn_mask, (0, next_power_of_2(KN) - KN), value=pad_value)
         if attn_mask.dtype == torch.bool:
             attn_mask = attn_mask.to(dtype=torch.int8)
+        while attn_mask.ndim < 4:
+            attn_mask = attn_mask.unsqueeze(0)
         attn_mask = attn_mask.contiguous()
     query, query_scale, key, key_scale, value, value_scale, use_hadamard, hadamard_group_size = quantize_attn(
         query, key, value,
