@@ -505,13 +505,17 @@ def get_attn_inputs(
         sm_scale = QHD ** -0.5
     if not is_pow2(QHD):
         query = torch.nn.functional.pad(query, (0, next_power_of_2(QHD) - QHD))
+    if not is_pow2(KHD):
         key = torch.nn.functional.pad(key, (0, next_power_of_2(KHD) - KHD))
+    if not is_pow2(VHD):
         value = torch.nn.functional.pad(value, (0, next_power_of_2(VHD) - VHD))
     if attn_mask is not None:
         if attn_mask.dtype == torch.bool:
             attn_mask = attn_mask.to(dtype=torch.int8)
         while attn_mask.ndim < 4:
             attn_mask = attn_mask.unsqueeze(0)
+        if attn_mask.shape[-1] == 1:
+            attn_mask = attn_mask.expand(-1, -1, -1, key.shape[-2])
         attn_mask = attn_mask.contiguous()
     query, query_scale, key, key_scale, value, value_scale, use_hadamard, hadamard_group_size = quantize_attn(
         query, key, value,
