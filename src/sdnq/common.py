@@ -387,6 +387,7 @@ common_skip_keys = (
     ".x_embedder",
     ".t_embedder",
     ".y_embedder",
+    ".proj_in",
     ".emb_in",
     ".txt_in",
     ".img_in",
