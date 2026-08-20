@@ -219,6 +219,8 @@ def sdnq_quantize_layer_weight(
                 weight = weight.unflatten(-1, (num_of_groups, group_size))
         else:
             group_size = -1
+    elif group_size == -2:
+        reduction_axes = tuple(range(weight.ndim))
 
     cast_scale = True
     transpose_weights = False
@@ -861,6 +863,7 @@ class SDNQConfig(QuantizationConfigMixin):
             Used to decide how many elements of a tensor will share the same quantization group.
             group_size = `0` will automatically select a group size based on weights_dtype.
             group_size = `-1` will disable group sizes and use simple row-wise quantization instead.
+            group_size = `-2` will disable group sizes and use simple tensor-wise quantization instead.
         svd_rank (`int`, *optional*, defaults to `32`):
             The rank size used for the SVDQuant algorithm.
         svd_steps (`int`, *optional*, defaults to `8`):

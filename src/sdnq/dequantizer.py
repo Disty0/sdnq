@@ -98,13 +98,16 @@ def dequantize_codebook(
     group_size: int = -1,
     layer_class_name: str = "Linear",
 ) -> torch.FloatTensor:
-    if layer_class_name in conv_types:
-        reduction_axes = 2 if group_size != -1 else 1
-    elif layer_class_name in conv_transpose_types:
-        reduction_axes = 1 if group_size != -1 else 0
+    if group_size == -2:
+        result = scale[weight.to(dtype=torch.int32)]
     else:
-        reduction_axes = -1
-    result = scale.gather(reduction_axes, weight.to(dtype=torch.int32))
+        if layer_class_name in conv_types:
+            reduction_axes = 2 if group_size != -1 else 1
+        elif layer_class_name in conv_transpose_types:
+            reduction_axes = 1 if group_size != -1 else 0
+        else:
+            reduction_axes = -1
+        result = scale.gather(reduction_axes, weight.to(dtype=torch.int32))
     if skip_quantized_matmul and not re_quantize_for_matmul:
         result.t_()
     if result_shape is not None:

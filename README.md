@@ -50,7 +50,7 @@ from sdnq.common import use_torch_compile as triton_is_available
 sdnq_config = SDNQConfig(
     weights_dtype="int8", # see `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
     quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.
-    group_size=0, # 0 means auto, -1 means disabled (aka. uses row-wise quant)
+    group_size=0, # 0 means auto, -1 means row-wise, -2 means tensor-wise
     hadamard_group_size=256,
     svd_rank=32,
     svd_steps=8,
@@ -154,7 +154,7 @@ quantized_model = sdnq_training_post_load_quant(
     model,
     weights_dtype="uint8", # Check out `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
     quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.
-    group_size=32, # 0 means auto, -1 means disabled (aka. uses row-wise quant)
+    group_size=32, # 0 means auto, -1 means row-wise, -2 means tensor-wise
     hadamard_group_size=256,
     svd_rank=32,
     svd_steps=8,

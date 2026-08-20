@@ -8,7 +8,11 @@ from .utils import is_pow2, is_pow4, next_power_of_2
 
 @devices.inference_context()
 def get_scale_asymmetric(weight: torch.FloatTensor, dim: int | list[int], weights_dtype: str) -> tuple[torch.FloatTensor, torch.FloatTensor]:
-    zero_point, scale = torch.aminmax(weight, dim=dim, keepdims=True)
+    if isinstance(dim, int):
+        zero_point, scale = torch.aminmax(weight, dim=dim, keepdims=True)
+    else:
+        zero_point = torch.amin(weight, dim=dim, keepdims=True)
+        scale = torch.amax(weight, dim=dim, keepdims=True)
     scale = scale.sub_(zero_point).div_(dtype_dict[weights_dtype]["max"] - dtype_dict[weights_dtype]["min"])
     if dtype_dict[weights_dtype]["min"] != 0:
         zero_point.sub_(scale, alpha=dtype_dict[weights_dtype]["min"])
@@ -57,16 +61,24 @@ def quantize_weight_codebook(weight: torch.FloatTensor, dim: int,  weights_dtype
     if weight.dtype != torch.float64:
         weight = weight.to(dtype=torch.float32, copy=False)
 
+    scatter_add_dim = 1
     weight_shape = weight.shape
     weight_ndim = weight.ndim
     permuted_shape = None
-    if dim < 0:
-        dim = weight_ndim + dim
-    if weight_ndim > 1 and dim not in {-1, weight_ndim - 1}:
-        weight = weight.permute(*[i for i in range(weight_ndim) if i != dim], dim)
-        permuted_shape = weight.shape
-    if weight_ndim > 2:
-        weight = weight.flatten(0,-2)
+    full_flat_weight = False
+    if isinstance(dim, (list, tuple)):
+        assert len(dim) == weight_ndim, "Codebook quantization only supports quantization along a single dimension."
+        weight = weight.flatten()
+        full_flat_weight = True
+        scatter_add_dim = 0
+    else:
+        if dim < 0:
+            dim = weight_ndim + dim
+        if weight_ndim > 1 and dim not in {-1, weight_ndim - 1}:
+            weight = weight.permute(*[i for i in range(weight_ndim) if i != dim], dim)
+            permuted_shape = weight.shape
+        if weight_ndim > 2:
+            weight = weight.flatten(0,-2)
 
     zero_point, scale = torch.aminmax(weight, dim=-1, keepdim=True)
     scale = scale.sub_(zero_point).div_(dtype_dict[weights_dtype]["max"])
@@ -74,17 +86,23 @@ def quantize_weight_codebook(weight: torch.FloatTensor, dim: int,  weights_dtype
     ones = None
     for _ in range(steps):
         levels = torch.sort(levels, dim=-1).values
-        midpoints = torch.add(levels[:, 1:], levels[:, :-1]).mul_(0.5)
+        if full_flat_weight:
+            midpoints = torch.add(levels[1:], levels[:-1]).mul_(0.5)
+        else:
+            midpoints = torch.add(levels[:, 1:], levels[:, :-1]).mul_(0.5)
         assignment = torch.searchsorted(midpoints, weight)
         if ones is None:
             ones = torch.ones_like(assignment, dtype=torch.int32)
-        counts = torch.zeros_like(levels, dtype=torch.int32).scatter_add_(1, assignment, ones)
+        counts = torch.zeros_like(levels, dtype=torch.int32).scatter_add_(scatter_add_dim, assignment, ones)
         occupied = counts > 0
         counts = counts.clamp_(min=1)
-        sums = torch.zeros_like(levels).scatter_add_(1, assignment, weight).div_(counts)
+        sums = torch.zeros_like(levels).scatter_add_(scatter_add_dim, assignment, weight).div_(counts)
         levels = torch.where(occupied, sums, levels)
     levels = torch.sort(levels, dim=-1).values
-    midpoints = torch.add(levels[:, 1:], levels[:, :-1]).mul_(0.5)
+    if full_flat_weight:
+        midpoints = torch.add(levels[1:], levels[:-1]).mul_(0.5)
+    else:
+        midpoints = torch.add(levels[:, 1:], levels[:, :-1]).mul_(0.5)
     weight = torch.searchsorted(midpoints, weight, out_int32=True)
 
     if permuted_shape is not None:
@@ -93,8 +111,9 @@ def quantize_weight_codebook(weight: torch.FloatTensor, dim: int,  weights_dtype
         weight = weight.view(permuted_shape).permute(permute_dims)
         levels = levels.view(*permuted_shape[:-1], levels.shape[-1]).permute(permute_dims)
     else:
-        weight = weight.unflatten(0, weight_shape[:-1])
-        levels = levels.unflatten(0, weight_shape[:-1])
+        weight = weight.unflatten(0, weight_shape if full_flat_weight else weight_shape[:-1])
+        if not full_flat_weight:
+            levels = levels.unflatten(0, weight_shape[:-1])
     if dtype is not None:
         levels = levels.to(dtype=dtype)
     weight = weight.to(dtype_dict[weights_dtype]["torch_dtype"])
