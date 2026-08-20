@@ -75,9 +75,15 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 
                 cache_req += group_size_m * block_size_m * block_size_n * named_args["c_ptr"].element_size()
                 if named_args.get("scale_a_ptr") is not None:
-                    cache_req += group_size_m * block_size_m * named_args["scale_a_ptr"].element_size()
+                    if named_args.get("scale_a_is_tensorwise", 0):
+                        cache_req += named_args["scale_a_ptr"].element_size()
+                    else:
+                        cache_req += group_size_m * block_size_m * named_args["scale_a_ptr"].element_size()
                 if named_args.get("scale_b_ptr") is not None:
-                    cache_req += block_size_n * named_args["scale_b_ptr"].element_size()
+                    if named_args.get("scale_b_is_tensorwise", 0):
+                        cache_req += named_args["scale_b_ptr"].element_size()
+                    else:
+                        cache_req += block_size_n * named_args["scale_b_ptr"].element_size()
                 if named_args.get("bias_ptr") is not None:
                     if named_args["bias_ndim"] == 1:
                         cache_req += block_size_n * named_args["bias_ptr"].element_size()
