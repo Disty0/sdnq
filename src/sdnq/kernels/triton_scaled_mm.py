@@ -101,6 +101,8 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
     key=[
         "bias_ndim",
         "b_is_contiguous",
+        "scale_a_is_tensorwise",
+        "scale_b_is_tensorwise",
         "use_fp16_accum",
         "M_AT", "N_AT", "K_AT",
         "a_dtype", "out_dtype",
@@ -117,6 +119,8 @@ def sdnq_scaled_mm_kernel(
     K: tl.constexpr,
     bias_ndim: tl.constexpr,
     b_is_contiguous: tl.constexpr,
+    scale_a_is_tensorwise: tl.constexpr,
+    scale_b_is_tensorwise: tl.constexpr,
     use_fp16_accum: tl.constexpr,
     M_AT: tl.constexpr, # pylint: disable=unused-argument
     N_AT: tl.constexpr, # pylint: disable=unused-argument
@@ -153,6 +157,8 @@ def sdnq_scaled_mm_kernel(
     tl.assume(GROUP_SIZE_M > 0)
     tl.assume(bias_ndim >= 0 and bias_ndim <= 2) # pylint: disable=consider-using-in
     tl.assume(b_is_contiguous == 0 or b_is_contiguous == 1) # pylint: disable=consider-using-in
+    tl.assume(scale_a_is_tensorwise == 0 or scale_a_is_tensorwise == 1) # pylint: disable=consider-using-in
+    tl.assume(scale_b_is_tensorwise == 0 or scale_b_is_tensorwise == 1) # pylint: disable=consider-using-in
     tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
 
     a_desc = tl.make_tensor_descriptor(base=a_ptr, shape=(M, K), strides=(K, 1), block_shape=(BLOCK_SIZE_M, BLOCK_SIZE_K))
@@ -187,10 +193,17 @@ def sdnq_scaled_mm_kernel(
     if use_fp16_accum and a_ptr.type.element_ty == tl.float16:
         accumulator = tl.mul(accumulator.to(tl.float32), fp16_scale)
 
-    scale_a_desc = tl.make_tensor_descriptor(base=scale_a_ptr, shape=(M,), strides=(1,), block_shape=(BLOCK_SIZE_M,))
-    scale_b_desc = tl.make_tensor_descriptor(base=scale_b_ptr, shape=(N,), strides=(1,), block_shape=(BLOCK_SIZE_N,))
-    scale_a = scale_a_desc.load([off_m])[:, None].to(tl.float32)
-    scale_b = scale_b_desc.load([off_n])[None, :].to(tl.float32)
+    if scale_a_is_tensorwise:
+        scale_a = tl.load(scale_a_ptr).to(tl.float32)
+    else:
+        scale_a_desc = tl.make_tensor_descriptor(base=scale_a_ptr, shape=(M,), strides=(1,), block_shape=(BLOCK_SIZE_M,))
+        scale_a = scale_a_desc.load([off_m])[:, None].to(tl.float32)
+
+    if scale_b_is_tensorwise:
+        scale_b = tl.load(scale_b_ptr).to(tl.float32)
+    else:
+        scale_b_desc = tl.make_tensor_descriptor(base=scale_b_ptr, shape=(N,), strides=(1,), block_shape=(BLOCK_SIZE_N,))
+        scale_b = scale_b_desc.load([off_n])[None, :].to(tl.float32)
 
     if bias_ndim == 1:
         accumulator = tl.mul(accumulator.to(tl.float32), scale_a)
@@ -238,6 +251,8 @@ def sdnq_scaled_mm(
         M, N, K,
         (0 if bias is None else bias.ndim),
         (1 if b.is_contiguous() else 0),
+        (1 if scale_a.numel() == 1 else 0),
+        (1 if scale_b.numel() == 1 else 0),
         (1 if USE_FP16_ACCUM else 0),
         math.ceil(M / min_block_size),
         math.ceil(N / min_block_size),
