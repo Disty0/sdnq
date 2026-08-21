@@ -118,7 +118,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             configs = pruned_configs
         elif not from_small:
             if SDNQ_DEBUG_TRITON_AUTOTUNE:
-                shared.log.debug(f"SDNQ Triton Atten: No configs fit in cache/smem, trying small configs.")
+                shared.log.debug("SDNQ Triton Atten: No configs fit in cache/smem, trying small configs.")
             return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
     return configs
 
