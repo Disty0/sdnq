@@ -7,11 +7,13 @@ from torch.library import triton_op, wrap_triton
 import triton
 import triton.language as tl
 
-from ..sdnext import devices
+from ..sdnext import devices, shared
 from ..common import compile_func
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
 from ..utils import is_pow2, next_power_of_2, get_cache_sizes
 
+
+SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
 
 min_block_size = int(os.environ.get("SDNQ_TRITON_ATTEN_MIN_BLOCK_SIZE", "256"))
 autotune_configs = [
@@ -52,6 +54,8 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
         configs = pruned_configs
 
     cache_size, smem_size = get_cache_sizes(device)
+    if SDNQ_DEBUG_TRITON_AUTOTUNE:
+        shared.log.debug(f"SDNQ Triton Atten: Detected device={device} cache_size={cache_size} smem_size={smem_size}")
     if cache_size > 0 or smem_size > 0:
         pruned_configs = []
         for config in configs:
@@ -107,10 +111,14 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 
             if (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
                 pruned_configs.append(config)
+            elif SDNQ_DEBUG_TRITON_AUTOTUNE:
+                shared.log.debug(f"SDNQ Triton Atten: Pruned config cache_req={cache_req} smem_req={smem_req} config=({config.kwargs} num_warps={config.num_warps} num_stages={config.num_stages})")
 
         if pruned_configs:
             configs = pruned_configs
         elif not from_small:
+            if SDNQ_DEBUG_TRITON_AUTOTUNE:
+                shared.log.debug(f"SDNQ Triton Atten: No configs fit in cache/smem, trying small configs.")
             return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
     return configs
 
