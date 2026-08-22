@@ -96,7 +96,7 @@ class Devices:
         return triton_is_available
 
     def get_hip_agent(self) -> HIPAgent:
-        return HIPAgent(int("0x" + getattr(torch.cuda.get_device_properties(self.device), "gcnArchName", "gfx0000")[3:], 16))
+        return HIPAgent(int("0x" + (getattr(torch.cuda.get_device_properties(self.device), "gcnArchName", "gfx0000")[3:] or "0000"), 16))
 
 
 class Shared:
