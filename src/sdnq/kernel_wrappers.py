@@ -96,11 +96,11 @@ else:
 if os.environ.get("SDNQ_USE_CONTIGUOUS_MM", None) is None:
     use_contiguous_int8_mm = bool(is_rdna2_and_older or devices.backend in {"ipex", "xpu", "cpu", "mps", "openvino", "zluda"})
     use_contiguous_fp16_mm = bool(use_contiguous_int8_mm or devices.backend == "rocm")
-    use_contiguous_fp8_mm = use_contiguous_fp16_mm and (use_triton_mm or not is_fp8_mm_supported)
+    use_contiguous_fp8_mm = bool(use_contiguous_fp16_mm and not is_fp8_mm_supported)
 else:
     use_contiguous_int8_mm = bool(os.environ.get("SDNQ_USE_CONTIGUOUS_MM", "0").lower() not in {"0", "false", "no"})
     use_contiguous_fp16_mm = use_contiguous_int8_mm
-    use_contiguous_fp8_mm = use_contiguous_fp16_mm and (use_triton_mm or not is_fp8_mm_supported)
+    use_contiguous_fp8_mm = bool(use_contiguous_fp16_mm and (use_triton_mm or not is_fp8_mm_supported))
 
 
 def int_mm_torch(a: torch.Tensor, b: torch.Tensor, out_dtype: torch.dtype = torch.int32) -> torch.FloatTensor:
