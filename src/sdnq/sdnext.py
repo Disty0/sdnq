@@ -30,8 +30,11 @@ class Devices:
         self.backend = self.device.type
         if self.backend == "xpu":
             self.backend = "ipex"
-        elif self.backend == "cuda" and torch.version.hip is not None:
-            self.backend = "rocm"
+        elif self.backend == "cuda":
+            if torch.cuda.get_device_capability(self.device) == (8, 8):
+                self.backend = "zluda"
+            elif torch.version.hip is not None:
+                self.backend = "rocm"
 
         if os.environ.get("SDNQ_DTYPE", None) is not None:
             self.dtype = getattr(torch, os.environ.get("SDNQ_DTYPE"))
