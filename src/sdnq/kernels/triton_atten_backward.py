@@ -40,7 +40,6 @@ def sdnq_attn_bwd_dq_kernel(
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
     MZ: tl.constexpr, MH: tl.constexpr, MQN: tl.constexpr, MKN: tl.constexpr,
-    mask_stride_z, mask_stride_h, mask_stride_q, mask_stride_k,
     QN_AT: tl.constexpr, # pylint: disable=unused-argument
     KN_AT: tl.constexpr, # pylint: disable=unused-argument
     VN_AT: tl.constexpr, # pylint: disable=unused-argument
@@ -113,8 +112,8 @@ def sdnq_attn_bwd_dq_kernel(
         do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
         do_scale = do_scale_desc.load([start_m_block])[:, None]
     if do_mask:
-        offset_mask = off_z_64 * mask_stride_z + off_h_64 * mask_stride_h
-        mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask, shape=[QN, KN], strides=[mask_stride_q, mask_stride_k], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
+        offset_mask = off_z_64 * ((MQN * MH) if MZ != 1 else 0) + off_h_64 * (MQN if MH != 1 else 0)
+        mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask * MKN, shape=[QN, KN], strides=[(MKN if MQN != 1 else 0), 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
 
     q = q_desc.load([start_m_block, 0])
     do = do_desc.load([start_m_block, 0])
@@ -254,7 +253,6 @@ def sdnq_attn_bwd_dkv_kernel(
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
     MZ: tl.constexpr, MH: tl.constexpr, MQN: tl.constexpr, MKN: tl.constexpr,
-    mask_stride_z, mask_stride_h, mask_stride_q, mask_stride_k,
     QN_AT: tl.constexpr, # pylint: disable=unused-argument
     KN_AT: tl.constexpr, # pylint: disable=unused-argument
     VN_AT: tl.constexpr, # pylint: disable=unused-argument
@@ -352,8 +350,8 @@ def sdnq_attn_bwd_dkv_kernel(
         delta_desc = tl.make_tensor_descriptor(delta_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
 
         if do_mask:
-            offset_mask = off_z_64 * mask_stride_z + off_h_64 * mask_stride_h
-            mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask, shape=[QN, KN], strides=[mask_stride_q, mask_stride_k], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
+            offset_mask = off_z_64 * ((MQN * MH) if MZ != 1 else 0) + off_h_64 * (MQN if MH != 1 else 0)
+            mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask * MKN, shape=[QN, KN], strides=[(MKN if MQN != 1 else 0), 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
         if qk_is_quantized:
             q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
         if pv_is_quantized:
@@ -517,14 +515,6 @@ def sdnq_triton_atten_bwd_dq(
         (1 if use_fp16_accum else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
-        *(
-            (
-                attn_mask.stride(0) if attn_mask.shape[0] != 1 else 0,
-                attn_mask.stride(1) if attn_mask.shape[1] != 1 else 0,
-                attn_mask.stride(2) if attn_mask.shape[2] != 1 else 0,
-                attn_mask.stride(3) if attn_mask.shape[3] != 1 else 0,
-            ) if attn_mask is not None else (0, 0, 0, 0)
-        ),
         math.ceil(QN / min_block_size),
         math.ceil(KN / min_block_size),
         math.ceil(VN / min_block_size),
@@ -574,14 +564,6 @@ def sdnq_atten_bwd_dkv(
         (1 if use_fp16_accum else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
-        *(
-            (
-                attn_mask.stride(0) if attn_mask.shape[0] != 1 else 0,
-                attn_mask.stride(1) if attn_mask.shape[1] != 1 else 0,
-                attn_mask.stride(2) if attn_mask.shape[2] != 1 else 0,
-                attn_mask.stride(3) if attn_mask.shape[3] != 1 else 0,
-            ) if attn_mask is not None else (0, 0, 0, 0)
-        ),
         math.ceil(QN / min_block_size),
         math.ceil(KN / min_block_size),
         math.ceil(VN / min_block_size),
