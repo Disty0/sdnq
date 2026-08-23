@@ -136,11 +136,11 @@ def sdnq_attn_bwd_dq_kernel(
         # dq walks the same kv blocks the forward walked for this query block, so it reads the forward's lists unchanged
         tl.static_assert(BLOCK_MASK_M % BLOCK_SIZE_M == 0, "BLOCK_SIZE_M must divide BLOCK_MASK_M")
         tl.static_assert(BLOCK_MASK_N % BLOCK_SIZE_N == 0, "BLOCK_SIZE_N must divide BLOCK_MASK_N")
-        SUB_TILES: tl.constexpr = BLOCK_MASK_N // BLOCK_SIZE_N
-        NQB: tl.constexpr = (QN + BLOCK_MASK_M - 1) // BLOCK_MASK_M
-        NKB: tl.constexpr = (KN + BLOCK_MASK_N - 1) // BLOCK_MASK_N
-        NQB_PAD: tl.constexpr = ((NQB + BLOCK_COUNT_CHUNK - 1) // BLOCK_COUNT_CHUNK) * BLOCK_COUNT_CHUNK
-        NKB_PAD: tl.constexpr = ((NKB + BLOCK_INDEX_CHUNK - 1) // BLOCK_INDEX_CHUNK) * BLOCK_INDEX_CHUNK
+        SUB_TILES = BLOCK_MASK_N // BLOCK_SIZE_N
+        NQB = (QN + BLOCK_MASK_M - 1) // BLOCK_MASK_M
+        NKB = (KN + BLOCK_MASK_N - 1) // BLOCK_MASK_N
+        NQB_PAD = ((NQB + BLOCK_COUNT_CHUNK - 1) // BLOCK_COUNT_CHUNK) * BLOCK_COUNT_CHUNK
+        NKB_PAD = ((NKB + BLOCK_INDEX_CHUNK - 1) // BLOCK_INDEX_CHUNK) * BLOCK_INDEX_CHUNK
         q_block = start_m_block // BLOCK_MASK_M
         offset_lists = off_z_64 * (BH if BZ != 1 else 0) + (off_h_64 if BH != 1 else 0)
         count_desc = tl.make_tensor_descriptor(block_count_ptr + offset_lists * NQB_PAD, shape=[NQB_PAD], strides=[1,], block_shape=[BLOCK_COUNT_CHUNK])
@@ -425,11 +425,11 @@ def sdnq_attn_bwd_dkv_kernel(
             # which contribute nothing to either gradient, and a causally dead tile is scored to -inf as before
             tl.static_assert(BLOCK_MASK_M % BLOCK_SIZE_M == 0, "BLOCK_SIZE_M must divide BLOCK_MASK_M")
             tl.static_assert(BLOCK_MASK_N % BLOCK_SIZE_N == 0, "BLOCK_SIZE_N must divide BLOCK_MASK_N")
-            SUB_TILES: tl.constexpr = BLOCK_MASK_M // BLOCK_SIZE_M
-            NQB: tl.constexpr = (QN + BLOCK_MASK_M - 1) // BLOCK_MASK_M
-            NKB: tl.constexpr = (KN + BLOCK_MASK_N - 1) // BLOCK_MASK_N
-            NKB_PAD: tl.constexpr = ((NKB + BLOCK_COUNT_CHUNK - 1) // BLOCK_COUNT_CHUNK) * BLOCK_COUNT_CHUNK
-            NQB_PAD: tl.constexpr = ((NQB + BLOCK_INDEX_CHUNK - 1) // BLOCK_INDEX_CHUNK) * BLOCK_INDEX_CHUNK
+            SUB_TILES = BLOCK_MASK_M // BLOCK_SIZE_M
+            NQB = (QN + BLOCK_MASK_M - 1) // BLOCK_MASK_M
+            NKB = (KN + BLOCK_MASK_N - 1) // BLOCK_MASK_N
+            NKB_PAD = ((NKB + BLOCK_COUNT_CHUNK - 1) // BLOCK_COUNT_CHUNK) * BLOCK_COUNT_CHUNK
+            NQB_PAD = ((NQB + BLOCK_INDEX_CHUNK - 1) // BLOCK_INDEX_CHUNK) * BLOCK_INDEX_CHUNK
             kv_block = start_n_block // BLOCK_MASK_N
             offset_lists = off_z_64 * (BH if BZ != 1 else 0) + (off_h_64 if BH != 1 else 0)
             count_desc = tl.make_tensor_descriptor(block_count_ptr + offset_lists * NKB_PAD, shape=[NKB_PAD], strides=[1,], block_shape=[BLOCK_COUNT_CHUNK])
