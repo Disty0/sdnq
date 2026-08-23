@@ -4,7 +4,7 @@ import torch
 
 from .sdnext import shared, devices
 
-sdnq_version = "0.2.5"
+sdnq_version = "0.2.6"
 sdnq_keys = {"weight", "scale", "zero_point", "svd_up", "svd_down"}
 
 torch_version = torch.__version__[:4]
