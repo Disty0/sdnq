@@ -1,0 +1,28 @@
+==================================================
+Platform: Linux-7.2.0-1-cachyos-x86_64-with-glibc2.44
+Device: Intel(R) Arc(TM) Pro B60 Graphics
+Steps: 100 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096 | Bias: True
+==================================================
+Torch Compile: True
+MM Kernel in Compile: False
+Contiguous INT8 MM: True
+Contiguous FP16 MM: True
+Contiguous FP8 MM: True
+Tensorwise FP8 MM: True
+Triton MM: True
+Triton Scaled MM: True
+OpenVINO MM: True
+==================================================
+PyTorch Float TFLOPS: 92.26
+==================================================
+SDNQ INT8 TFLOPS: 158.87
+SDNQ UINT8 TFLOPS: 122.47
+SDNQ FP8 TFLOPS: 75.72
+SDNQ FP16 TFLOPS: 84.63
+==================================================
+SDNQ INT8 Hadamard TFLOPS: 144.82
+SDNQ UINT8 Hadamard TFLOPS: 113.28
+SDNQ FP8 Hadamard TFLOPS: 72.0
+SDNQ FP16 Hadamard TFLOPS: 80.08
+==================================================

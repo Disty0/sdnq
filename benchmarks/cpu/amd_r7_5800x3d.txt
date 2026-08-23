@@ -1,0 +1,28 @@
+==================================================
+Platform: Linux-7.1.8-1-cachyos-x86_64-with-glibc2.44
+Device: CPU of X86_64 AMD Ryzen 7 5800X3D 8-Core Processor
+Steps: 3 | MNK: 8192 | Float: torch.float32
+M: 16384 | N: 8192 | K: 4096 | Bias: True
+==================================================
+Torch Compile: True
+MM Kernel in Compile: False
+Contiguous INT8 MM: True
+Contiguous FP16 MM: True
+Contiguous FP8 MM: True
+Tensorwise FP8 MM: True
+Triton MM: True
+Triton Scaled MM: True
+OpenVINO MM: True
+==================================================
+PyTorch Float TFLOPS: 0.83
+==================================================
+SDNQ INT8 TFLOPS: 0.74
+SDNQ UINT8 TFLOPS: 0.7
+SDNQ FP8 TFLOPS: 0.66
+SDNQ FP16 TFLOPS: 0.69
+==================================================
+SDNQ INT8 Hadamard TFLOPS: 0.7
+SDNQ UINT8 Hadamard TFLOPS: 0.68
+SDNQ FP8 Hadamard TFLOPS: 0.63
+SDNQ FP16 Hadamard TFLOPS: 0.66
+==================================================

@@ -1,0 +1,28 @@
+==================================================
+Platform: Linux-7.2.0-1-cachyos-x86_64-with-glibc2.44
+Device: Intel(R) Graphics
+Steps: 5 | MNK: 8192 | Float: torch.float16
+M: 16384 | N: 8192 | K: 4096 | Bias: True
+==================================================
+Torch Compile: True
+MM Kernel in Compile: True
+Contiguous INT8 MM: True
+Contiguous FP16 MM: True
+Contiguous FP8 MM: True
+Tensorwise FP8 MM: True
+Triton MM: False
+Triton Scaled MM: False
+OpenVINO MM: True
+==================================================
+PyTorch Float TFLOPS: 1.81
+==================================================
+SDNQ INT8 TFLOPS: 6.34
+SDNQ UINT8 TFLOPS: 6.29
+SDNQ FP8 TFLOPS: 1.92
+SDNQ FP16 TFLOPS: 1.93
+==================================================
+SDNQ INT8 Hadamard TFLOPS: 5.73
+SDNQ UINT8 Hadamard TFLOPS: 5.67
+SDNQ FP8 Hadamard TFLOPS: 1.86
+SDNQ FP16 Hadamard TFLOPS: 1.87
+==================================================
