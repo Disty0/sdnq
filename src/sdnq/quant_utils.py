@@ -201,6 +201,8 @@ def rotate_hadamard(weight: torch.Tensor, group_size: int = 256, hadamard: torch
     if is_conv:
         weight_shape = list(weight.shape)[1:]
         weight = weight.flatten(1,-1)
+    if not weight.is_contiguous(): # a transposed activation view makes the grouped matmul an order of magnitude slower than the copy
+        weight = weight.contiguous()
     weight = weight.unflatten(-1, (-1,group_size))
     result = torch.matmul(weight, hadamard).flatten(-2,-1)
     del hadamard
