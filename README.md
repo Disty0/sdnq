@@ -286,6 +286,8 @@ state["exp_avg"] = SDNQTensor.from_float(
   Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_ALLOW_FP8_COMPILE**: Overrides the torch.compile use with FP8 weights dtype.  
   Can be `0` or `1`. Default is None (auto-detect)  
+- **SDNQ_DEBUG_TRITON_AUTOTUNE**: Logs the Triton Autotune config pruning steps with debug loglevel.  
+  Can be `0` or `1`. Default is `0`  
 - **SDNQ_COMPILE_KWARGS**: A dict of kwargs to override the kwargs used on torch.compile for SDNQ.  
   `SDNQ_COMPILE_KWARGS` is an advanced option, don't touch this if you don't know exactly what you are doing.  
   Must be json string such as `{"fullgraph": true}`. Default is None (auto-detect)  
