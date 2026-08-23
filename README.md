@@ -137,7 +137,7 @@ def sdpa_sdnq_atten(query: torch.FloatTensor, key: torch.FloatTensor, value: tor
 torch.nn.functional.scaled_dot_product_attention = sdpa_sdnq_atten
 ```
 
-Block-sparse attention (inference only): `sdnq_triton_atten` also takes `block_mask`, a bool or int8 tensor of shape `(batch or 1, heads or 1, ceil(QN / block_mask_m), ceil(KN / block_mask_n))` with `block_mask_m` and `block_mask_n` giving the block size in tokens. The kernel walks only the kept key blocks of each query block, the mask composes with `attn_mask`, and every autotune tile has to divide the block size (the default tile lists nest a 128x64 block).  
+Block-sparse attention: `sdnq_triton_atten` also takes `block_mask`, a bool or int8 tensor of shape `(batch or 1, heads or 1, ceil(QN / block_mask_m), ceil(KN / block_mask_n))` with `block_mask_m` and `block_mask_n` giving the block size in tokens. The kernel walks only the kept key blocks of each query block, the mask composes with `attn_mask`, and every autotune tile has to divide the block size (the default tile lists nest a 128x64 block). `sdnq_triton_atten_with_backward` takes the same three arguments and differentiates through the same selection.  
 
 
 ### Example code for quantized training:  

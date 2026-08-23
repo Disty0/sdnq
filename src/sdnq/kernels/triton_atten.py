@@ -690,8 +690,6 @@ def sdnq_triton_atten(
 
     block_count = block_index = None
     if block_mask is not None:
-        if return_backward:
-            raise NotImplementedError("SDNQ Triton Atten: block_mask has no backward")
         block_count, block_index = get_block_mask_input(block_mask, query.shape[0], query.shape[1])
 
     hadamard = None
@@ -727,6 +725,10 @@ def sdnq_triton_atten(
             sm_scale=sm_scale,
             use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
+            block_count=block_count,
+            block_index=block_index,
+            block_mask_m=block_mask_m,
+            block_mask_n=block_mask_n,
         )
     else:
         out = sdnq_triton_atten_fwd(
