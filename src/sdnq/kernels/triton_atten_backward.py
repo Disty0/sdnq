@@ -188,7 +188,7 @@ def sdnq_attn_bwd_dq_kernel(
             mask_max = tl.max(mask)
             if mask.dtype == tl.int8:
                 mask = mask.to(tl.int1)
-            else:
+            elif mask.dtype != tl.int1:
                 mask = mask.to(tl.float32)
             if mask.dtype == tl.int1:
                 if mask_max == 0:
@@ -455,7 +455,7 @@ def sdnq_attn_bwd_dkv_kernel(
                 mask_max = tl.max(mask)
                 if mask.dtype == tl.int8:
                     mask = mask.to(tl.int1)
-                else:
+                elif mask.dtype != tl.int1:
                     mask = mask.to(tl.float32)
                 if mask.dtype == tl.int1:
                     if mask_max == 0:

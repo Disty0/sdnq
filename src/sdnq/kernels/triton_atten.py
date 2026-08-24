@@ -311,7 +311,7 @@ def sdnq_attn_kernel(
             mask_max = tl.max(mask)
             if mask.dtype == tl.int8:
                 mask = mask.to(tl.int1)
-            else:
+            elif mask.dtype != tl.int1:
                 mask = mask.to(tl.float32)
             if mask.dtype == tl.int1:
                 if mask_max == 0:
@@ -613,7 +613,7 @@ def get_attn_inputs(
         value = torch.nn.functional.pad(value, (0, next_power_of_2(VHD) - VHD))
     if attn_mask is not None:
         if attn_mask.dtype == torch.bool:
-            attn_mask = attn_mask.to(dtype=torch.int8)
+            attn_mask = attn_mask.view(dtype=torch.int8)
         if attn_mask.shape[-1] == 1:
             attn_mask = attn_mask.expand(-1, -1, -1, key.shape[-2])
         attn_mask = attn_mask.contiguous()
