@@ -16,6 +16,8 @@ from ..utils import is_pow2, next_power_of_2, get_cache_sizes
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
 
 min_block_size = int(os.environ.get("SDNQ_TRITON_ATTEN_MIN_BLOCK_SIZE", "256"))
+block_count_chunk = 4 # int32 entries per descriptor load of the block counts, 16 bytes
+block_index_chunk = 16 # int32 entries per descriptor load of the block index lists, 64 bytes
 autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=w, num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128").replace(" ","").split(",")]
@@ -30,6 +32,18 @@ small_autotune_configs = [
     for w in ([4,8] if torch.xpu.is_available() else [2,4])
     for s in ([1,] if (torch.cuda.is_available() and torch.version.hip) else [2,])
 ]
+
+
+def nest_block_mask_configs(configs: list[triton.Config], named_args: dict) -> list[triton.Config]:
+    # the block mask is read once per tile, so every tile has to sit inside a single mask block
+    if not named_args.get("do_block_mask"):
+        return configs
+    block_mask_m = named_args["BLOCK_MASK_M"]
+    block_mask_n = named_args["BLOCK_MASK_N"]
+    nested = [conf for conf in configs if (block_mask_m % conf.kwargs["BLOCK_SIZE_M"] == 0 and block_mask_n % conf.kwargs["BLOCK_SIZE_N"] == 0)]
+    if not nested:
+        raise ValueError(f"SDNQ Triton Atten: no autotune config nests the {block_mask_m}x{block_mask_n} block mask, check SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST and SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST")
+    return nested
 
 
 def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
@@ -120,13 +134,13 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             if SDNQ_DEBUG_TRITON_AUTOTUNE:
                 shared.log.debug("SDNQ Triton Atten: No configs fit in cache/smem, trying small configs.")
             return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
-    return configs
+    return nest_block_mask_configs(configs, named_args)
 
 
 @triton.autotune(
     configs=autotune_configs,
     key=[
-        "is_causal", "do_mask",
+        "is_causal", "do_mask", "do_block_mask",
         "save_lse", "use_fp16_accum",
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
@@ -135,6 +149,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
         "pv_is_quantized",
         "q_dtype", "v_dtype",
         "out_dtype", "mask_dtype",
+        "BLOCK_MASK_M", "BLOCK_MASK_N",
     ],
     prune_configs_by={'early_config_prune': prune_configs},
     cache_results=True,
@@ -143,15 +158,21 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 def sdnq_attn_kernel(
     q_ptr, k_ptr, v_ptr,
     q_scale_ptr, k_scale_ptr, v_scale_ptr,
-    out_ptr, lse_ptr, mask_ptr, sm_scale,
+    out_ptr, lse_ptr, mask_ptr, block_count_ptr, block_index_ptr, sm_scale,
     is_causal: tl.constexpr,
     do_mask: tl.constexpr,
+    do_block_mask: tl.constexpr,
     save_lse: tl.constexpr,
     use_fp16_accum: tl.constexpr,
     QZ: tl.constexpr, QH: tl.constexpr, QN: tl.constexpr, QHD: tl.constexpr,
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
     MZ: tl.constexpr, MH: tl.constexpr, MQN: tl.constexpr, MKN: tl.constexpr,
+    BLOCK_MASK_M: tl.constexpr,
+    BLOCK_MASK_N: tl.constexpr,
+    BLOCK_COUNT_CHUNK: tl.constexpr,
+    BLOCK_INDEX_CHUNK: tl.constexpr,
+    BZ: tl.constexpr, BH: tl.constexpr,
     QN_AT: tl.constexpr, # pylint: disable=unused-argument
     KN_AT: tl.constexpr, # pylint: disable=unused-argument
     VN_AT: tl.constexpr, # pylint: disable=unused-argument
@@ -184,6 +205,12 @@ def sdnq_attn_kernel(
     tl.assume(MH >= 0)
     tl.assume(MQN >= 0)
     tl.assume(MKN >= 0)
+    tl.assume(BLOCK_MASK_M >= 0)
+    tl.assume(BLOCK_MASK_N >= 0)
+    tl.assume(BLOCK_COUNT_CHUNK > 0)
+    tl.assume(BLOCK_INDEX_CHUNK > 0)
+    tl.assume(BZ >= 0)
+    tl.assume(BH >= 0)
     tl.assume(off_h >= 0)
     tl.assume(off_z >= 0)
     tl.assume(start_m >= 0)
@@ -191,6 +218,7 @@ def sdnq_attn_kernel(
     tl.assume(BLOCK_SIZE_N > 0)
     tl.assume(is_causal == 0 or is_causal == 1) # pylint: disable=consider-using-in
     tl.assume(do_mask == 0 or do_mask == 1) # pylint: disable=consider-using-in
+    tl.assume(do_block_mask == 0 or do_block_mask == 1) # pylint: disable=consider-using-in
     tl.assume(save_lse == 0 or save_lse == 1) # pylint: disable=consider-using-in
     tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
     tl.assume(qk_is_quantized == 0 or qk_is_quantized == 1) # pylint: disable=consider-using-in
@@ -198,7 +226,11 @@ def sdnq_attn_kernel(
 
     sm_scale = sm_scale.to(tl.float32)
     log2_sm_scale = sm_scale * 1.4426950408889634
-    do_k_mask = KN % BLOCK_SIZE_N != 0
+    if do_block_mask:
+        # a ragged last mask block puts whole sub tiles past KN, which the tail rule has to cover even when the tile divides KN
+        do_k_mask = (KN % BLOCK_SIZE_N != 0) or (KN % BLOCK_MASK_N != 0)
+    else:
+        do_k_mask = KN % BLOCK_SIZE_N != 0
     start_m_block = start_m * BLOCK_SIZE_M
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
     offs_n = tl.arange(0, BLOCK_SIZE_N)
@@ -222,6 +254,29 @@ def sdnq_attn_kernel(
     if do_mask:
         offset_mask = off_z_64 * ((MQN * MH) if MZ != 1 else 0) + off_h_64 * (MQN if MH != 1 else 0)
         mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask * MKN, shape=[QN, KN], strides=[(MKN if MQN != 1 else 0), 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
+    if do_block_mask:
+        # the loop walks only the kept kv blocks of this program's query block, in ascending order, so
+        # the body stays branch free and keeps its pipelining; every tile sits inside one mask block.
+        # The lists are contiguous, broadcast over batch and heads by shape like the token mask, and
+        # padded to the chunk sizes, so their descriptors need nothing beyond the shapes and every
+        # load coordinate is chunk aligned
+        tl.static_assert(BLOCK_MASK_M % BLOCK_SIZE_M == 0, "BLOCK_SIZE_M must divide BLOCK_MASK_M")
+        tl.static_assert(BLOCK_MASK_N % BLOCK_SIZE_N == 0, "BLOCK_SIZE_N must divide BLOCK_MASK_N")
+        SUB_TILES = BLOCK_MASK_N // BLOCK_SIZE_N
+        NQB = (QN + BLOCK_MASK_M - 1) // BLOCK_MASK_M
+        NKB = (KN + BLOCK_MASK_N - 1) // BLOCK_MASK_N
+        NQB_PAD = ((NQB + BLOCK_COUNT_CHUNK - 1) // BLOCK_COUNT_CHUNK) * BLOCK_COUNT_CHUNK
+        NKB_PAD = ((NKB + BLOCK_INDEX_CHUNK - 1) // BLOCK_INDEX_CHUNK) * BLOCK_INDEX_CHUNK
+        q_block = start_m_block // BLOCK_MASK_M
+        offset_lists = off_z_64 * (BH if BZ != 1 else 0) + (off_h_64 if BH != 1 else 0)
+        count_desc = tl.make_tensor_descriptor(block_count_ptr + offset_lists * NQB_PAD, shape=[NQB_PAD], strides=[1,], block_shape=[BLOCK_COUNT_CHUNK])
+        offs_count = tl.arange(0, BLOCK_COUNT_CHUNK)
+        counts = count_desc.load([(q_block // BLOCK_COUNT_CHUNK) * BLOCK_COUNT_CHUNK])
+        num_tiles = tl.sum(tl.where(offs_count == (q_block % BLOCK_COUNT_CHUNK), counts, 0)) * SUB_TILES
+        index_desc = tl.make_tensor_descriptor(block_index_ptr + (offset_lists * NQB + q_block) * NKB_PAD, shape=[NKB_PAD], strides=[1,], block_shape=[BLOCK_INDEX_CHUNK])
+        offs_index = tl.arange(0, BLOCK_INDEX_CHUNK)
+    else:
+        num_tiles = tl.cdiv(KN, BLOCK_SIZE_N)
 
     q = q_desc.load([start_m_block, 0])
     m_i = tl.full([BLOCK_SIZE_M], float("-inf"), dtype=tl.float32)
@@ -238,8 +293,16 @@ def sdnq_attn_kernel(
             fp16_scale_pv = 65536.0 * BLOCK_SIZE_N
             in_scale_pv = 1.0 / (65536.0 * BLOCK_SIZE_N)**0.5
 
-    for start_n_idx in tl.range(0, tl.cdiv(KN, BLOCK_SIZE_N)):
-        start_n = start_n_idx * BLOCK_SIZE_N
+    for tile in tl.range(0, num_tiles):
+        if do_block_mask:
+            # one chunk of the index list through the descriptor, the entry picked out by a masked reduction;
+            # a sub tile past the end of a ragged last block loads zeros and masks itself out below
+            block_pos = tile // SUB_TILES
+            chunk = index_desc.load([(block_pos // BLOCK_INDEX_CHUNK) * BLOCK_INDEX_CHUNK])
+            block_n = tl.sum(tl.where(offs_index == (block_pos % BLOCK_INDEX_CHUNK), chunk, 0))
+            start_n = block_n * BLOCK_MASK_N + (tile % SUB_TILES) * BLOCK_SIZE_N
+        else:
+            start_n = tile * BLOCK_SIZE_N
         skip = False
         if is_causal and ((start_m_block + BLOCK_SIZE_M) <= start_n):
             skip = True
@@ -347,10 +410,19 @@ def sdnq_atten_fwd(
     use_fp16_accum: bool = False,
     out_dtype: torch.dtype = torch.float32,
     return_lse: bool = False,
+    block_count: torch.Tensor | None = None,
+    block_index: torch.Tensor | None = None,
+    block_mask_m: int = 0,
+    block_mask_n: int = 0,
 )-> tuple[torch.Tensor, torch.Tensor | None]:
     QZ, QH, QN, _ = query.shape
     _, _, KN, _ = key.shape
     _, _, VN, VHD = value.shape
+    if block_count is not None or block_index is not None:
+        check_block_lists(block_count, block_index, QZ, QH, QN, KN, block_mask_m, block_mask_n)
+    else:
+        block_mask_m = 0
+        block_mask_n = 0
     def grid(META):
         return (triton.cdiv(QN, META["BLOCK_SIZE_M"]), QH, QZ)
     out = torch.empty((QZ, QH, QN, VHD), dtype=out_dtype, device=query.device)
@@ -358,13 +430,16 @@ def sdnq_atten_fwd(
     wrap_triton(sdnq_attn_kernel)[grid](
         query, key, value,
         query_scale, key_scale, value_scale,
-        out, lse, attn_mask, sm_scale,
+        out, lse, attn_mask, block_count, block_index, sm_scale,
         (1 if is_causal else 0),
         (1 if attn_mask is not None else 0),
+        (1 if block_count is not None else 0),
         (1 if return_lse else 0),
         (1 if use_fp16_accum else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
+        block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
+        *(block_count.shape[:2] if block_count is not None else (0, 0)),
         math.ceil(QN / min_block_size),
         math.ceil(KN / min_block_size),
         math.ceil(VN / min_block_size),
@@ -390,6 +465,10 @@ def sdnq_triton_atten_fwd(
     sm_scale: float = 1.0,
     use_fp16_accum: bool = False,
     out_dtype: torch.dtype = torch.float32,
+    block_count: torch.Tensor | None = None,
+    block_index: torch.Tensor | None = None,
+    block_mask_m: int = 0,
+    block_mask_n: int = 0,
 ) -> torch.Tensor:
     return sdnq_atten_fwd(
         query, key, value,
@@ -400,6 +479,10 @@ def sdnq_triton_atten_fwd(
         use_fp16_accum=use_fp16_accum,
         out_dtype=out_dtype,
         return_lse=False,
+        block_count=block_count,
+        block_index=block_index,
+        block_mask_m=block_mask_m,
+        block_mask_n=block_mask_n,
     )[0]
 
 
@@ -417,6 +500,10 @@ def sdnq_triton_atten_lse_fwd(
     sm_scale: float = 1.0,
     use_fp16_accum: bool = False,
     out_dtype: torch.dtype = torch.float32,
+    block_count: torch.Tensor | None = None,
+    block_index: torch.Tensor | None = None,
+    block_mask_m: int = 0,
+    block_mask_n: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     return sdnq_atten_fwd(
         query, key, value,
@@ -427,6 +514,10 @@ def sdnq_triton_atten_lse_fwd(
         use_fp16_accum=use_fp16_accum,
         out_dtype=out_dtype,
         return_lse=True,
+        block_count=block_count,
+        block_index=block_index,
+        block_mask_m=block_mask_m,
+        block_mask_n=block_mask_n,
     )
 
 
@@ -527,6 +618,49 @@ def get_attn_inputs(
     return query, query_scale, key, key_scale, value, value_scale, attn_mask, sm_scale, out_dtype, use_hadamard, hadamard_group_size
 
 
+def get_block_list_dims(rows: int, cols: int, row_block: int, col_block: int) -> tuple[int, int, int, int]:
+    # the kernel reads both lists through descriptors in fixed chunks, so their last dims are padded to the chunk sizes
+    row_blocks = triton.cdiv(rows, row_block)
+    col_blocks = triton.cdiv(cols, col_block)
+    return row_blocks, triton.cdiv(row_blocks, block_count_chunk) * block_count_chunk, col_blocks, triton.cdiv(col_blocks, block_index_chunk) * block_index_chunk
+
+
+def check_block_lists(block_count: torch.Tensor | None, block_index: torch.Tensor | None, batch: int, heads: int, rows: int, cols: int, row_block: int, col_block: int) -> None:
+    # per row block: how many column blocks are kept, and their indices in ascending order; contiguous, batch and head
+    # dims of size 1 broadcast, padded to the chunk sizes (get_block_mask_input builds both from an int8 mask). The
+    # backward's dkv pass hands the transposed geometry, so rows and columns are named rather than fixed to q and kv
+    if block_count is None or block_index is None:
+        raise ValueError("SDNQ Triton Atten: block_count and block_index go together")
+    if block_count.ndim != 3 or block_count.dtype != torch.int32 or block_index.ndim != 4 or block_index.dtype != torch.int32:
+        raise ValueError(f"SDNQ Triton Atten: block_count must be a 3D int32 tensor and block_index a 4D int32 tensor, got {block_count.ndim}D {block_count.dtype} and {block_index.ndim}D {block_index.dtype}")
+    if row_block <= 0 or col_block <= 0:
+        raise ValueError("SDNQ Triton Atten: a block mask needs block_mask_m and block_mask_n")
+    if not block_count.is_contiguous() or not block_index.is_contiguous():
+        raise ValueError("SDNQ Triton Atten: block_count and block_index must be contiguous")
+    row_blocks, row_blocks_pad, col_blocks, col_blocks_pad = get_block_list_dims(rows, cols, row_block, col_block)
+    if block_count.shape[0] not in {1, batch} or block_count.shape[1] not in {1, heads} or block_count.shape[2] != row_blocks_pad or tuple(block_index.shape) != (*block_count.shape[:2], row_blocks, col_blocks_pad):
+        raise ValueError(f"SDNQ Triton Atten: block_count {tuple(block_count.shape)} and block_index {tuple(block_index.shape)} do not match ({batch} or 1, {heads} or 1, {row_blocks_pad}) and (..., {row_blocks}, {col_blocks_pad}) for a {row_block}x{col_block} block over {rows}x{cols}")
+
+
+@devices.inference_context()
+def get_block_mask_input(block_mask: torch.Tensor, batch: int, heads: int) -> tuple[torch.Tensor, torch.Tensor]:
+    # the kernel walks the kept kv blocks of each query block, so the mask becomes a count and an ascending
+    # index list per row, the form FlexAttention's BlockMask holds too, batch and head dims kept as given
+    # (size 1 broadcasts) and padded to the descriptor chunks; kept out of get_attn_inputs so the compiled
+    # input prep does not gain a specialization axis
+    while block_mask.ndim < 4:
+        block_mask = block_mask.unsqueeze(0)
+    if block_mask.shape[0] not in {1, batch} or block_mask.shape[1] not in {1, heads}:
+        raise ValueError(f"SDNQ Triton Atten: block_mask {tuple(block_mask.shape)} does not broadcast over batch={batch} heads={heads}")
+    keep = block_mask != 0
+    nqb, nkb = keep.shape[-2:]
+    block_count = keep.sum(dim=-1, dtype=torch.int32)
+    block_count = torch.nn.functional.pad(block_count, (0, triton.cdiv(nqb, block_count_chunk) * block_count_chunk - nqb))
+    block_index = torch.argsort(keep.to(dtype=torch.int8), dim=-1, descending=True, stable=True).to(dtype=torch.int32)
+    block_index = torch.nn.functional.pad(block_index, (0, triton.cdiv(nkb, block_index_chunk) * block_index_chunk - nkb))
+    return block_count.contiguous(), block_index.contiguous()
+
+
 @devices.inference_context()
 def sdnq_triton_atten(
     query: torch.Tensor,
@@ -546,10 +680,17 @@ def sdnq_triton_atten(
     use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
     return_backward: bool = False,
+    block_mask: torch.Tensor | None = None,
+    block_mask_m: int = 0,
+    block_mask_n: int = 0,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, float, bool, int]:
     QHD = query.shape[-1]
     KHD = key.shape[-1]
     VHD = value.shape[-1]
+
+    block_count = block_index = None
+    if block_mask is not None:
+        block_count, block_index = get_block_mask_input(block_mask, query.shape[0], query.shape[1])
 
     hadamard = None
     if use_hadamard and do_quantize and matmul_dtype not in {None, "none", "no", "disabled"}:
@@ -584,6 +725,10 @@ def sdnq_triton_atten(
             sm_scale=sm_scale,
             use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
+            block_count=block_count,
+            block_index=block_index,
+            block_mask_m=block_mask_m,
+            block_mask_n=block_mask_n,
         )
     else:
         out = sdnq_triton_atten_fwd(
@@ -594,6 +739,10 @@ def sdnq_triton_atten(
             sm_scale=sm_scale,
             use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
+            block_count=block_count,
+            block_index=block_index,
+            block_mask_m=block_mask_m,
+            block_mask_n=block_mask_n,
         )
 
     if use_hadamard and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
