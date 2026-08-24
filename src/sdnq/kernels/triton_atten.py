@@ -85,8 +85,10 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
                 smem_M += block_size_m * named_args["do_scale_ptr"].element_size()
             if named_args.get("lse_ptr") is not None and named_args.get("out_ptr") is None:
                 smem_M += block_size_m * named_args["lse_ptr"].element_size()
-            if named_args.get("delta_ptr") is not None: # Read in BWD
+            if named_args.get("delta_ptr") is not None:
                 smem_M += block_size_m * named_args["delta_ptr"].element_size()
+            if named_args.get("block_count_ptr") is not None:
+                smem_M += block_count_chunk * named_args["block_count_ptr"].element_size()
 
             cache_M = smem_M
             if named_args.get("out_ptr") is not None:
@@ -102,6 +104,8 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
                 smem_N += block_size_n * named_args["k_scale_ptr"].element_size()
             if named_args.get("v_scale_ptr") is not None:
                 smem_N += block_size_n * named_args["v_scale_ptr"].element_size()
+            if named_args.get("block_index_ptr") is not None:
+                smem_N += block_index_chunk * named_args["block_index_ptr"].element_size()
 
             cache_N = smem_N
             if named_args.get("dk_ptr") is not None:
@@ -140,7 +144,8 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 @triton.autotune(
     configs=autotune_configs,
     key=[
-        "is_causal", "do_mask", "do_block_mask",
+        "is_causal",
+        "do_mask", "do_block_mask",
         "save_lse", "use_fp16_accum",
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
@@ -421,8 +426,7 @@ def sdnq_atten_fwd(
     if block_count is not None or block_index is not None:
         check_block_lists(block_count, block_index, QZ, QH, QN, KN, block_mask_m, block_mask_n)
     else:
-        block_mask_m = 0
-        block_mask_n = 0
+        block_mask_m = block_mask_n = 0
     def grid(META):
         return (triton.cdiv(QN, META["BLOCK_SIZE_M"]), QH, QZ)
     out = torch.empty((QZ, QH, QN, VHD), dtype=out_dtype, device=query.device)
@@ -585,6 +589,7 @@ def get_attn_inputs(
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
     out_dtype: torch.dtype | None = None,
+    block_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor | None, float, torch.dtype, bool, int]:
     QHD = query.shape[-1]
     KHD = key.shape[-1]
@@ -602,8 +607,6 @@ def get_attn_inputs(
     if attn_mask is not None:
         if attn_mask.dtype == torch.bool:
             attn_mask = attn_mask.to(dtype=torch.int8)
-        while attn_mask.ndim < 4:
-            attn_mask = attn_mask.unsqueeze(0)
         if attn_mask.shape[-1] == 1:
             attn_mask = attn_mask.expand(-1, -1, -1, key.shape[-2])
         attn_mask = attn_mask.contiguous()
@@ -615,7 +618,11 @@ def get_attn_inputs(
         matmul_dtype=matmul_dtype if do_quantize else "disabled",
         pv_matmul_dtype=pv_matmul_dtype if do_quantize else "disabled",
     )
-    return query, query_scale, key, key_scale, value, value_scale, attn_mask, sm_scale, out_dtype, use_hadamard, hadamard_group_size
+    if block_mask is not None:
+        block_count, block_index = get_block_mask_input(block_mask)
+    else:
+        block_count = block_index = None
+    return query, query_scale, key, key_scale, value, value_scale, attn_mask, sm_scale, out_dtype, use_hadamard, hadamard_group_size, block_count, block_index
 
 
 def get_block_list_dims(rows: int, cols: int, row_block: int, col_block: int) -> tuple[int, int, int, int]:
@@ -637,28 +644,22 @@ def check_block_lists(block_count: torch.Tensor | None, block_index: torch.Tenso
         raise ValueError("SDNQ Triton Atten: a block mask needs block_mask_m and block_mask_n")
     if not block_count.is_contiguous() or not block_index.is_contiguous():
         raise ValueError("SDNQ Triton Atten: block_count and block_index must be contiguous")
-    row_blocks, row_blocks_pad, col_blocks, col_blocks_pad = get_block_list_dims(rows, cols, row_block, col_block)
+    row_blocks, row_blocks_pad, _col_blocks, col_blocks_pad = get_block_list_dims(rows, cols, row_block, col_block)
     if block_count.shape[0] not in {1, batch} or block_count.shape[1] not in {1, heads} or block_count.shape[2] != row_blocks_pad or tuple(block_index.shape) != (*block_count.shape[:2], row_blocks, col_blocks_pad):
         raise ValueError(f"SDNQ Triton Atten: block_count {tuple(block_count.shape)} and block_index {tuple(block_index.shape)} do not match ({batch} or 1, {heads} or 1, {row_blocks_pad}) and (..., {row_blocks}, {col_blocks_pad}) for a {row_block}x{col_block} block over {rows}x{cols}")
 
 
 @devices.inference_context()
-def get_block_mask_input(block_mask: torch.Tensor, batch: int, heads: int) -> tuple[torch.Tensor, torch.Tensor]:
-    # the kernel walks the kept kv blocks of each query block, so the mask becomes a count and an ascending
-    # index list per row, the form FlexAttention's BlockMask holds too, batch and head dims kept as given
-    # (size 1 broadcasts) and padded to the descriptor chunks; kept out of get_attn_inputs so the compiled
-    # input prep does not gain a specialization axis
-    while block_mask.ndim < 4:
-        block_mask = block_mask.unsqueeze(0)
-    if block_mask.shape[0] not in {1, batch} or block_mask.shape[1] not in {1, heads}:
-        raise ValueError(f"SDNQ Triton Atten: block_mask {tuple(block_mask.shape)} does not broadcast over batch={batch} heads={heads}")
+def get_block_mask_input(block_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     keep = block_mask != 0
     nqb, nkb = keep.shape[-2:]
     block_count = keep.sum(dim=-1, dtype=torch.int32)
     block_count = torch.nn.functional.pad(block_count, (0, triton.cdiv(nqb, block_count_chunk) * block_count_chunk - nqb))
+    block_count = block_count.contiguous()
     block_index = torch.argsort(keep.to(dtype=torch.int8), dim=-1, descending=True, stable=True).to(dtype=torch.int32)
     block_index = torch.nn.functional.pad(block_index, (0, triton.cdiv(nkb, block_index_chunk) * block_index_chunk - nkb))
-    return block_count.contiguous(), block_index.contiguous()
+    block_index = block_index.contiguous()
+    return block_count, block_index
 
 
 @devices.inference_context()
@@ -688,9 +689,12 @@ def sdnq_triton_atten(
     KHD = key.shape[-1]
     VHD = value.shape[-1]
 
-    block_count = block_index = None
+    if attn_mask is not None:
+        while attn_mask.ndim < 4:
+            attn_mask = attn_mask.unsqueeze(0)
     if block_mask is not None:
-        block_count, block_index = get_block_mask_input(block_mask, query.shape[0], query.shape[1])
+        while block_mask.ndim < 4:
+            block_mask = block_mask.unsqueeze(0)
 
     hadamard = None
     if use_hadamard and do_quantize and matmul_dtype not in {None, "none", "no", "disabled"}:
@@ -706,6 +710,7 @@ def sdnq_triton_atten(
         value, value_scale,
         attn_mask, sm_scale, out_dtype,
         use_hadamard, hadamard_group_size,
+        block_count, block_index,
     ) = get_attn_inputs(
         query=query, key=key, value=value,
         hadamard=hadamard, attn_mask=attn_mask,
@@ -714,6 +719,7 @@ def sdnq_triton_atten(
         smooth_k=smooth_k, hadamard_group_size=hadamard_group_size,
         matmul_dtype=matmul_dtype, pv_matmul_dtype=pv_matmul_dtype,
         do_quantize=do_quantize, out_dtype=out_dtype,
+        block_mask=block_mask,
     )
 
     if return_backward:
@@ -751,7 +757,7 @@ def sdnq_triton_atten(
         out = rotate_hadamard_compiled(out, group_size=hadamard_group_size, hadamard=hadamard)
 
     if return_backward:
-        return out, lse, query, key, value, query_scale, key_scale, value_scale, attn_mask, scale, use_hadamard, hadamard_group_size
+        return out, lse, query, key, value, query_scale, key_scale, value_scale, attn_mask, block_mask, scale, use_hadamard, hadamard_group_size
     return out[..., :VHD]
 
 

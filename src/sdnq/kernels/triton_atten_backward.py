@@ -595,8 +595,7 @@ def sdnq_triton_atten_bwd_dq(
     if block_count is not None or block_index is not None:
         check_block_lists(block_count, block_index, QZ, QH, QN, KN, block_mask_m, block_mask_n)
     else:
-        block_mask_m = 0
-        block_mask_n = 0
+        block_mask_m = block_mask_n = 0
     def grid_dq(META):
         return (triton.cdiv(QN, META["BLOCK_SIZE_M"]), QH, QZ)
     dq = torch.empty_like(query, dtype=out_dtype)
@@ -651,11 +650,9 @@ def sdnq_atten_bwd_dkv(
     _, KH, KN, _ = key.shape
     _, _, VN, _ = value.shape
     if block_count is not None or block_index is not None:
-        # the transposed geometry: rows are kv blocks and the lists name the query blocks that kept them
         check_block_lists(block_count, block_index, QZ, QH, KN, QN, block_mask_n, block_mask_m)
     else:
-        block_mask_m = 0
-        block_mask_n = 0
+        block_mask_m = block_mask_n = 0
     def grid_dkv(META):
         return (triton.cdiv(KN, META["BLOCK_SIZE_N"]), KH, QZ)
     dk = torch.empty_like(key, dtype=out_dtype) if do_grad_k else None
@@ -823,6 +820,10 @@ def get_attn_backward_inputs(
     out: torch.Tensor,
     hadamard: torch.Tensor | None,
     pv_matmul_dtype: str | None = None,
+    block_mask: torch.Tensor | None = None,
+    do_grad_q: bool = True,
+    do_grad_k: bool = True,
+    do_grad_v: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
     out = out.contiguous()
     delta = torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32)
@@ -837,7 +838,18 @@ def get_attn_backward_inputs(
     else:
         grad_output = grad_output.contiguous()
         grad_output_scale = None
-    return grad_output, grad_output_scale, out, delta
+    if block_mask is not None:
+        if do_grad_q:
+            block_count, block_index = get_block_mask_input(block_mask)
+        else:
+            block_count = block_index = None
+        if do_grad_k or do_grad_v:
+            block_count_t, block_index_t = get_block_mask_input(block_mask.transpose(-1, -2))
+        else:
+            block_count_t = block_index_t = None
+    else:
+        block_count = block_index = block_count_t = block_index_t = None
+    return grad_output, grad_output_scale, out, delta, block_count, block_index, block_count_t, block_index_t
 
 
 @devices.inference_context()
@@ -878,17 +890,23 @@ def sdnq_triton_atten_bwd(
     if out_dtype is None:
         out_dtype = grad_output.dtype
 
-    block_count = block_index = block_count_t = block_index_t = None
-    if block_mask is not None:
-        # dq walks the kept kv blocks of each query block, dkv the query blocks that kept each kv block
-        block_count, block_index = get_block_mask_input(block_mask, query.shape[0], query.shape[1])
-        block_count_t, block_index_t = get_block_mask_input(block_mask.transpose(-1, -2), query.shape[0], query.shape[1])
-
     if use_hadamard:
         hadamard = get_hadamard(hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
     else:
         hadamard = None
-    grad_output, grad_output_scale, out, delta = get_attn_backward_inputs(grad_output, out, hadamard=hadamard, pv_matmul_dtype=pv_matmul_dtype if do_quantize else "disabled")
+
+    (
+        grad_output, grad_output_scale, out, delta,
+        block_count, block_index, block_count_t, block_index_t,
+    ) = get_attn_backward_inputs(
+        grad_output, out,
+        hadamard=hadamard,
+        pv_matmul_dtype=pv_matmul_dtype if do_quantize else "disabled",
+        block_mask=block_mask,
+        do_grad_q=do_grad_q,
+        do_grad_k=do_grad_k,
+        do_grad_v=do_grad_v,
+    )
 
     if do_grad_q:
         dq = sdnq_triton_atten_bwd_dq(
@@ -1017,7 +1035,8 @@ class SDNQAttenBackward(torch.autograd.Function):
         (
             out, lse, query, key, value,
             query_scale, key_scale, value_scale,
-            attn_mask, sm_scale, use_hadamard, hadamard_group_size,
+            attn_mask, block_mask, sm_scale,
+            use_hadamard, hadamard_group_size,
         ) = sdnq_triton_atten(
             query, key, value,
             attn_mask=attn_mask,
