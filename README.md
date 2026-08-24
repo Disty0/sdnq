@@ -127,6 +127,7 @@ def sdpa_sdnq_atten(query: torch.FloatTensor, key: torch.FloatTensor, value: tor
             use_hadamard=False,
             hadamard_group_size=256,
             do_quantize=True, # Set this to False to disable the quantized matmul usage
+            quantize_fp32=True, # Set this to False to disable upcasting to FP32 when quantizing
             use_fp16_accum=False, # Set this to True to use FP16 accumulaton with matmul_dtype="float16" and pv_matmul_dtype="float16" or "disabled"
             out_dtype=None, # Set this to a torch.dtype like torch.float32 if you want the output dtype to be different than inputs
         )
