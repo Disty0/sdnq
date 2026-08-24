@@ -528,6 +528,7 @@ def quantize_attn(
     hadamard_group_size: int = 256,
     matmul_dtype: str = "int8",
     pv_matmul_dtype: str | None = None,
+    quantize_fp32: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, bool, int]:
     if matmul_dtype in {"auto", "enabled", "uint8"}:
         matmul_dtype = "int8"
@@ -536,7 +537,7 @@ def quantize_attn(
     use_hadamard = False
     if matmul_dtype not in {None, "none", "no", "disabled"}:
         if smooth_k:
-            if k.dtype != torch.float32:
+            if quantize_fp32 and k.dtype != torch.float32:
                 k = k.to(dtype=torch.float32)
                 k = k.sub_(k.mean(dim=2, keepdim=True))
             else:
@@ -545,9 +546,15 @@ def quantize_attn(
             q, use_hadamard, hadamard_group_size = apply_hadamard(q, group_size=hadamard_group_size, hadamard=hadamard, layer_class_name="Linear")
             if use_hadamard:
                 k = rotate_hadamard(k.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
+        if quantize_fp32:
+            q = q.contiguous().to(dtype=torch.float32)
+            k = k.contiguous().to(dtype=torch.float32)
+        else:
+            q = q.contiguous()
+            k = k.contiguous()
         quantize_mm_func = quantize_int_mm if matmul_dtype.startswith("int") else quantize_fp_mm
-        q_q, q_scale = quantize_mm_func(q.contiguous().to(dtype=torch.float32), dim=-1, matmul_dtype=matmul_dtype)
-        k_q, k_scale = quantize_mm_func(k.contiguous().to(dtype=torch.float32), dim=-1, matmul_dtype=matmul_dtype)
+        q_q, q_scale = quantize_mm_func(q, dim=-1, matmul_dtype=matmul_dtype)
+        k_q, k_scale = quantize_mm_func(k, dim=-1, matmul_dtype=matmul_dtype)
         q_scale = q_scale.squeeze(-1)
         k_scale = k_scale.squeeze(-1)
     else:
@@ -559,7 +566,11 @@ def quantize_attn(
         if use_hadamard:
             v = rotate_hadamard(v.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
         quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
-        v_q, v_scale = quantize_mm_func_pv(v.contiguous().to(dtype=torch.float32), dim=-1, matmul_dtype=pv_matmul_dtype)
+        if quantize_fp32:
+            v = v.contiguous().to(dtype=torch.float32)
+        else:
+            v = v.contiguous()
+        v_q, v_scale = quantize_mm_func_pv(v, dim=-1, matmul_dtype=pv_matmul_dtype)
         v_scale = v_scale.squeeze(-1)
     else:
         v_q = v.contiguous()
@@ -583,6 +594,7 @@ def get_attn_inputs(
     matmul_dtype: str = "int8",
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
+    quantize_fp32: bool = True,
     out_dtype: torch.dtype | None = None,
     block_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor | None, float, torch.dtype, bool, int]:
@@ -612,6 +624,7 @@ def get_attn_inputs(
         hadamard_group_size=hadamard_group_size,
         matmul_dtype=matmul_dtype if do_quantize else "disabled",
         pv_matmul_dtype=pv_matmul_dtype if do_quantize else "disabled",
+        quantize_fp32=quantize_fp32,
     )
     if block_mask is not None:
         block_count, block_index = get_block_mask_input(block_mask)
@@ -673,6 +686,7 @@ def sdnq_triton_atten(
     matmul_dtype: str = "int8",
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
+    quantize_fp32: bool = True,
     use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
     return_backward: bool = False,
@@ -713,8 +727,8 @@ def sdnq_triton_atten(
         sm_scale=scale, enable_gqa=enable_gqa,
         smooth_k=smooth_k, hadamard_group_size=hadamard_group_size,
         matmul_dtype=matmul_dtype, pv_matmul_dtype=pv_matmul_dtype,
-        do_quantize=do_quantize, out_dtype=out_dtype,
-        block_mask=block_mask,
+        do_quantize=do_quantize, quantize_fp32=quantize_fp32,
+        out_dtype=out_dtype, block_mask=block_mask,
     )
 
     if return_backward:

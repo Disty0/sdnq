@@ -820,6 +820,7 @@ def get_attn_backward_inputs(
     out: torch.Tensor,
     hadamard: torch.Tensor | None,
     pv_matmul_dtype: str | None = None,
+    quantize_fp32: bool = True,
     block_mask: torch.Tensor | None = None,
     do_grad_q: bool = True,
     do_grad_k: bool = True,
@@ -833,7 +834,11 @@ def get_attn_backward_inputs(
         if hadamard is not None:
             grad_output = rotate_hadamard(grad_output, group_size=hadamard.shape[-1], hadamard=hadamard)
         quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
-        grad_output, grad_output_scale = quantize_mm_func_pv(grad_output.contiguous().to(dtype=torch.float32), dim=-1, matmul_dtype=pv_matmul_dtype)
+        if quantize_fp32:
+            grad_output = grad_output.contiguous().to(dtype=torch.float32)
+        else:
+            grad_output = grad_output.contiguous()
+        grad_output, grad_output_scale = quantize_mm_func_pv(grad_output, dim=-1, matmul_dtype=pv_matmul_dtype)
         grad_output_scale = grad_output_scale.squeeze(-1)
     else:
         grad_output = grad_output.contiguous()
@@ -873,6 +878,7 @@ def sdnq_triton_atten_bwd(
     hadamard_group_size: int = 256,
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
+    quantize_fp32: bool = True,
     use_fp16_accum: bool = False,
     out_dtype: torch.dtype | None = None,
     do_grad_q: bool = True,
@@ -902,6 +908,7 @@ def sdnq_triton_atten_bwd(
         grad_output, out,
         hadamard=hadamard,
         pv_matmul_dtype=pv_matmul_dtype if do_quantize else "disabled",
+        quantize_fp32=quantize_fp32,
         block_mask=block_mask,
         do_grad_q=do_grad_q,
         do_grad_k=do_grad_k,
@@ -1016,6 +1023,7 @@ class SDNQAttenBackward(torch.autograd.Function):
         matmul_dtype: str,
         pv_matmul_dtype: str | None,
         do_quantize: bool,
+        quantize_fp32: bool,
         use_fp16_accum: bool,
         out_dtype: torch.dtype | None,
         block_mask: torch.Tensor | None = None,
@@ -1027,6 +1035,7 @@ class SDNQAttenBackward(torch.autograd.Function):
         ctx.VHD = value.shape[-1]
         ctx.is_causal = is_causal
         ctx.do_quantize = do_quantize
+        ctx.quantize_fp32 = quantize_fp32
         ctx.use_fp16_accum = use_fp16_accum
         ctx.pv_matmul_dtype = pv_matmul_dtype
         ctx.block_mask_m = block_mask_m
@@ -1048,6 +1057,7 @@ class SDNQAttenBackward(torch.autograd.Function):
             matmul_dtype=matmul_dtype,
             pv_matmul_dtype=pv_matmul_dtype,
             do_quantize=do_quantize,
+            quantize_fp32=quantize_fp32,
             use_fp16_accum=use_fp16_accum,
             out_dtype=out_dtype,
             return_backward=True,
@@ -1076,6 +1086,7 @@ class SDNQAttenBackward(torch.autograd.Function):
             use_hadamard=ctx.use_hadamard,
             hadamard_group_size=ctx.hadamard_group_size,
             do_quantize=ctx.do_quantize,
+            quantize_fp32=ctx.do_quantize,
             use_fp16_accum=ctx.use_fp16_accum,
             do_grad_q=ctx.needs_input_grad[0],
             do_grad_k=ctx.needs_input_grad[1],
@@ -1084,7 +1095,7 @@ class SDNQAttenBackward(torch.autograd.Function):
             block_mask_m=ctx.block_mask_m,
             block_mask_n=ctx.block_mask_n,
         )
-        return dq, dk, dv, *(None,)*14
+        return dq, dk, dv, *(None,)*15
 
 
 def sdnq_triton_atten_with_backward(
@@ -1102,6 +1113,7 @@ def sdnq_triton_atten_with_backward(
         matmul_dtype: str = "int8",
         pv_matmul_dtype: str | None = None,
         do_quantize: bool = True,
+        quantize_fp32: bool = True,
         use_fp16_accum: bool = False,
         out_dtype: torch.dtype | None = None,
         block_mask: torch.Tensor | None = None,
@@ -1119,6 +1131,7 @@ def sdnq_triton_atten_with_backward(
         matmul_dtype,
         pv_matmul_dtype,
         do_quantize,
+        quantize_fp32,
         use_fp16_accum,
         out_dtype,
         block_mask,
