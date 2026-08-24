@@ -34,18 +34,6 @@ small_autotune_configs = [
 ]
 
 
-def nest_block_mask_configs(configs: list[triton.Config], named_args: dict) -> list[triton.Config]:
-    # the block mask is read once per tile, so every tile has to sit inside a single mask block
-    if not named_args.get("do_block_mask"):
-        return configs
-    block_mask_m = named_args["BLOCK_MASK_M"]
-    block_mask_n = named_args["BLOCK_MASK_N"]
-    nested = [conf for conf in configs if (block_mask_m % conf.kwargs["BLOCK_SIZE_M"] == 0 and block_mask_n % conf.kwargs["BLOCK_SIZE_N"] == 0)]
-    if not nested:
-        raise ValueError(f"SDNQ Triton Atten: no autotune config nests the {block_mask_m}x{block_mask_n} block mask, check SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST and SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST")
-    return nested
-
-
 def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
     device = named_args["q_ptr"].device
     is_dkv_backward = bool(named_args.get("dk_ptr") is not None or named_args.get("dv_ptr") is not None)
@@ -138,7 +126,14 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             if SDNQ_DEBUG_TRITON_AUTOTUNE:
                 shared.log.debug("SDNQ Triton Atten: No configs fit in cache/smem, trying small configs.")
             return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
-    return nest_block_mask_configs(configs, named_args)
+
+    if named_args.get("do_block_mask"):
+        pruned_configs = [conf for conf in configs if (named_args["BLOCK_MASK_M"] % conf.kwargs["BLOCK_SIZE_M"] == 0 and named_args["BLOCK_MASK_N"] % conf.kwargs["BLOCK_SIZE_N"] == 0)]
+        if pruned_configs:
+            configs = pruned_configs
+        else:
+            raise ValueError(f"SDNQ Triton Atten: no autotune config nests the {named_args['BLOCK_MASK_M']}x{named_args['BLOCK_MASK_N']} block mask, check SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST and SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST")
+    return configs
 
 
 @triton.autotune(
