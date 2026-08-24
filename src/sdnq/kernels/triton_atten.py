@@ -248,7 +248,7 @@ def sdnq_attn_kernel(
     if qk_is_quantized:
         q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
         k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr + offset_k, shape=[KN], strides=[1,], block_shape=[BLOCK_SIZE_N])
-        q_scale = q_scale_desc.load([start_m_block])[:, None]
+        q_scale = q_scale_desc.load([start_m_block])[:, None].to(tl.float32)
     if pv_is_quantized:
         v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr + offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
     if do_mask:
@@ -321,7 +321,7 @@ def sdnq_attn_kernel(
         if not skip:
             k = k_desc.load([start_n, 0]).T
             if qk_is_quantized:
-                k_scale = k_scale_desc.load([start_n])[None, :]
+                k_scale = k_scale_desc.load([start_n])[None, :].to(tl.float32)
                 if q.dtype == tl.int8:
                     qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
                 elif use_fp16_accum and q.dtype == tl.float16:
@@ -355,7 +355,7 @@ def sdnq_attn_kernel(
 
             v = v_desc.load([start_n, 0])
             if pv_is_quantized:
-                v_scale = v_scale_desc.load([start_n])[None, :]
+                v_scale = v_scale_desc.load([start_n])[None, :].to(tl.float32)
                 p *= v_scale
                 p_scale = tl.max(p, 1)[:, None]
                 if v.dtype == tl.int8:
