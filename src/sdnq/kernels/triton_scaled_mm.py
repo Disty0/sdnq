@@ -17,7 +17,7 @@ SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "
 min_block_size = int(os.environ.get("SDNQ_TRITON_MM_MIN_BLOCK_SIZE", "256"))
 autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=w, num_stages=s)
-    for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_M_LIST", "64,128").replace(" ","").split(",")]
+    for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_M_LIST", "64,128,256").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_N_LIST", "64,128,256").replace(" ","").split(",")]
     for BK in [int(BK) for BK in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_K_LIST", "32,64,128").replace(" ","").split(",")]
     for GM in [int(GM) for GM in os.environ.get("SDNQ_TRITON_MM_GROUP_SIZE_M_LIST", "8").replace(" ","").split(",")]
@@ -27,7 +27,7 @@ autotune_configs = [
 
 small_autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=w, num_stages=s)
-    for BM in [32,64] for BN in [32,64,128] for BK in [16,32,64] for GM in [4,]
+    for BM in [32,64,128] for BN in [32,64,128] for BK in [16,32,64] for GM in [4,]
     for w in ([8,] if torch.xpu.is_available() else [2,])
     for s in ([1,] if (torch.cuda.is_available() and torch.version.hip) else [2,])
 ]
