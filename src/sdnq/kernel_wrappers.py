@@ -27,7 +27,7 @@ else:
 
 if devices.backend == "rocm":
     gfx_version = devices.get_hip_agent().gfx_version
-    is_rdna2_and_older = bool(gfx_version < 0x940 or (gfx_version < 0x1100 and gfx_version >= 0x1000))
+    is_rdna2_and_older = bool(gfx_version < 0x908 or (gfx_version < 0x1100 and gfx_version >= 0x1000))
 else:
     is_rdna2_and_older = False
 
