@@ -707,7 +707,7 @@ def sdnq_triton_atten(
 
     hadamard = None
     if use_hadamard and do_quantize and matmul_dtype not in {None, "none", "no", "disabled"}:
-        hadamard_channel_size = next_power_of_2(min(QHD, KHD))
+        hadamard_channel_size = next_power_of_2(min(QHD, KHD, VHD))
         hadamard_group_size = min(hadamard_group_size, hadamard_channel_size)
         use_hadamard, hadamard_group_size = get_hadamard_group_size(hadamard_channel_size, hadamard_group_size)
         if use_hadamard:

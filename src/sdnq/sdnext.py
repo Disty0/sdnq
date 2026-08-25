@@ -100,7 +100,7 @@ class Devices:
 
     def get_hip_agent(self) -> HIPAgent:
         try:
-            return HIPAgent(int("0x" + (getattr(torch.cuda.get_device_properties(self.device), "gcnArchName", "gfx0000")[3:] or "0000"), 16))
+            return HIPAgent(int("0x" + (getattr(torch.cuda.get_device_properties(self.device), "gcnArchName", "gfx0000")[3:].split(":", maxsplit=1)[0] or "0000"), 16))
         except Exception:
             return HIPAgent(0x0000)
 
