@@ -4,13 +4,6 @@ from enum import Enum
 import os
 import torch
 
-from transformers.quantizers import HfQuantizer
-from diffusers.quantizers.base import DiffusersQuantizer
-from diffusers.quantizers.quantization_config import QuantizationConfigMixin
-
-from diffusers.utils import get_module_from_name
-from accelerate import init_empty_weights
-
 from .sdnext import devices, shared
 from .common import (
     sdnq_keys,
@@ -38,6 +31,7 @@ from .utils import (
     check_param_name_in,
     check_quant_is_allowed,
     check_quantized_matmul_is_allowed,
+    get_module_from_name,
     get_quant_args_from_config,
     get_quant_kwargs,
     get_quantized_matmul_dtype,
@@ -53,8 +47,36 @@ from .layers import get_sdnq_wrapper_class
 from .common import sdnq_version as current_sdnq_version
 
 
-from diffusers import __version__ as diffusers_version_str # pylint: disable=ungrouped-imports,wrong-import-order
-diffusers_version = [int(i) for i in diffusers_version_str.split(".")[:3]]
+transformers_available = False
+diffusers_available = False
+
+try:
+    from transformers.quantizers import HfQuantizer
+    transformers_available = True
+except Exception as e:
+    class HfQuantizer:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("Transformers is not available. Install transformers to use SDNQQuantizer with Transformers.")
+    shared.log.warning(f"SDNQ: Transformers is not available. Error message: {e}")
+
+try:
+    from diffusers.quantizers.base import DiffusersQuantizer
+    from diffusers.quantizers.quantization_config import QuantizationConfigMixin
+    diffusers_available = True
+except Exception as e:
+    class DiffusersQuantizer:
+        def __init__(self, *args, **kwargs):
+            raise ImportError("Diffusers is not available. Install diffusers to use SDNQQuantizer with Diffusers.")
+    class QuantizationConfigMixin:
+        def __init__(self, *args, **kwargs):
+            pass
+    shared.log.warning(f"SDNQ: Diffusers is not available. Error message: {e}")
+
+if diffusers_available:
+    from diffusers import __version__ as diffusers_version_str
+    diffusers_version = [int(i) for i in diffusers_version_str.split(".")[:3]]
+else:
+    diffusers_version = [0, 0, 0]
 
 
 class QuantizationMethod(str, Enum):
@@ -643,7 +665,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
         *args, **kwargs,
     ) -> bool:
         if self.pre_quantized:
-            layer, _tensor_name = get_module_from_name(model, param_name)
+            layer = get_module_from_name(model, param_name)[0]
             if hasattr(layer, "sdnq_dequantizer") and param_name.rsplit(".", maxsplit=1)[-1] in sdnq_keys:
                 return True
         elif param_name.endswith(".weight"):
@@ -719,11 +741,11 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
         **kwargs,
     ) -> None:
         if self.pre_quantized:
+            from accelerate import init_empty_weights
             self.quantization_config.quantization_device = None
             self.quantization_config.return_device = None
             self.quantization_config.non_blocking = False
             self.quantization_config.add_skip_keys = False
-
             with init_empty_weights():
                 model = sdnq_post_load_quant(model, torch_dtype=self.torch_dtype, pre_quantized=True, **get_quant_args_from_config(self.quantization_config))
 
@@ -1082,7 +1104,7 @@ class SDNQConfig(QuantizationConfigMixin):
         return f"SDNQConfig(weights_dtype={self.weights_dtype} quantization_device={self.quantization_device} return_device={self.return_device} group_size={self.group_size} use_quantized_matmul={self.use_quantized_matmul} quantized_matmul_dtype={self.quantized_matmul_dtype} quant_conv={self.quant_conv} quant_embedding={self.quant_embedding} use_quantized_matmul_conv={self.use_quantized_matmul_conv} use_static_quantization={self.use_static_quantization} use_dynamic_quantization={self.use_dynamic_quantization} dynamic_loss_threshold={self.dynamic_loss_threshold} use_stochastic_rounding={self.use_stochastic_rounding} use_hadamard={self.use_hadamard} hadamard_group_size={self.hadamard_group_size} use_svd={self.use_svd} svd_rank={self.svd_rank} svd_steps={self.svd_steps} use_codebook={self.use_codebook} codebook_steps={self.codebook_steps} dequantize_fp32={self.dequantize_fp32} non_blocking={self.non_blocking} add_skip_keys={self.add_skip_keys} modules_to_not_convert={self.modules_to_not_convert} modules_to_not_use_matmul={self.modules_to_not_use_matmul} modules_dtype_dict={self.modules_dtype_dict} modules_quant_config={self.modules_quant_config} )"
 
 
-if (
+if diffusers_available and (
     os.environ.get("SDNQ_REGISTER_DIFFUSERS", "0").lower() not in {"0", "false", "no"}
     or (diffusers_version[0] == 0 and diffusers_version[1] < 40)
 ):
@@ -1093,7 +1115,7 @@ if (
     diffusers.quantizers.auto.AUTO_QUANTIZATION_CONFIG_MAPPING["sdnq_training"] = SDNQConfig
 
 
-if os.environ.get("SDNQ_REGISTER_TRANSFORMERS", "1").lower() not in {"0", "false", "no"}:
+if transformers_available and os.environ.get("SDNQ_REGISTER_TRANSFORMERS", "1").lower() not in {"0", "false", "no"}:
     import transformers.quantizers.auto # noqa: E402,RUF100 # pylint: disable=wrong-import-order,wrong-import-position
     transformers.quantizers.auto.AUTO_QUANTIZER_MAPPING["sdnq"] = SDNQQuantizer
     transformers.quantizers.auto.AUTO_QUANTIZATION_CONFIG_MAPPING["sdnq"] = SDNQConfig

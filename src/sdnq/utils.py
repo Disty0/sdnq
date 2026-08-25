@@ -53,6 +53,18 @@ def get_cache_sizes(device: torch.device) -> tuple[int, int]:
     return cache_size, smem_size
 
 
+def get_module_from_name(module: torch.nn.Module, tensor_name: str) -> tuple[torch.nn.Module | torch.Tensor, str]:
+    if "." in tensor_name:
+        splits = tensor_name.split(".")
+        for split in splits[:-1]:
+            new_module = getattr(module, split)
+            if new_module is None:
+                raise ValueError(f"{module} has no attribute {split}.")
+            module = new_module
+        tensor_name = splits[-1]
+    return module, tensor_name
+
+
 def check_param_name_in(param_name: str, param_list: list[str]) -> str:
     split_param_name = param_name.split(".")
     for param in param_list:

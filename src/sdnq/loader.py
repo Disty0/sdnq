@@ -134,7 +134,8 @@ def load_sdnq_model(
                 config.pop("quantization_config", None)
             model = model_cls.from_config(config)
         elif hasattr(model_cls, "_from_config"):
-            config = transformers.AutoConfig.from_pretrained(model_path)
+            from transformers import AutoConfig
+            config = AutoConfig.from_pretrained(model_path)
             if hasattr(config, "quantization_config"):
                 del config.quantization_config
             if hasattr(config, "pop"):
