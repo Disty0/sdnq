@@ -14,3 +14,9 @@ __all__ = [
     "sdnq_post_load_quant",
     "sdnq_quantize_layer",
 ]
+
+
+# dummy class so hijacking won't break
+class SDNext:
+    pass
+sdnext = SDNext()
