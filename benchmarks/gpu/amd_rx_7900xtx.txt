@@ -1,5 +1,5 @@
 ==================================================
-Platform: Linux-7.1.3-zen1-2-zen-x86_64-with-glibc2.43
+Platform: Linux-7.2.0-1-cachyos-x86_64-with-glibc2.44
 Device: AMD Radeon RX 7900 XTX
 Steps: 100 | MNK: 8192 | Float: torch.bfloat16
 M: 16384 | N: 8192 | K: 4096 | Bias: True
@@ -7,22 +7,22 @@ M: 16384 | N: 8192 | K: 4096 | Bias: True
 Torch Compile: True
 MM Kernel in Compile: False
 Contiguous INT8 MM: False
-Contiguous FP16 MM: True
+Contiguous FP16 MM: False
 Contiguous FP8 MM: False
 Tensorwise FP8 MM: True
 Triton MM: True
 Triton Scaled MM: True
 OpenVINO MM: True
 ==================================================
-PyTorch Float TFLOPS: 80.41
+PyTorch Float TFLOPS: 99.96
 ==================================================
-SDNQ INT8 TFLOPS: 103.02
-SDNQ UINT8 TFLOPS: 91.26
-SDNQ FP8 TFLOPS: 76.62
-SDNQ FP16 TFLOPS: 78.47
+SDNQ INT8 TFLOPS: 103.32
+SDNQ UINT8 TFLOPS: 96.22
+SDNQ FP8 TFLOPS: 90.87
+SDNQ FP16 TFLOPS: 86.67
 ==================================================
-SDNQ INT8 Hadamard TFLOPS: 98.83
-SDNQ UINT8 Hadamard TFLOPS: 87.51
-SDNQ FP8 Hadamard TFLOPS: 73.92
-SDNQ FP16 Hadamard TFLOPS: 75.01
+SDNQ INT8 Hadamard TFLOPS: 98.72
+SDNQ UINT8 Hadamard TFLOPS: 91.24
+SDNQ FP8 Hadamard TFLOPS: 87.29
+SDNQ FP16 Hadamard TFLOPS: 82.22
 ==================================================
