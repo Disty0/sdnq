@@ -100,12 +100,9 @@ def main(
     k: int | None = None,
 ) -> None:
     if device is None:
-        from sdnq.sdnext import devices
-        device = devices.device
-
+        device = sdnq.common.torch_device
     if dtype is None:
-        from sdnq.sdnext import devices
-        dtype = devices.dtype
+        dtype = sdnq.common.torch_device_dtype
     elif isinstance(dtype, str):
         dtype = getattr(torch, dtype)
 

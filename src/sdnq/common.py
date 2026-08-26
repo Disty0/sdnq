@@ -1,11 +1,13 @@
 import os
 import json
+import logging
+
 import torch
 
-from .sdnext import shared, devices
 
 sdnq_version = "0.2.6"
 sdnq_keys = {"weight", "scale", "zero_point", "svd_up", "svd_down"}
+logger = logging.getLogger("sdnq")
 
 torch_version = torch.__version__[:4]
 if torch_version[-1] not in {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}:
@@ -334,8 +336,69 @@ weights_dtype_order = [
 ]
 
 
+inference_context = getattr(torch, os.environ.get("SDNQ_INFERENCE_CONTEXT", "no_grad"))
+torch_device = torch.device(
+    os.environ.get("SDNQ_DEVICE",
+        "xpu" if hasattr(torch,"xpu") and torch.xpu.is_available()
+        else "mps" if hasattr(torch,"mps") and hasattr(torch.mps, "is_available") and torch.mps.is_available()
+        else "cuda" if torch.cuda.is_available()
+        else "cpu"
+    ).lower()
+)
+
+torch_backend = torch_device.type
+if torch_backend == "xpu":
+    torch_backend = "ipex"
+elif torch_backend == "cuda":
+    if torch.cuda.get_device_capability(torch_device) == (8, 8):
+        torch_backend = "zluda"
+    elif torch.version.hip is not None:
+        torch_backend = "rocm"
+
+if torch_backend == "rocm":
+    try:
+        gfx_version = int("0x" + (getattr(torch.cuda.get_device_properties(torch_device), "gcnArchName", "gfx0000")[3:].split(":", maxsplit=1)[0] or "0000"), 16)
+    except Exception:
+        gfx_version = 0x0000
+else:
+    gfx_version = 0x0000
+
+if os.environ.get("SDNQ_DTYPE", None) is not None:
+    torch_device_dtype = getattr(torch, os.environ.get("SDNQ_DTYPE"))
+elif bool(torch_backend == "rocm" and gfx_version < 0x1100): # rdna2
+    torch_device_dtype = torch.float16
+elif torch_backend == "cpu":
+    torch_device_dtype = torch.float32
+else:
+    torch_device_dtype = torch.bfloat16
+
+
 if os.environ.get("SDNQ_USE_TORCH_COMPILE", None) is None:
-    use_torch_compile = devices.has_triton()
+    try:
+        if torch._dynamo.config.disable:
+            use_torch_compile = False
+        elif torch_backend == "cpu": # CPUs can use torch.compile / Inductor without Triton
+            use_torch_compile = True
+        else:
+            from torch.utils._triton import has_triton as torch_has_triton
+            use_torch_compile = torch_has_triton()
+    except Exception:
+        use_torch_compile = False
+    if use_torch_compile:
+        backup_suppress_errors = torch._dynamo.config.suppress_errors
+        torch._dynamo.config.suppress_errors = False
+        try:
+            def test_triton_func(a,b,c):
+                return a * b + c
+            test_triton_func = torch.compile(test_triton_func, fullgraph=True)
+            test_triton_func(torch.randn(32, device=torch_device), torch.randn(32, device=torch_device), torch.randn(32, device=torch_device))
+            use_torch_compile = True
+        except Exception as e:
+            use_torch_compile = False
+            logger.warning(f"SDNQ: Torch Compile test failed! Falling back to PyTorch Eager mode. Error message: {e}")
+        torch._dynamo.config.suppress_errors = backup_suppress_errors
+    else:
+        logger.warning("SDNQ: Torch Compile is not available. Falling back to PyTorch Eager mode.")
 else:
     use_torch_compile = bool(os.environ.get("SDNQ_USE_TORCH_COMPILE", "1").lower() not in {"0", "false", "no"})
 
@@ -371,11 +434,11 @@ else:
 
 def reset_compile_caches():
     if check_torch_compile():
-        shared.log.debug('SDNQ compile: dynamo reset')
+        logger.debug('SDNQ compile: dynamo reset')
         torch._dynamo.reset()
     from .kernel_wrappers import use_openvino_mm
     if use_openvino_mm:
-        shared.log.debug('SDNQ compile: openvino reset')
+        logger.debug('SDNQ compile: openvino reset')
         from .kernels.openvino_mm import OV_COMPILED_CACHE
         OV_COMPILED_CACHE.clear()
 

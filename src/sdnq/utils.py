@@ -26,6 +26,20 @@ def next_power_of_2(n: int) -> int:
     return 2 ** n.bit_length()
 
 
+def normalize_device(device: torch.device) -> torch.device:
+    if device is None:
+        return None
+    if torch.device(device).type in {"cpu", "mps", "meta"}:
+        return torch.device(device)
+    if torch.device(device).index is None:
+        return torch.device(str(device), index=0)
+    return torch.device(device)
+
+
+def check_same_device(d1: torch.device, d2: torch.device) -> bool:
+    return normalize_device(d1) == normalize_device(d2)
+
+
 def get_smem_size(dev: int) -> int:
     try:
         import triton

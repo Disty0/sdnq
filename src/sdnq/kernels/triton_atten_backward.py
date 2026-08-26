@@ -6,8 +6,7 @@ from torch.library import triton_op, wrap_triton
 import triton
 import triton.language as tl
 
-from ..sdnext import devices
-from ..common import compile_func
+from ..common import compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, rotate_hadamard, rotate_hadamard_compiled
 from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size, prune_configs, block_count_chunk, block_index_chunk, get_block_mask_input, check_block_lists
 
@@ -567,7 +566,7 @@ def sdnq_attn_bwd_dkv_kernel(
 
 
 @triton_op("sdnq::triton_atten_bwd_dq", mutates_args={})
-@devices.inference_context()
+@inference_context()
 def sdnq_triton_atten_bwd_dq(
     grad_output: torch.Tensor,
     delta: torch.Tensor,
@@ -622,7 +621,7 @@ def sdnq_triton_atten_bwd_dq(
     return dq
 
 
-@devices.inference_context()
+@inference_context()
 def sdnq_atten_bwd_dkv(
     grad_output: torch.Tensor,
     delta: torch.Tensor,
@@ -683,7 +682,7 @@ def sdnq_atten_bwd_dkv(
 
 
 @triton_op("sdnq::triton_atten_bwd_dkv", mutates_args={})
-@devices.inference_context()
+@inference_context()
 def sdnq_triton_atten_bwd_dkv(
     grad_output: torch.Tensor,
     delta: torch.Tensor,
@@ -727,7 +726,7 @@ def sdnq_triton_atten_bwd_dkv(
 
 
 @triton_op("sdnq::triton_atten_bwd_dk", mutates_args={})
-@devices.inference_context()
+@inference_context()
 def sdnq_triton_atten_bwd_dk(
     grad_output: torch.Tensor,
     delta: torch.Tensor,
@@ -771,7 +770,7 @@ def sdnq_triton_atten_bwd_dk(
 
 
 @triton_op("sdnq::triton_atten_bwd_dv", mutates_args={})
-@devices.inference_context()
+@inference_context()
 def sdnq_triton_atten_bwd_dv(
     grad_output: torch.Tensor,
     delta: torch.Tensor,
@@ -814,7 +813,7 @@ def sdnq_triton_atten_bwd_dv(
     )[1]
 
 
-@devices.inference_context()
+@inference_context()
 def get_attn_backward_inputs(
     grad_output: torch.Tensor,
     out: torch.Tensor,
@@ -857,7 +856,7 @@ def get_attn_backward_inputs(
     return grad_output, grad_output_scale, out, delta, block_count, block_index, block_count_t, block_index_t
 
 
-@devices.inference_context()
+@inference_context()
 def sdnq_triton_atten_bwd(
     grad_output: torch.Tensor,
     out: torch.Tensor,

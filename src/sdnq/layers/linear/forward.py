@@ -2,11 +2,11 @@
 
 import torch
 
-from ...sdnext import devices
+from ...common import inference_context
 from ...kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm, use_contiguous_fp8_mm
 
 
-@devices.inference_context()
+@inference_context()
 def check_mats(input: torch.Tensor, weight: torch.Tensor, matmul_dtype: str = "int8") -> tuple[torch.Tensor, torch.Tensor]:
     if input is not None:
         input = input.contiguous()
@@ -21,6 +21,6 @@ def check_mats(input: torch.Tensor, weight: torch.Tensor, matmul_dtype: str = "i
     return input, weight
 
 
-@devices.inference_context()
+@inference_context()
 def quantized_linear_forward(self, input: torch.FloatTensor) -> torch.FloatTensor:
     return torch.nn.functional.linear(input, self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down), self.bias)

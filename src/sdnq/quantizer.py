@@ -4,8 +4,8 @@ from enum import Enum
 import os
 import torch
 
-from .sdnext import devices, shared
 from .common import (
+    logger,
     sdnq_keys,
     dtype_dict,
     accepted_weight_dtypes,
@@ -16,6 +16,7 @@ from .common import (
     conv_transpose_types,
     weights_dtype_order,
     check_torch_compile,
+    inference_context,
     compile_func,
 )
 
@@ -28,6 +29,7 @@ from .quant_utils import (
     prepare_svd_for_matmul,
 )
 from .utils import (
+    check_same_device,
     check_param_name_in,
     check_quant_is_allowed,
     check_quantized_matmul_is_allowed,
@@ -57,7 +59,7 @@ except Exception as e:
     class HfQuantizer:
         def __init__(self, *args, **kwargs):
             raise ImportError("Transformers is not available. Install transformers to use SDNQQuantizer with Transformers.")
-    shared.log.warning(f"SDNQ: Transformers is not available. Error message: {e}")
+    logger.warning(f"SDNQ: Transformers is not available. Error message: {e}")
 
 try:
     from diffusers.quantizers.base import DiffusersQuantizer
@@ -70,7 +72,7 @@ except Exception as e:
     class QuantizationConfigMixin:
         def __init__(self, *args, **kwargs):
             pass
-    shared.log.warning(f"SDNQ: Diffusers is not available. Error message: {e}")
+    logger.warning(f"SDNQ: Diffusers is not available. Error message: {e}")
 
 if diffusers_available:
     from diffusers import __version__ as diffusers_version_str
@@ -84,7 +86,7 @@ class QuantizationMethod(str, Enum):
     SDNQ_TRAINING = "sdnq_training"
 
 
-@devices.inference_context()
+@inference_context()
 def sdnq_quantize_layer_weight(
     weight: torch.FloatTensor,
     layer_class_name: str | None = None,
@@ -298,7 +300,7 @@ def sdnq_quantize_layer_weight(
     return (sdnq_dequantizer, {"weight": weight, "scale": scale, "zero_point": zero_point, "svd_up": svd_up, "svd_down": svd_down})
 
 
-@devices.inference_context()
+@inference_context()
 def sdnq_quantize_layer_weight_dynamic(
     weight: torch.FloatTensor,
     layer_class_name: str | None = None,
@@ -441,7 +443,7 @@ def sdnq_quantize_layer_weight_dynamic(
         return None
 
 
-@devices.inference_context()
+@inference_context()
 def sdnq_quantize_layer(layer: torch.nn.Module, quantization_config: "SDNQConfig", torch_dtype: torch.dtype | None = None, param_name: str = "", quant_kwargs: dict | None = None) -> tuple[torch.nn.Module, "SDNQConfig"]: # pylint: disable=unused-argument
     if torch_dtype is None:
         torch_dtype = layer.weight.dtype
@@ -495,7 +497,7 @@ def sdnq_quantize_layer(layer: torch.nn.Module, quantization_config: "SDNQConfig
     return layer, quantization_config
 
 
-@devices.inference_context()
+@inference_context()
 def apply_sdnq_to_module(model: torch.nn.Module, quantization_config: "SDNQConfig", torch_dtype: torch.dtype | None = None, pre_quantized: bool = False, full_param_name: str = "") -> tuple[torch.nn.Module, "SDNQConfig"]: # pylint: disable=unused-argument
     if not list(model.children()):
         return model, quantization_config
@@ -517,7 +519,7 @@ def apply_sdnq_to_module(model: torch.nn.Module, quantization_config: "SDNQConfi
     return model, quantization_config
 
 
-@devices.inference_context()
+@inference_context()
 def sdnq_post_load_quant( # pylint: disable=unused-argument
     model: torch.nn.Module,
     *args,
@@ -677,7 +679,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
                     self.quantization_config.modules_to_not_convert.append(param_name)
         return False
 
-    @devices.inference_context()
+    @inference_context()
     def create_quantized_param( # pylint: disable=unused-argument,arguments-differ
         self,
         model: torch.nn.Module,
@@ -785,12 +787,11 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
                 dequantize_fp32=self.quantization_config.dequantize_fp32,
             )
 
-        if devices.same_device(self.quantization_config.return_device, devices.cpu):
+        if check_same_device(self.quantization_config.return_device, "cpu"):
             try:
-                model = model.to(device=devices.cpu)
+                model = model.to(device="cpu")
             except Exception:
                 pass
-        devices.torch_gc(force=True, reason="sdnq")
         return model
 
     def get_quantize_ops(self) -> SDNQQuantize:
@@ -1038,7 +1039,7 @@ class SDNQConfig(QuantizationConfigMixin):
         Safety checker that arguments are correct
         """
         if self.use_quantized_matmul and not check_torch_compile():
-            shared.log.warning("SDNQ: Quantized MatMul requires a working Triton install for best performance.")
+            logger.warning("SDNQ: Quantized MatMul requires a working Triton install for best performance.")
         if self.weights_dtype not in accepted_weight_dtypes:
             raise ValueError(f"SDNQ only support weight dtypes in {accepted_weight_dtypes} but found {self.weights_dtype}")
         if self.quantized_matmul_dtype is not None and self.quantized_matmul_dtype not in accepted_matmul_dtypes:

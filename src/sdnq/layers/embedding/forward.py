@@ -2,15 +2,14 @@
 
 import torch
 
-from ...sdnext import devices
-from ...common import dtype_dict, compile_func
+from ...common import dtype_dict, compile_func, inference_context
 from ...dequantizer import dequantize_symmetric, dequantize_asymmetric, dequantize_codebook
 from ...quant_utils import get_hadamard
 from ...packed_int import unpack_int
 from ...packed_float import unpack_float
 
 
-@devices.inference_context()
+@inference_context()
 def quantized_embedding(
     input: torch.Tensor,
     weight: torch.Tensor,
@@ -68,7 +67,7 @@ def quantized_embedding(
     return result
 
 
-@devices.inference_context()
+@inference_context()
 def quantized_embedding_forward(self: torch.nn.Module, input: torch.Tensor) -> torch.FloatTensor:
     if self.sdnq_dequantizer.use_hadamard:
         hadamard = get_hadamard(self.sdnq_dequantizer.hadamard_group_size, dtype=self.sdnq_dequantizer.result_dtype, device=input.device)

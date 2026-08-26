@@ -3,10 +3,9 @@ from collections.abc import Callable
 import copy
 import torch
 
-from ..sdnext import devices, shared
 from ..quantizer import SDNQConfig, QuantizationMethod
 from ..loader import apply_sdnq_options_to_model
-from ..common import dtype_dict, linear_types, check_torch_compile
+from ..common import logger, dtype_dict, linear_types, check_torch_compile, inference_context
 from ..layers import SDNQLayer, get_sdnq_wrapper_class
 
 from ..forward import get_forward_func as get_sdnq_forward_func
@@ -66,7 +65,7 @@ def get_quant_kwargs(layer: torch.nn.Module, quantization_config, torch_dtype: t
     return quant_kwargs
 
 
-@devices.inference_context()
+@inference_context()
 def apply_sdnq_training_to_module(model: torch.nn.Module, quantization_config: SDNQConfig, torch_dtype=None, full_param_name="") -> tuple[torch.nn.Module | SDNQLayer, SDNQConfig]:
     if not list(model.children()):
         return model, quantization_config
@@ -134,7 +133,7 @@ def apply_sdnq_training_to_module(model: torch.nn.Module, quantization_config: S
     return model, quantization_config
 
 
-@devices.inference_context()
+@inference_context()
 def sdnq_training_post_load_quant(
     model: torch.nn.Module,
     weights_dtype: str = "uint8",
@@ -216,7 +215,7 @@ def sdnq_training_post_load_quant(
     return model
 
 
-@devices.inference_context()
+@inference_context()
 def convert_sdnq_layer_to_training(self: SDNQLayer, quantized_matmul_dtype: str | None = None, use_grad_ckpt: bool = True, use_quantized_matmul: bool = False, use_stochastic_rounding: bool = True, inplace: bool = False) -> SDNQLayer | tuple[SDNQTensor, Callable]:
     assert not self.sdnq_dequantizer.use_quantized_matmul
     if inplace:
@@ -244,7 +243,7 @@ def convert_sdnq_layer_to_training(self: SDNQLayer, quantized_matmul_dtype: str 
         return weight, quantized_forward
 
 
-@devices.inference_context()
+@inference_context()
 def convert_sdnq_module_to_training(
     model: torch.nn.Module,
     quantized_matmul_dtype: str | None = None,
@@ -293,7 +292,7 @@ def convert_sdnq_module_to_training(
     return model
 
 
-@devices.inference_context()
+@inference_context()
 def convert_sdnq_model_to_training(
     model: torch.nn.Module,
     dtype: torch.dtype | None = None,
@@ -304,7 +303,7 @@ def convert_sdnq_model_to_training(
     dequantize_fp32: bool = True,
 ) -> torch.nn.Module:
     if use_quantized_matmul and not check_torch_compile():
-        shared.log.warning("SDNQ: Quantized MatMul requires a working Triton install for best performance.")
+        logger.warning("SDNQ: Quantized MatMul requires a working Triton install for best performance.")
     model = apply_sdnq_options_to_model(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=False)
     model = convert_sdnq_module_to_training(
         model,
@@ -360,7 +359,7 @@ def convert_sdnq_model_to_training(
     return model
 
 
-@devices.inference_context()
+@inference_context()
 def convert_training_layer_to_sdnq(self: SDNQLayer, inplace: bool = False) -> SDNQLayer | tuple[torch.Tensor, Callable]:
     if inplace:
         sdnq_dequantizer = self.weight.sdnq_dequantizer
@@ -395,7 +394,7 @@ def convert_training_layer_to_sdnq(self: SDNQLayer, inplace: bool = False) -> SD
         return weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer, quantized_forward
 
 
-@devices.inference_context()
+@inference_context()
 def convert_training_module_to_sdnq(model: torch.nn.Module) -> torch.nn.Module:
     if hasattr(model, "weight") and isinstance(model.weight, SDNQTensor):
         model = convert_training_layer_to_sdnq(model, inplace=True)
@@ -409,7 +408,7 @@ def convert_training_module_to_sdnq(model: torch.nn.Module) -> torch.nn.Module:
     return model
 
 
-@devices.inference_context()
+@inference_context()
 def convert_training_model_to_sdnq(
     model: torch.nn.Module,
     dtype: torch.dtype | None = None,
@@ -417,7 +416,7 @@ def convert_training_model_to_sdnq(
     use_quantized_matmul: bool | None = None,
 ) -> torch.nn.Module:
     if use_quantized_matmul and not check_torch_compile():
-        shared.log.warning("SDNQ: Quantized MatMul requires a working Triton install for best performance.")
+        logger.warning("SDNQ: Quantized MatMul requires a working Triton install for best performance.")
     model = convert_training_module_to_sdnq(model)
     model = apply_sdnq_options_to_model(model, dtype=dtype, dequantize_fp32=dequantize_fp32, use_quantized_matmul=use_quantized_matmul)
     model.quantization_method = QuantizationMethod.SDNQ

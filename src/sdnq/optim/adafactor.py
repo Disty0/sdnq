@@ -2,8 +2,7 @@ from collections.abc import Iterator
 
 import torch
 
-from ..sdnext import devices
-from ..common import compile_func
+from ..common import compile_func, inference_context
 
 from .optimizer import SDNQOptimizer
 from .utils import create_quantized_buffer, lerp_buffer_stochastic_, apply_norm_to_update_
@@ -29,7 +28,7 @@ class Adafactor(SDNQOptimizer):
             assert set(group.keys()) == self._group_keys
         super().__init__(param_groups, {})
 
-    @devices.inference_context()
+    @inference_context()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
         grad_shape = param.grad.shape
         if len(grad_shape) >= 2:
@@ -45,7 +44,7 @@ class Adafactor(SDNQOptimizer):
                 state["exp_avg"] = torch.zeros_like(param)
         return state
 
-    @devices.inference_context()
+    @inference_context()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
         update_func = adafactor_update_compiled if group["use_torch_compile"] else adafactor_update
         return update_func(
@@ -63,7 +62,7 @@ class Adafactor(SDNQOptimizer):
         )
 
 
-@devices.inference_context()
+@inference_context()
 def adafactor_update(
     param: torch.FloatTensor,
     grad: torch.FloatTensor,
@@ -101,7 +100,7 @@ def adafactor_update(
     return update
 
 
-@devices.inference_context()
+@inference_context()
 def approx_sq_grad(exp_avg_sq_row: torch.FloatTensor, exp_avg_sq_col: torch.FloatTensor) -> torch.FloatTensor:
     return torch.mul(
         torch.div(exp_avg_sq_row, exp_avg_sq_row.mean(dim=-1, keepdim=True)).rsqrt_().unsqueeze(-1),

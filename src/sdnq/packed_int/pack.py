@@ -1,9 +1,9 @@
 import torch
 
-from ..sdnext import devices
+from ..common import inference_context
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint15(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 16)
     packed_tensor = torch.bitwise_or(
@@ -35,7 +35,7 @@ def pack_uint15(tensor: torch.Tensor) -> torch.Tensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint14(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 8)
     packed_tensor = torch.bitwise_or(
@@ -59,7 +59,7 @@ def pack_uint14(tensor: torch.Tensor) -> torch.Tensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint13(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 16)
     packed_tensor = torch.bitwise_or(
@@ -87,7 +87,7 @@ def pack_uint13(tensor: torch.Tensor) -> torch.Tensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint12(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 4)
     packed_tensor = torch.bitwise_or(
@@ -107,7 +107,7 @@ def pack_uint12(tensor: torch.Tensor) -> torch.Tensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint11(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 16)
     packed_tensor = torch.cat(
@@ -135,7 +135,7 @@ def pack_uint11(tensor: torch.Tensor) -> torch.Tensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint10(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 8)
     packed_tensor = torch.cat(
@@ -163,7 +163,7 @@ def pack_uint10(tensor: torch.Tensor) -> torch.Tensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint9(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 16)
     packed_tensor = torch.cat(
@@ -197,7 +197,7 @@ def pack_uint9(tensor: torch.Tensor) -> torch.Tensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint7(tensor: torch.ByteTensor) -> torch.ByteTensor:
     packed_tensor = tensor.contiguous().view(-1, 8)
     packed_tensor = torch.bitwise_or(
@@ -221,7 +221,7 @@ def pack_uint7(tensor: torch.ByteTensor) -> torch.ByteTensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint6(tensor: torch.ByteTensor) -> torch.ByteTensor:
     packed_tensor = tensor.contiguous().view(-1, 4)
     packed_tensor = torch.bitwise_or(
@@ -241,7 +241,7 @@ def pack_uint6(tensor: torch.ByteTensor) -> torch.ByteTensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint5(tensor: torch.ByteTensor) -> torch.ByteTensor:
     packed_tensor = tensor.contiguous().view(-1, 8)
     packed_tensor = torch.cat(
@@ -269,14 +269,14 @@ def pack_uint5(tensor: torch.ByteTensor) -> torch.ByteTensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint4(tensor: torch.ByteTensor) -> torch.ByteTensor:
     packed_tensor = tensor.contiguous().view(-1, 2)
     packed_tensor = torch.bitwise_or(packed_tensor[:, 0], torch.bitwise_left_shift(packed_tensor[:, 1], 4))
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint3(tensor: torch.ByteTensor) -> torch.ByteTensor:
     packed_tensor = tensor.contiguous().view(-1, 8)
     packed_tensor = torch.bitwise_or(
@@ -295,7 +295,7 @@ def pack_uint3(tensor: torch.ByteTensor) -> torch.ByteTensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint2(tensor: torch.ByteTensor) -> torch.ByteTensor:
     packed_tensor = tensor.contiguous().view(-1, 4)
     packed_tensor = torch.bitwise_or(
@@ -305,7 +305,7 @@ def pack_uint2(tensor: torch.ByteTensor) -> torch.ByteTensor:
     return packed_tensor
 
 
-@devices.inference_context()
+@inference_context()
 def pack_uint1(tensor: torch.Tensor) -> torch.Tensor:
     packed_tensor = tensor.contiguous().view(-1, 8)
     packed_tensor = torch.bitwise_or(

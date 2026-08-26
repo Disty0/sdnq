@@ -2,8 +2,7 @@ from collections.abc import Iterator
 
 import torch
 
-from ..sdnext import devices
-from ..common import compile_func
+from ..common import compile_func, inference_context
 
 from .optimizer import SDNQOptimizer
 from .utils import create_quantized_buffer, lerp_buffer_stochastic_
@@ -26,7 +25,7 @@ class Lion(SDNQOptimizer):
         super().__init__(param_groups, {})
         self.keep_in_fp32_keys = {}
 
-    @devices.inference_context()
+    @inference_context()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
         use_quantized_buffers = group["use_quantized_buffers"] and param.grad.ndim >= group["quantized_buffers_minimum_ndim"] and param.grad.numel() >= group["quantized_buffers_minimum_numel"]
         if use_quantized_buffers:
@@ -35,7 +34,7 @@ class Lion(SDNQOptimizer):
             state["exp_avg"] = torch.zeros_like(param)
         return state
 
-    @devices.inference_context()
+    @inference_context()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
         update_func = lion_update_compiled if group["use_torch_compile"] else lion_update
         return update_func(
@@ -46,7 +45,7 @@ class Lion(SDNQOptimizer):
         )
 
 
-@devices.inference_context()
+@inference_context()
 def lion_update(
     grad: torch.FloatTensor,
     exp_avg: torch.FloatTensor,

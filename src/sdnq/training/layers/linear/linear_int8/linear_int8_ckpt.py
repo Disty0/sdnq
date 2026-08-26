@@ -1,7 +1,6 @@
 import torch
 
-from .....sdnext import devices
-from .....common import compile_func
+from .....common import compile_func, inference_context
 from .....dequantizer import dequantize_symmetric_compiled, dequantize_asymmetric_compiled
 from .....quant_utils import quantize_int_mm, get_hadamard
 from ....tensor import SDNQTensor
@@ -11,13 +10,13 @@ from .linear_int8 import int8_matmul
 from .linear_int8_dynamic import int8_matmul_dynamic
 
 
-@devices.inference_context()
+@inference_context()
 def get_int8_matmul_backward_inputs(input: torch.FloatTensor, hadamard: torch.FloatTensor | None) -> tuple[torch.Tensor, torch.FloatTensor]:
     input, input_scale = quantize_int_mm(input.flatten(0,-2).to(dtype=torch.float32), dim=0, hadamard=hadamard)
     return input, input_scale
 
 
-@devices.inference_context()
+@inference_context()
 def int8_matmul_backward_ckpt(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor | None,

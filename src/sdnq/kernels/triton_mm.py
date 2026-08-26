@@ -6,7 +6,7 @@ from torch.library import triton_op, wrap_triton
 import triton
 import triton.language as tl
 
-from ..sdnext import devices
+from ..common import inference_context
 from .triton_scaled_mm import min_block_size, autotune_configs, prune_configs, USE_FP16_ACCUM
 
 
@@ -117,7 +117,7 @@ def sdnq_triton_mm_kernel(
 
 
 @triton_op("sdnq::triton_mm", mutates_args={})
-@devices.inference_context()
+@inference_context()
 def sdnq_triton_mm(
     a: torch.Tensor,
     b: torch.Tensor,

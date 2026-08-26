@@ -2,15 +2,14 @@ import os
 import sys
 import torch
 
-from .sdnext import devices, shared
-from .common import compile_func, torch_version
+
+from .common import torch_device, torch_backend, gfx_version, logger, compile_func, torch_version
 
 
 if os.environ.get("SDNQ_ALLOW_FP8_MM", None) is None:
-    if devices.backend == "cuda":
-        is_fp8_mm_supported = bool(torch.cuda.get_device_capability(devices.device) >= (8,9))
-    elif devices.backend == "rocm":
-        gfx_version = devices.get_hip_agent().gfx_version
+    if torch_backend == "cuda":
+        is_fp8_mm_supported = bool(torch.cuda.get_device_capability(torch_device) >= (8,9))
+    elif torch_backend == "rocm":
         is_fp8_mm_supported = bool(gfx_version >= 0x1200 or (gfx_version >= 0x940 and gfx_version < 0x1000))
     else:
         is_fp8_mm_supported = False
@@ -18,32 +17,31 @@ else:
     is_fp8_mm_supported = os.environ.get("SDNQ_ALLOW_FP8_MM", "0").lower() not in {"0", "false", "no"}
 
 if os.environ.get("SDNQ_ALLOW_FP8_COMPILE", None) is None:
-    if devices.backend == "cuda" and "linux" in sys.platform:
-        is_fp8_compile_supported = bool(torch.cuda.get_device_capability(devices.device) >= (8,9)) # triton has no e4m3 conversions before sm_89
+    if torch_backend == "cuda" and "linux" in sys.platform:
+        is_fp8_compile_supported = bool(torch.cuda.get_device_capability(torch_device) >= (8,9)) # triton has no e4m3 conversions before sm_89
     else:
         is_fp8_compile_supported = True
 else:
     is_fp8_compile_supported = bool(os.environ.get("SDNQ_ALLOW_FP8_COMPILE", "0").lower() not in {"0", "false", "no"})
 
-if devices.backend == "rocm":
-    gfx_version = devices.get_hip_agent().gfx_version
+if torch_backend == "rocm":
     is_rdna2_and_older = bool(gfx_version < 0x908 or (gfx_version < 0x1100 and gfx_version >= 0x1000))
 else:
     is_rdna2_and_older = False
 
-if devices.backend in {"ipex", "xpu"}:
-    is_alchemist_or_igpu = bool(not torch.xpu.get_device_capability(devices.device).get("has_subgroup_2d_block_io", False))
+if torch_backend in {"ipex", "xpu"}:
+    is_alchemist_or_igpu = bool(not torch.xpu.get_device_capability(torch_device).get("has_subgroup_2d_block_io", False))
 else:
     is_alchemist_or_igpu = False
 
 if os.environ.get("SDNQ_USE_TRITON_MM", None) is None:
-    use_triton_mm = bool(not is_alchemist_or_igpu and (devices.backend in {"cuda", "rocm", "ipex", "xpu", "zluda"}))
+    use_triton_mm = bool(not is_alchemist_or_igpu and (torch_backend in {"cuda", "rocm", "ipex", "xpu", "zluda"}))
 else:
     use_triton_mm = bool(os.environ.get("SDNQ_USE_TRITON_MM", "0").lower() not in {"0", "false", "no"})
 
 if os.environ.get("SDNQ_USE_TENSORWISE_FP8_MM", None) is None:
     # row-wise FP8 only exist on H100 hardware, sdnq will use software row-wise with tensorwise hardware with this setting
-    use_tensorwise_fp8_matmul = bool(devices.backend != "cuda" or (devices.backend == "cuda" and torch.cuda.get_device_capability(devices.device) < (9,0)))
+    use_tensorwise_fp8_matmul = bool(torch_backend != "cuda" or (torch_backend == "cuda" and torch.cuda.get_device_capability(torch_device) < (9,0)))
 else:
     use_tensorwise_fp8_matmul = bool(os.environ.get("SDNQ_USE_TENSORWISE_FP8_MM", "0").lower() not in {"0", "false", "no"})
 
@@ -58,7 +56,7 @@ if use_openvino_mm:
         use_openvino_mm = False
         openvino_int_mm = None
         openvino_fp_mm = None
-        shared.log.warning(f"SDNQ: OpenVINO MM kernels are not available! Falling back to PyTorch Eager kernels for CPU device. Error message: {e}")
+        logger.warning(f"SDNQ: OpenVINO MM kernels are not available! Falling back to PyTorch Eager kernels for CPU device. Error message: {e}")
 else:
     openvino_int_mm = None
     openvino_fp_mm = None
@@ -72,7 +70,7 @@ if use_triton_mm:
     except Exception as e:
         use_triton_mm = False
         sdnq_triton_mm = None
-        shared.log.warning(f"SDNQ: Triton MM kernels are not available! Falling back to PyTorch Eager kernels. Error message: {e}")
+        logger.warning(f"SDNQ: Triton MM kernels are not available! Falling back to PyTorch Eager kernels. Error message: {e}")
 else:
     sdnq_triton_mm = None
 
@@ -83,7 +81,7 @@ if use_triton_scaled_mm:
     except Exception as e:
         use_triton_scaled_mm = False
         sdnq_scaled_mm = None
-        shared.log.warning(f"SDNQ: Triton Scaled MM kernels are not available! Falling back to PyTorch Eager kernels. Error message: {e}")
+        logger.warning(f"SDNQ: Triton Scaled MM kernels are not available! Falling back to PyTorch Eager kernels. Error message: {e}")
 else:
     sdnq_scaled_mm = None
 
@@ -94,8 +92,8 @@ else:
     include_mm_kernel_in_compile = bool(os.environ.get("SDNQ_INCLUDE_MM_KERNEL_IN_COMPILE", "0").lower() not in {"0", "false", "no"})
 
 if os.environ.get("SDNQ_USE_CONTIGUOUS_MM", None) is None:
-    use_contiguous_int8_mm = bool(is_rdna2_and_older or devices.backend in {"ipex", "xpu", "cpu", "mps", "openvino", "zluda"})
-    use_contiguous_fp16_mm = bool(use_contiguous_int8_mm or (devices.backend == "rocm" and torch_version[0] == 2 and torch_version[1] <= 13))
+    use_contiguous_int8_mm = bool(is_rdna2_and_older or torch_backend in {"ipex", "xpu", "cpu", "mps", "openvino", "zluda"})
+    use_contiguous_fp16_mm = bool(use_contiguous_int8_mm or (torch_backend == "rocm" and torch_version[0] == 2 and torch_version[1] <= 13))
     use_contiguous_fp8_mm = bool(use_contiguous_fp16_mm and not is_fp8_mm_supported)
 else:
     use_contiguous_int8_mm = bool(os.environ.get("SDNQ_USE_CONTIGUOUS_MM", "0").lower() not in {"0", "false", "no"})

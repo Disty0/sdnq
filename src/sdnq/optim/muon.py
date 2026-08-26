@@ -2,8 +2,7 @@ from collections.abc import Callable, Iterator
 
 import torch
 
-from ..sdnext import devices
-from ..common import compile_func
+from ..common import compile_func, inference_context
 
 from ..training.layers.linear.linear_int8.linear_int8_dynamic import int8_matmul_dynamic
 from ..training.layers.linear.linear_uint8.linear_uint8_dynamic import uint8_matmul_dynamic
@@ -114,7 +113,7 @@ class Muon(SDNQOptimizer):
                 muon_group["params"].append(param)
         return (muon_group, adamw_group), extra_kwargs
 
-    @devices.inference_context()
+    @inference_context()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
         use_quantized_buffers = group["use_quantized_buffers"] and param.grad.ndim >= group["quantized_buffers_minimum_ndim"] and param.grad.numel() >= group["quantized_buffers_minimum_numel"]
         if group["use_muon"]:
@@ -135,7 +134,7 @@ class Muon(SDNQOptimizer):
                 state["exp_avg_sq"] = torch.zeros_like(param)
         return state
 
-    @devices.inference_context()
+    @inference_context()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
         if group["use_muon"]:
             update_func = muon_update_compiled if group["use_torch_compile"] else muon_update
@@ -170,7 +169,7 @@ class Muon(SDNQOptimizer):
             )
 
 
-@devices.inference_context()
+@inference_context()
 def muon_update(
     param: torch.FloatTensor, # pylint: disable=unused-argument
     grad: torch.FloatTensor,
@@ -249,7 +248,7 @@ def muon_update(
     return update
 
 
-@devices.inference_context()
+@inference_context()
 def zeropower_via_newtonschulz5(
     X: torch.FloatTensor,
     clip: float = 1.0,
@@ -307,7 +306,7 @@ def zeropower_via_newtonschulz5(
     return X
 
 
-@devices.inference_context()
+@inference_context()
 def zeropower_via_newtonschulz5_quantized_matmul(
     X: torch.FloatTensor,
     mm_func: Callable,

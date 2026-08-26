@@ -3,7 +3,7 @@ import torch
 import openvino as ov
 from openvino import opset16 as ov_ops
 
-from ..sdnext import devices
+from ..common import inference_context
 
 OV_CORE = None
 OV_DEVICE: str = None
@@ -25,7 +25,7 @@ def get_ov_core():
     return OV_CORE, OV_DEVICE
 
 
-@devices.inference_context()
+@inference_context()
 def ov_mm(infer_request: ov.InferRequest, out_name: str, A: torch.Tensor, B: torch.Tensor, out_dtype: torch.dtype = torch.float32) -> torch.Tensor:
     C = torch.empty((A.shape[0], B.shape[-1]), device="cpu", dtype=torch.float32)
     A, B = A.contiguous(), B.contiguous()
@@ -38,7 +38,7 @@ def ov_mm(infer_request: ov.InferRequest, out_name: str, A: torch.Tensor, B: tor
 
 
 @torch.library.custom_op("sdnq::openvino_int_mm", mutates_args=())
-@devices.inference_context()
+@inference_context()
 def openvino_int_mm(Tensor_A: torch.Tensor, Tensor_B: torch.Tensor, out_dtype: torch.dtype = torch.float32) -> torch.Tensor:
     ov_core, ov_device = get_ov_core()
     if "GPU" not in ov_device:
@@ -98,7 +98,7 @@ def openvino_int_mm_fake(A: torch.Tensor, B: torch.Tensor, out_dtype: torch.dtyp
 
 
 @torch.library.custom_op("sdnq::openvino_fp_mm", mutates_args=())
-@devices.inference_context()
+@inference_context()
 def openvino_fp_mm(Tensor_A: torch.Tensor, Tensor_B: torch.Tensor, out_dtype: torch.dtype = torch.float32) -> torch.Tensor:
     ov_core, ov_device = get_ov_core()
     mm_dtype = "fp16" if Tensor_B.dtype == torch.float16 else "fp8"

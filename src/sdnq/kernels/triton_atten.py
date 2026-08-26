@@ -7,8 +7,7 @@ from torch.library import triton_op, wrap_triton
 import triton
 import triton.language as tl
 
-from ..sdnext import devices, shared
-from ..common import compile_func
+from ..common import logger, compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
 from ..utils import is_pow2, next_power_of_2, get_cache_sizes
 
@@ -57,7 +56,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 
     cache_size, smem_size = get_cache_sizes(device)
     if SDNQ_DEBUG_TRITON_AUTOTUNE:
-        shared.log.debug(f"SDNQ Triton Atten: Detected device={device} cache_size={cache_size} smem_size={smem_size}")
+        logger.debug(f"SDNQ Triton Atten: Detected device={device} cache_size={cache_size} smem_size={smem_size}")
     if cache_size > 0 or smem_size > 0:
         pruned_configs = []
         for config in configs:
@@ -118,13 +117,13 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             if (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
                 pruned_configs.append(config)
             elif SDNQ_DEBUG_TRITON_AUTOTUNE:
-                shared.log.debug(f"SDNQ Triton Atten: Pruned config cache_req={cache_req} smem_req={smem_req} config=({config.kwargs} num_warps={config.num_warps} num_stages={config.num_stages})")
+                logger.debug(f"SDNQ Triton Atten: Pruned config cache_req={cache_req} smem_req={smem_req} config=({config.kwargs} num_warps={config.num_warps} num_stages={config.num_stages})")
 
         if pruned_configs:
             configs = pruned_configs
         elif not from_small:
             if SDNQ_DEBUG_TRITON_AUTOTUNE:
-                shared.log.debug("SDNQ Triton Atten: No configs fit in cache/smem, trying small configs.")
+                logger.debug("SDNQ Triton Atten: No configs fit in cache/smem, trying small configs.")
             return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
 
     if named_args.get("do_block_mask"):
@@ -396,7 +395,7 @@ def sdnq_attn_kernel(
         l_desc.store([start_m_block], l_i)
 
 
-@devices.inference_context()
+@inference_context()
 def sdnq_atten_fwd(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -451,7 +450,7 @@ def sdnq_atten_fwd(
 
 
 @triton_op("sdnq::triton_atten_fwd", mutates_args={})
-@devices.inference_context()
+@inference_context()
 def sdnq_triton_atten_fwd(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -486,7 +485,7 @@ def sdnq_triton_atten_fwd(
 
 
 @triton_op("sdnq::triton_atten_lse_fwd", mutates_args={})
-@devices.inference_context()
+@inference_context()
 def sdnq_triton_atten_lse_fwd(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -520,7 +519,7 @@ def sdnq_triton_atten_lse_fwd(
     )
 
 
-@devices.inference_context()
+@inference_context()
 def quantize_attn(
     q, k, v,
     smooth_k: bool = True,
@@ -578,7 +577,7 @@ def quantize_attn(
     return q_q, q_scale, k_q, k_scale, v_q, v_scale, use_hadamard, hadamard_group_size
 
 
-@devices.inference_context()
+@inference_context()
 def get_attn_inputs(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -657,7 +656,7 @@ def check_block_lists(block_count: torch.Tensor | None, block_index: torch.Tenso
         raise ValueError(f"SDNQ Triton Atten: block_count {tuple(block_count.shape)} and block_index {tuple(block_index.shape)} do not match ({batch} or 1, {heads} or 1, {row_blocks_pad}) and (..., {row_blocks}, {col_blocks_pad}) for a {row_block}x{col_block} block over {rows}x{cols}")
 
 
-@devices.inference_context()
+@inference_context()
 def get_block_mask_input(block_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     keep = block_mask != 0
     nqb, nkb = keep.shape[-2:]
@@ -670,7 +669,7 @@ def get_block_mask_input(block_mask: torch.Tensor) -> tuple[torch.Tensor, torch.
     return block_count, block_index
 
 
-@devices.inference_context()
+@inference_context()
 def sdnq_triton_atten(
     query: torch.Tensor,
     key: torch.Tensor,

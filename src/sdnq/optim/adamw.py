@@ -2,8 +2,7 @@ from collections.abc import Iterator
 
 import torch
 
-from ..sdnext import devices
-from ..common import compile_func
+from ..common import compile_func, inference_context
 
 from .optimizer import SDNQOptimizer
 from .utils import create_quantized_buffer, lerp_buffer_stochastic_
@@ -25,7 +24,7 @@ class AdamW(SDNQOptimizer):
             assert set(group.keys()) == self._group_keys
         super().__init__(param_groups, {})
 
-    @devices.inference_context()
+    @inference_context()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
         use_quantized_buffers = group["use_quantized_buffers"] and param.grad.ndim >= group["quantized_buffers_minimum_ndim"] and param.grad.numel() >= group["quantized_buffers_minimum_numel"]
         if use_quantized_buffers:
@@ -36,7 +35,7 @@ class AdamW(SDNQOptimizer):
             state["exp_avg_sq"] = torch.zeros_like(param)
         return state
 
-    @devices.inference_context()
+    @inference_context()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
         update_func = adam_update_compiled if group["use_torch_compile"] else adam_update
         return update_func(
@@ -50,7 +49,7 @@ class AdamW(SDNQOptimizer):
         )
 
 
-@devices.inference_context()
+@inference_context()
 def adam_update(
     grad: torch.FloatTensor,
     exp_avg: torch.FloatTensor,

@@ -1,12 +1,11 @@
 import torch
 
-from .sdnext import devices
-from .common import dtype_dict, compile_func, conv_types, conv_transpose_types
+from .common import inference_context, dtype_dict, compile_func, conv_types, conv_transpose_types
 from .kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm, use_contiguous_fp8_mm
-from .utils import is_pow2, is_pow4, next_power_of_2
+from .utils import is_pow2, is_pow4, next_power_of_2, normalize_device
 
 
-@devices.inference_context()
+@inference_context()
 def get_scale_asymmetric(weight: torch.FloatTensor, dim: int | list[int], weights_dtype: str) -> tuple[torch.FloatTensor, torch.FloatTensor]:
     if isinstance(dim, int):
         zero_point, scale = torch.aminmax(weight, dim=dim, keepdims=True)
@@ -19,12 +18,12 @@ def get_scale_asymmetric(weight: torch.FloatTensor, dim: int | list[int], weight
     return scale, zero_point
 
 
-@devices.inference_context()
+@inference_context()
 def get_scale_symmetric(weight: torch.FloatTensor, dim: int | list[int], weights_dtype: str) -> torch.FloatTensor:
     return torch.amax(weight.abs(), dim=dim, keepdims=True).div_(dtype_dict[weights_dtype]["max"])
 
 
-@devices.inference_context()
+@inference_context()
 def quantize_weight(weight: torch.FloatTensor, dim: int | list[int], weights_dtype: str, dtype: torch.dtype = None, use_stochastic_rounding: bool = False) -> tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     if weight.dtype != torch.float64:
         weight = weight.to(dtype=torch.float32, copy=False)
@@ -120,7 +119,7 @@ def quantize_weight_codebook(weight: torch.FloatTensor, dim: int,  weights_dtype
     return weight, levels
 
 
-@devices.inference_context()
+@inference_context()
 def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, steps: int = 8, dtype: torch.dtype = None) -> tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
     reshape_weight = False
     if weight.ndim > 2: # convs
@@ -141,7 +140,7 @@ def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, steps: int = 8, dt
     return weight, svd_up, svd_down
 
 
-@devices.inference_context()
+@inference_context()
 def build_hadamard_n2(n: int, dtype: torch.dtype | None = None, device: torch.device | None = None) -> torch.FloatTensor:
     current_size = 2
     H = H_N2 = torch.tensor([[1, 1], [1, -1]], dtype=dtype, device=device)
@@ -153,7 +152,7 @@ def build_hadamard_n2(n: int, dtype: torch.dtype | None = None, device: torch.de
     return H
 
 
-@devices.inference_context()
+@inference_context()
 def build_hadamard_n4(n: int, dtype: torch.dtype | None = None, device: torch.device | None = None) -> torch.FloatTensor:
     current_size = 4
     H = H_N4 = torch.tensor([[ 1,  1,  1, -1], [ 1,  1, -1,  1], [ 1, -1,  1,  1], [-1,  1,  1,  1]], dtype=dtype, device=device)
@@ -165,7 +164,7 @@ def build_hadamard_n4(n: int, dtype: torch.dtype | None = None, device: torch.de
     return H
 
 
-@devices.inference_context()
+@inference_context()
 def build_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.device | None = None) -> torch.FloatTensor:
     if is_pow4(n):
         return build_hadamard_n4(n, device=device, dtype=dtype)
@@ -179,9 +178,9 @@ def build_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.devic
 # And is the exact same matrix on all model layers
 # So we can safely cache a single one
 HADAMARD_MATRIX_CACHE: dict[tuple[int, torch.device, torch.dtype], torch.FloatTensor] = {}
-@devices.inference_context()
+@inference_context()
 def get_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.device | None = None) -> torch.FloatTensor:
-    device = devices.normalize_device(device)
+    device = normalize_device(device)
     H_key = (n, device, dtype)
     H = HADAMARD_MATRIX_CACHE.get(H_key, None)
     if H is None:
@@ -190,7 +189,7 @@ def get_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.device 
     return H
 
 
-@devices.inference_context()
+@inference_context()
 def rotate_hadamard(weight: torch.Tensor, group_size: int = 256, hadamard: torch.FloatTensor | None = None, is_conv: bool = False) -> torch.Tensor:
     if hadamard is None:
         hadamard = get_hadamard(group_size, dtype=weight.dtype, device=weight.device)
@@ -218,7 +217,7 @@ def get_hadamard_group_size(channel_size: int, group_size: int) -> tuple[bool, i
     return use_hadamard, group_size
 
 
-@devices.inference_context()
+@inference_context()
 def apply_hadamard(weight: torch.Tensor, group_size: int = 256, hadamard: torch.FloatTensor | None = None, layer_class_name: str | None = None) -> tuple[torch.Tensor, bool, int]:
     is_conv = False
     if hadamard is not None:
@@ -236,7 +235,7 @@ def apply_hadamard(weight: torch.Tensor, group_size: int = 256, hadamard: torch.
     return weight, use_hadamard, group_size
 
 
-@devices.inference_context()
+@inference_context()
 def prepare_weight_for_matmul(weight: torch.Tensor, matmul_dtype: str | None = "int8") -> torch.Tensor:
     if (
         (use_contiguous_int8_mm and matmul_dtype in {"int8", "uint8"})
@@ -249,7 +248,7 @@ def prepare_weight_for_matmul(weight: torch.Tensor, matmul_dtype: str | None = "
     return weight
 
 
-@devices.inference_context()
+@inference_context()
 def prepare_svd_for_matmul(svd_up: torch.FloatTensor, svd_down: torch.FloatTensor, use_quantized_matmul: bool) -> tuple[torch.FloatTensor, torch.FloatTensor]:
     if svd_up is not None:
         if use_quantized_matmul:
@@ -261,7 +260,7 @@ def prepare_svd_for_matmul(svd_up: torch.FloatTensor, svd_down: torch.FloatTenso
     return svd_up, svd_down
 
 
-@devices.inference_context()
+@inference_context()
 def quantize_int_mm(weight: torch.FloatTensor, dim: int = -1, hadamard: torch.FloatTensor | None = None, matmul_dtype: str = "int8", use_sr: bool = False) -> tuple[torch.Tensor, torch.FloatTensor]:
     if hadamard is not None:
         weight = rotate_hadamard(weight, hadamard=hadamard)
@@ -273,7 +272,7 @@ def quantize_int_mm(weight: torch.FloatTensor, dim: int = -1, hadamard: torch.Fl
     return weight, scale
 
 
-@devices.inference_context()
+@inference_context()
 def quantize_uint_mm(weight: torch.FloatTensor, dim: int = -1, hadamard: torch.FloatTensor | None = None, matmul_dtype: str = "uint8", use_sr: bool = False) -> tuple[torch.FloatTensor, torch.FloatTensor]:
     if hadamard is not None:
         weight = rotate_hadamard(weight, hadamard=hadamard)
@@ -286,7 +285,7 @@ def quantize_uint_mm(weight: torch.FloatTensor, dim: int = -1, hadamard: torch.F
     return weight, scale, zero_point
 
 
-@devices.inference_context()
+@inference_context()
 def quantize_fp_mm(weight: torch.FloatTensor, dim: int = -1, hadamard: torch.FloatTensor | None = None, matmul_dtype: str = "float8_e4m3fn", use_sr: bool = False) -> tuple[torch.Tensor, torch.FloatTensor]:
     if hadamard is not None:
         weight = rotate_hadamard(weight, hadamard=hadamard)

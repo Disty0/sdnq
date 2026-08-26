@@ -1,7 +1,6 @@
 import torch
 
-from .....sdnext import devices
-from .....common import compile_func
+from .....common import compile_func, inference_context
 from .....kernel_wrappers import int_scaled_mm_func, use_contiguous_fp16_mm, include_mm_kernel_in_compile
 from .....dequantizer import dequantize_symmetric_compiled, dequantize_asymmetric_compiled
 from .....quant_utils import quantize_uint_mm, rotate_hadamard, rotate_hadamard_compiled, get_hadamard
@@ -11,7 +10,7 @@ from ..forward import check_mats, quantized_linear_with_backward
 from .linear_uint8_dynamic import uint8_matmul_dynamic
 
 
-@devices.inference_context()
+@inference_context()
 def quantize_uint_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_reshape: bool = True, use_sr: bool = False) -> tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     if do_input_reshape:
         input = input.flatten(0,-2)
@@ -19,7 +18,7 @@ def quantize_uint_mm_input(input: torch.FloatTensor, dim: int = -1, do_input_res
     return input, input_scale, input_zero_point
 
 
-@devices.inference_context()
+@inference_context()
 def get_uint8_matmul_inputs(
     input: torch.FloatTensor,
     weight: torch.Tensor,
@@ -92,7 +91,7 @@ def get_uint8_matmul_inputs(
     return input, weight, input_scale, scale, zero_bias, bias_to_add_after, return_dtype, output_shape
 
 
-@devices.inference_context()
+@inference_context()
 def uint8_matmul(
     input: torch.FloatTensor,
     weight: torch.Tensor,
@@ -129,7 +128,7 @@ def uint8_matmul(
     return result
 
 
-@devices.inference_context()
+@inference_context()
 def uint8_matmul_backward(
     grad_output: torch.FloatTensor,
     input: torch.FloatTensor | None,

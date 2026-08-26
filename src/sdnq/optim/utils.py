@@ -1,11 +1,10 @@
 import torch
 
-from ..sdnext import devices
-from ..common import compile_func, dtype_dict, torch_dtype_dict
+from ..common import compile_func, dtype_dict, torch_dtype_dict, inference_context
 from ..training import SDNQTensor
 
 
-@devices.inference_context()
+@inference_context()
 def create_quantized_buffer(buffer: torch.FloatTensor, group: dict) -> SDNQTensor:
     return SDNQTensor.from_float(
         buffer.to(dtype=torch.float32),
@@ -22,7 +21,7 @@ def create_quantized_buffer(buffer: torch.FloatTensor, group: dict) -> SDNQTenso
 )
 
 
-@devices.inference_context()
+@inference_context()
 def get_param_grad(
     param: torch.nn.Parameter,
     clip: float = 1.0,
@@ -43,7 +42,7 @@ def get_param_grad(
     return param_fp32, grad
 
 
-@devices.inference_context()
+@inference_context()
 def update_param_(
     param: torch.nn.Parameter,
     param_fp32: torch.FloatTensor,
@@ -91,7 +90,7 @@ def update_param_(
     return param
 
 
-@devices.inference_context()
+@inference_context()
 def copy_stochastic_(
     target: torch.FloatTensor,
     source: torch.FloatTensor,
@@ -116,7 +115,7 @@ def copy_stochastic_(
         )
 
 
-@devices.inference_context()
+@inference_context()
 def lerp_buffer_stochastic_(
     buffer: torch.FloatTensor,
     update: torch.FloatTensor,
@@ -135,7 +134,7 @@ def lerp_buffer_stochastic_(
     return buffer, buffer_fp32
 
 
-@devices.inference_context()
+@inference_context()
 def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, norm_mode: str, clips: tuple[float]) -> torch.FloatTensor:
     if isinstance(clips, float):
         clip, clip2 = clips, 0
@@ -171,7 +170,7 @@ def apply_norm_to_update_(update: torch.FloatTensor, param: torch.FloatTensor, n
     return update.nan_to_num_().clamp_(-clip,clip)
 
 
-@devices.inference_context()
+@inference_context()
 def send_buffers_to_device(state: dict, device: torch.device, non_blocking: bool) -> dict:
     for key, value in state.items():
         if isinstance(value, torch.Tensor) and value.device != device and key != "kahan_buffer":
@@ -179,7 +178,7 @@ def send_buffers_to_device(state: dict, device: torch.device, non_blocking: bool
     return state
 
 
-@devices.inference_context()
+@inference_context()
 def send_buffers_to_cpu(state: dict, non_blocking: bool) -> dict:
     for key, value in state.items():
         if isinstance(value, torch.Tensor) and value.device.type != "cpu" and key != "kahan_buffer":

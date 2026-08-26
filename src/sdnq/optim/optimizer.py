@@ -5,7 +5,7 @@ from itertools import chain
 
 import torch
 
-from ..sdnext import devices
+from ..common import inference_context
 from ..training import SDNQTensor
 from .utils import get_param_grad, get_param_grad_compiled, update_param_, update_param_compiled_, send_buffers_to_device, send_buffers_to_cpu
 
@@ -77,15 +77,15 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["offload_non_blocking_cpu"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "offload_non_blocking_cpu", group["offload_non_blocking"])
         return group
 
-    @devices.inference_context()
+    @inference_context()
     def init_state(self, param: torch.Tensor, group: dict, state: dict) -> dict:
         raise NotImplementedError
 
-    @devices.inference_context()
+    @inference_context()
     def get_param_update(self, param_fp32: torch.FloatTensor, grad: torch.FloatTensor, group: dict, state: dict) -> torch.FloatTensor:
         raise NotImplementedError
 
-    @devices.inference_context()
+    @inference_context()
     def step(self, closure=None):
         grad_scale = getattr(self, "grad_scale", None)
 

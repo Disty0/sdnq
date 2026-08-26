@@ -2,8 +2,7 @@ from dataclasses import dataclass
 
 import torch
 
-from .sdnext import devices
-from .common import dtype_dict, compile_func, conv_types, conv_transpose_types
+from .common import dtype_dict, compile_func, conv_types, conv_transpose_types, inference_context
 from .kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm, use_tensorwise_fp8_matmul, is_fp8_compile_supported
 from .quant_utils import quantize_int_mm, quantize_uint_mm, quantize_fp_mm, rotate_hadamard, get_hadamard
 from .packed_int import unpack_int
@@ -11,7 +10,7 @@ from .packed_float import unpack_float
 from .layers import SDNQLayer
 
 
-@devices.inference_context()
+@inference_context()
 def dequantize_asymmetric(
     weight: torch.Tensor,
     scale: torch.FloatTensor,
@@ -48,7 +47,7 @@ def dequantize_asymmetric(
     return result
 
 
-@devices.inference_context()
+@inference_context()
 def dequantize_symmetric(
     weight: torch.Tensor,
     scale: torch.FloatTensor,
@@ -84,7 +83,7 @@ def dequantize_symmetric(
     return result
 
 
-@devices.inference_context()
+@inference_context()
 def dequantize_codebook(
     weight: torch.Tensor,
     scale: torch.FloatTensor,
@@ -131,7 +130,7 @@ def dequantize_codebook(
     return result
 
 
-@devices.inference_context()
+@inference_context()
 def dequantize_weight(
     weights_dtype: str,
     weight: torch.Tensor,
@@ -162,7 +161,7 @@ def dequantize_weight(
         return dequantize_symmetric(weight, scale, svd_up=svd_up, svd_down=svd_down, hadamard=hadamard, dtype=dtype, result_shape=result_shape, skip_quantized_matmul=skip_quantized_matmul, re_quantize_for_matmul=re_quantize_for_matmul)
 
 
-@devices.inference_context()
+@inference_context()
 def re_quantize_int_mm(weight: torch.FloatTensor, matmul_dtype: str = "int8") -> tuple[torch.Tensor, torch.FloatTensor]:
     if weight.ndim > 2: # convs
         weight = weight.flatten(1,-1)
@@ -174,7 +173,7 @@ def re_quantize_int_mm(weight: torch.FloatTensor, matmul_dtype: str = "int8") ->
     return weight, scale
 
 
-@devices.inference_context()
+@inference_context()
 def re_quantize_uint_mm(weight: torch.FloatTensor, matmul_dtype: str = "uint8") -> tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     if weight.ndim > 2: # convs
         weight = weight.flatten(1,-1)
@@ -186,7 +185,7 @@ def re_quantize_uint_mm(weight: torch.FloatTensor, matmul_dtype: str = "uint8") 
     return weight, scale, zero_point
 
 
-@devices.inference_context()
+@inference_context()
 def re_quantize_fp_mm(weight: torch.FloatTensor, matmul_dtype: str = "float8_e4m3fn") -> tuple[torch.Tensor, torch.FloatTensor]:
     if weight.ndim > 2: # convs
         weight = weight.flatten(1,-1)
@@ -200,7 +199,7 @@ def re_quantize_fp_mm(weight: torch.FloatTensor, matmul_dtype: str = "float8_e4m
     return weight, scale
 
 
-@devices.inference_context()
+@inference_context()
 def re_quantize_matmul(
     weights_dtype: str,
     weight: torch.Tensor,
@@ -239,7 +238,7 @@ def re_quantize_matmul(
         return re_quantize_fp_mm(weight, matmul_dtype=matmul_dtype)
 
 
-@devices.inference_context()
+@inference_context()
 def dequantize_sdnq_module(model: torch.nn.Module) -> torch.nn.Module:
     if isinstance(model, SDNQLayer):
         model = model.dequantize()
@@ -254,7 +253,7 @@ def dequantize_sdnq_module(model: torch.nn.Module) -> torch.nn.Module:
     return model
 
 
-@devices.inference_context()
+@inference_context()
 def dequantize_sdnq_model(model: torch.nn.Module) -> torch.nn.Module:
     model = dequantize_sdnq_module(model)
     if hasattr(model, "quantization_method"):
@@ -349,7 +348,7 @@ class SDNQDequantizer:
         self.is_integer_matmul = dtype_dict[quantized_matmul_dtype]["is_integer"]
         self.is_unsigned_matmul = dtype_dict[quantized_matmul_dtype]["is_unsigned"]
 
-    @devices.inference_context()
+    @inference_context()
     def re_quantize_matmul(
         self,
         weight: torch.Tensor,
@@ -385,7 +384,7 @@ class SDNQDequantizer:
             layer_class_name=self.layer_class_name,
         )
 
-    @devices.inference_context()
+    @inference_context()
     def __call__(
         self,
         weight: torch.Tensor,

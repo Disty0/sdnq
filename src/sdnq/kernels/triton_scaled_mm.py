@@ -7,7 +7,7 @@ from torch.library import triton_op, wrap_triton
 import triton
 import triton.language as tl
 
-from ..sdnext import devices, shared
+from ..common import logger, inference_context
 from ..utils import get_cache_sizes
 
 
@@ -55,7 +55,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 
     cache_size, smem_size = get_cache_sizes(device)
     if SDNQ_DEBUG_TRITON_AUTOTUNE:
-        shared.log.debug(f"SDNQ Triton MM: Detected device={device} cache_size={cache_size} smem_size={smem_size}")
+        logger.debug(f"SDNQ Triton MM: Detected device={device} cache_size={cache_size} smem_size={smem_size}")
     if cache_size > 0 or smem_size > 0:
         pruned_configs = []
         for config in configs:
@@ -98,13 +98,13 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             if (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
                 pruned_configs.append(config)
             elif SDNQ_DEBUG_TRITON_AUTOTUNE:
-                shared.log.debug(f"SDNQ Triton MM: Pruned config cache_req={cache_req} smem_req={smem_req} config=({config.kwargs} num_warps={config.num_warps} num_stages={config.num_stages})")
+                logger.debug(f"SDNQ Triton MM: Pruned config cache_req={cache_req} smem_req={smem_req} config=({config.kwargs} num_warps={config.num_warps} num_stages={config.num_stages})")
 
         if pruned_configs:
             configs = pruned_configs
         elif not from_small:
             if SDNQ_DEBUG_TRITON_AUTOTUNE:
-                shared.log.debug("SDNQ Triton MM: No configs fit in cache/smem, trying small configs.")
+                logger.debug("SDNQ Triton MM: No configs fit in cache/smem, trying small configs.")
             return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
     return configs
 
@@ -237,7 +237,7 @@ def sdnq_scaled_mm_kernel(
 
 
 @triton_op("sdnq::scaled_mm", mutates_args={})
-@devices.inference_context()
+@inference_context()
 def sdnq_scaled_mm(
     a: torch.Tensor,
     b: torch.Tensor,
