@@ -3,7 +3,7 @@ import sys
 import torch
 
 from .sdnext import devices, shared
-from .common import compile_func
+from .common import compile_func, torch_version
 
 
 if os.environ.get("SDNQ_ALLOW_FP8_MM", None) is None:
@@ -95,7 +95,7 @@ else:
 
 if os.environ.get("SDNQ_USE_CONTIGUOUS_MM", None) is None:
     use_contiguous_int8_mm = bool(is_rdna2_and_older or devices.backend in {"ipex", "xpu", "cpu", "mps", "openvino", "zluda"})
-    use_contiguous_fp16_mm = bool(use_contiguous_int8_mm or devices.backend == "rocm")
+    use_contiguous_fp16_mm = bool(use_contiguous_int8_mm or (devices.backend == "rocm" and torch_version[0] == 2 and torch_version[1] <= 13))
     use_contiguous_fp8_mm = bool(use_contiguous_fp16_mm and not is_fp8_mm_supported)
 else:
     use_contiguous_int8_mm = bool(os.environ.get("SDNQ_USE_CONTIGUOUS_MM", "0").lower() not in {"0", "false", "no"})
