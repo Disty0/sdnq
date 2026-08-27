@@ -4,13 +4,9 @@ import platform
 import torch
 from tqdm import tqdm
 
-import sdnq.common
-import sdnq.kernel_wrappers
-import sdnq.quantizer
-from sdnq import SDNQConfig, sdnq_quantize_layer
-
 
 def get_device_name(device: torch.device):
+    import sdnq.kernel_wrappers
     device = torch.device(device)
     if sdnq.kernel_wrappers.use_openvino_mm and device.type == "cpu":
         from sdnq.kernels.openvino_mm import OV_DEVICE
@@ -71,6 +67,11 @@ def main(
     n: int | None = None,
     k: int | None = None,
 ) -> None:
+    import sdnq.common
+    import sdnq.kernel_wrappers
+    import sdnq.quantizer
+    from sdnq import SDNQConfig, sdnq_quantize_layer
+
     if device is None:
         device = sdnq.common.torch_device
     if dtype is None:
@@ -133,7 +134,14 @@ def main(
 
 
 if __name__ == "__main__":
+    import os
     import argparse
+    import logging
+
+    os.environ.setdefault("SDNQ_DEBUG_TRITON_AUTOTUNE", "1")
+    logging.basicConfig(level=logging.INFO, format="%(name)s | %(levelname)s | %(message)s")
+    logging.getLogger("sdnq").setLevel(logging.DEBUG)
+
     parser = argparse.ArgumentParser(description="Create a bucket list with a given dataset path")
     parser.add_argument("--steps", default=100, type=int)
     parser.add_argument("--mnk", default=8192, type=int)

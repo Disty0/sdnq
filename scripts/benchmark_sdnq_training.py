@@ -6,33 +6,9 @@ import platform
 import torch
 from tqdm import tqdm
 
-import sdnq.common
-import sdnq.kernel_wrappers
-from sdnq.training import SDNQTensor
-from sdnq.training.layers.linear.forward import quantized_linear_with_backward, quantized_linear_with_backward_ckpt
-
-from sdnq.training.layers.linear.linear_int8.linear_int8 import int8_matmul_with_backward
-from sdnq.training.layers.linear.linear_int8.linear_int8_ckpt import int8_matmul_with_backward_ckpt
-from sdnq.training.layers.linear.linear_int8.linear_int8_dynamic import int8_matmul_dynamic_with_backward
-from sdnq.training.layers.linear.linear_int8.linear_int8_dynamic_ckpt import int8_matmul_dynamic_with_backward_ckpt
-
-from sdnq.training.layers.linear.linear_uint8.linear_uint8 import uint8_matmul_with_backward
-from sdnq.training.layers.linear.linear_uint8.linear_uint8_ckpt import uint8_matmul_with_backward_ckpt
-from sdnq.training.layers.linear.linear_uint8.linear_uint8_dynamic import uint8_matmul_dynamic_with_backward
-from sdnq.training.layers.linear.linear_uint8.linear_uint8_dynamic_ckpt import uint8_matmul_dynamic_with_backward_ckpt
-
-from sdnq.training.layers.linear.linear_fp8.linear_fp8 import fp8_matmul_with_backward
-from sdnq.training.layers.linear.linear_fp8.linear_fp8_ckpt import fp8_matmul_with_backward_ckpt
-from sdnq.training.layers.linear.linear_fp8.linear_fp8_dynamic import fp8_matmul_dynamic_with_backward
-from sdnq.training.layers.linear.linear_fp8.linear_fp8_dynamic_ckpt import fp8_matmul_dynamic_with_backward_ckpt
-
-from sdnq.training.layers.linear.linear_fp16.linear_fp16 import fp16_matmul_with_backward
-from sdnq.training.layers.linear.linear_fp16.linear_fp16_ckpt import fp16_matmul_with_backward_ckpt
-from sdnq.training.layers.linear.linear_fp16.linear_fp16_dynamic import fp16_matmul_dynamic_with_backward
-from sdnq.training.layers.linear.linear_fp16.linear_fp16_dynamic_ckpt import fp16_matmul_dynamic_with_backward_ckpt
-
 
 def get_device_name(device: torch.device):
+    import sdnq.kernel_wrappers
     device = torch.device(device)
     if sdnq.kernel_wrappers.use_openvino_mm and device.type == "cpu":
         from sdnq.kernels.openvino_mm import OV_DEVICE
@@ -99,6 +75,31 @@ def main(
     n: int | None = None,
     k: int | None = None,
 ) -> None:
+    import sdnq.common
+    import sdnq.kernel_wrappers
+    from sdnq.training import SDNQTensor
+    from sdnq.training.layers.linear.forward import quantized_linear_with_backward, quantized_linear_with_backward_ckpt
+
+    from sdnq.training.layers.linear.linear_int8.linear_int8 import int8_matmul_with_backward
+    from sdnq.training.layers.linear.linear_int8.linear_int8_ckpt import int8_matmul_with_backward_ckpt
+    from sdnq.training.layers.linear.linear_int8.linear_int8_dynamic import int8_matmul_dynamic_with_backward
+    from sdnq.training.layers.linear.linear_int8.linear_int8_dynamic_ckpt import int8_matmul_dynamic_with_backward_ckpt
+
+    from sdnq.training.layers.linear.linear_uint8.linear_uint8 import uint8_matmul_with_backward
+    from sdnq.training.layers.linear.linear_uint8.linear_uint8_ckpt import uint8_matmul_with_backward_ckpt
+    from sdnq.training.layers.linear.linear_uint8.linear_uint8_dynamic import uint8_matmul_dynamic_with_backward
+    from sdnq.training.layers.linear.linear_uint8.linear_uint8_dynamic_ckpt import uint8_matmul_dynamic_with_backward_ckpt
+
+    from sdnq.training.layers.linear.linear_fp8.linear_fp8 import fp8_matmul_with_backward
+    from sdnq.training.layers.linear.linear_fp8.linear_fp8_ckpt import fp8_matmul_with_backward_ckpt
+    from sdnq.training.layers.linear.linear_fp8.linear_fp8_dynamic import fp8_matmul_dynamic_with_backward
+    from sdnq.training.layers.linear.linear_fp8.linear_fp8_dynamic_ckpt import fp8_matmul_dynamic_with_backward_ckpt
+
+    from sdnq.training.layers.linear.linear_fp16.linear_fp16 import fp16_matmul_with_backward
+    from sdnq.training.layers.linear.linear_fp16.linear_fp16_ckpt import fp16_matmul_with_backward_ckpt
+    from sdnq.training.layers.linear.linear_fp16.linear_fp16_dynamic import fp16_matmul_dynamic_with_backward
+    from sdnq.training.layers.linear.linear_fp16.linear_fp16_dynamic_ckpt import fp16_matmul_dynamic_with_backward_ckpt
+
     if device is None:
         device = sdnq.common.torch_device
     if dtype is None:
@@ -324,7 +325,14 @@ def main(
 
 
 if __name__ == "__main__":
+    import os
     import argparse
+    import logging
+
+    os.environ.setdefault("SDNQ_DEBUG_TRITON_AUTOTUNE", "1")
+    logging.basicConfig(level=logging.INFO, format="%(name)s | %(levelname)s | %(message)s")
+    logging.getLogger("sdnq").setLevel(logging.DEBUG)
+
     parser = argparse.ArgumentParser(description="Create a bucket list with a given dataset path")
     parser.add_argument("--steps", default=50, type=int)
     parser.add_argument("--mnk", default=8192, type=int)
