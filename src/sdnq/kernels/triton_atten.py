@@ -119,6 +119,9 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             elif SDNQ_DEBUG_TRITON_AUTOTUNE:
                 logger.debug(f"SDNQ Triton Atten: Pruned config cache_req={cache_req} smem_req={smem_req} config=({config.kwargs} num_warps={config.num_warps} num_stages={config.num_stages})")
 
+        smem_req += 4096
+        cache_req = int(cache_req * 2)
+
         if pruned_configs:
             configs = pruned_configs
         elif not from_small:

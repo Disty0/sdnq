@@ -95,6 +95,9 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             else:
                 cache_req = 0
 
+            smem_req += 4096
+            cache_req = int(cache_req * 2)
+
             if (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
                 pruned_configs.append(config)
             elif SDNQ_DEBUG_TRITON_AUTOTUNE:
