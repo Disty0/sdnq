@@ -7,7 +7,7 @@ import torch
 
 sdnq_version = "0.2.6"
 sdnq_keys = {"weight", "scale", "zero_point", "svd_up", "svd_down"}
-logger = logging.getLogger("sdnq")
+logger = logging.getLogger(os.environ.get("SDNQ_LOGGER_NAME", "sdnq"))
 
 torch_version = torch.__version__[:4]
 if torch_version[-1] not in {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}:
