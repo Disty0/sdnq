@@ -114,13 +114,13 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
                 smem_req = smem_M + ((smem_N + smem_MN) * config.num_stages)
                 cache_req = cache_M + ((cache_N + cache_MN) * config.num_stages)
 
+            smem_req += 4096
+            cache_req = int(cache_req * 2)
+
             if (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
                 pruned_configs.append(config)
             elif SDNQ_DEBUG_TRITON_AUTOTUNE:
                 logger.debug(f"SDNQ Triton Atten: Pruned config cache_req={cache_req} smem_req={smem_req} config=({config.kwargs} num_warps={config.num_warps} num_stages={config.num_stages})")
-
-        smem_req += 4096
-        cache_req = int(cache_req * 2)
 
         if pruned_configs:
             configs = pruned_configs
