@@ -18,18 +18,15 @@ min_block_size = int(os.environ.get("SDNQ_TRITON_ATTEN_MIN_BLOCK_SIZE", "256"))
 block_count_chunk = 4 # int32 entries per descriptor load of the block counts, 16 bytes
 block_index_chunk = 16 # int32 entries per descriptor load of the block index lists, 64 bytes
 autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=w, num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // (8 if torch.xpu.is_available() else 16)), num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128").replace(" ","").split(",")]
-    for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32").replace(" ","").split(",")]
-    for w in [int(w) for w in os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_LIST", "8,16" if torch.xpu.is_available() else "4,8").replace(" ","").split(",")]
-    for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "1" if (torch.cuda.is_available() and torch.version.hip) else "1,2").replace(" ","").split(",")]
+    for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32,64").replace(" ","").split(",")]
+    for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "1,2").replace(" ","").split(",")]
 ]
 
 small_autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=w, num_stages=s)
-    for BM in [32,64] for BN in [16,32]
-    for w in ([4,8] if torch.xpu.is_available() else [2,4])
-    for s in ([1,] if (torch.cuda.is_available() and torch.version.hip) else [2,])
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // (8 if torch.xpu.is_available() else 16)), num_stages=s)
+    for BM in [32,64] for BN in [16,32,64] for s in [1,2]
 ]
 
 
@@ -48,7 +45,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
         conf for conf in configs if (
             conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["QN"], 32 if from_small else 64)
             and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["KN"], 32 if is_int8 else 16)
-            and (is_dkv_backward or named_args["is_causal"] == 0 or conf.kwargs["BLOCK_SIZE_M"] >= conf.kwargs["BLOCK_SIZE_N"])
+            and (is_dkv_backward or (named_args["is_causal"] == 0 and named_args.get("mask_ptr") is None) or conf.kwargs["BLOCK_SIZE_M"] >= conf.kwargs["BLOCK_SIZE_N"])
         )
     ]
     if pruned_configs:
@@ -608,11 +605,11 @@ def get_attn_inputs(
     if sm_scale is None:
         sm_scale = QHD ** -0.5
     if not is_pow2(QHD):
-        query = torch.nn.functional.pad(query, (0, next_power_of_2(QHD) - QHD))
+        query = torch.nn.functional.pad(query, (0, next_power_of_2(QHD) - QHD)).contiguous()
     if not is_pow2(KHD):
-        key = torch.nn.functional.pad(key, (0, next_power_of_2(KHD) - KHD))
+        key = torch.nn.functional.pad(key, (0, next_power_of_2(KHD) - KHD)).contiguous()
     if not is_pow2(VHD):
-        value = torch.nn.functional.pad(value, (0, next_power_of_2(VHD) - VHD))
+        value = torch.nn.functional.pad(value, (0, next_power_of_2(VHD) - VHD)).contiguous()
     if attn_mask is not None:
         if attn_mask.dtype == torch.bool:
             attn_mask = attn_mask.view(dtype=torch.int8)
