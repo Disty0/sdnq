@@ -7,7 +7,7 @@ import triton
 import triton.language as tl
 
 from ..common import inference_context
-from .triton_scaled_mm import min_block_size, autotune_configs, prune_configs, USE_FP16_ACCUM
+from .triton_scaled_mm import block_size_divisor, autotune_configs, prune_configs, USE_FP16_ACCUM
 
 
 @triton.autotune(
@@ -142,9 +142,9 @@ def sdnq_triton_mm(
         (0 if bias is None else bias.ndim),
         (1 if b.is_contiguous() else 0),
         (1 if USE_FP16_ACCUM else 0),
-        math.ceil(M / min_block_size),
-        math.ceil(N / min_block_size),
-        math.ceil(K / min_block_size),
+        math.ceil(M / block_size_divisor),
+        math.ceil(N / block_size_divisor),
+        math.ceil(K / block_size_divisor),
         str(a.dtype), str(c.dtype),
     )
     return c

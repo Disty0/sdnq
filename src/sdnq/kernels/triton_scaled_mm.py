@@ -14,9 +14,10 @@ from ..utils import get_cache_sizes
 USE_FP16_ACCUM = bool(os.environ.get("SDNQ_TRITON_MM_USE_FP16_ACCUM", "0").lower() not in {"0", "false", "no"})
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
 
-min_block_size = int(os.environ.get("SDNQ_TRITON_MM_MIN_BLOCK_SIZE", "256"))
+block_size_divisor = int(os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_DIVISOR", "256"))
+num_warps_divisor = int(os.environ.get("SDNQ_TRITON_MM_NUM_WARPS_DIVISOR", "8" if torch.xpu.is_available() else "16"))
 autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN, BK) // (8 if torch.xpu.is_available() else 16)), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN, BK) // num_warps_divisor), num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_M_LIST", "64,128,256").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_N_LIST", "64,128,256").replace(" ","").split(",")]
     for BK in [int(BK) for BK in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_K_LIST", "32,64").replace(" ","").split(",")]
@@ -25,7 +26,7 @@ autotune_configs = [
 ]
 
 small_autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN, BK) // (8 if torch.xpu.is_available() else 16)), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN, BK) // num_warps_divisor), num_stages=s)
     for BM in [32,64,128] for BN in [32,64,128] for BK in [16,32] for GM in [4,] for s in ([1,] if (torch.cuda.is_available() and torch.version.hip) else [2,])
 ]
 
@@ -267,9 +268,9 @@ def sdnq_scaled_mm(
         (1 if scale_a.numel() == 1 else 0),
         (1 if scale_b.numel() == 1 else 0),
         (1 if USE_FP16_ACCUM else 0),
-        math.ceil(M / min_block_size),
-        math.ceil(N / min_block_size),
-        math.ceil(K / min_block_size),
+        math.ceil(M / block_size_divisor),
+        math.ceil(N / block_size_divisor),
+        math.ceil(K / block_size_divisor),
         str(a.dtype), str(c.dtype),
     )
     return c

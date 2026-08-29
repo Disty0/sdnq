@@ -8,7 +8,7 @@ import triton.language as tl
 
 from ..common import compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, rotate_hadamard, rotate_hadamard_compiled
-from .triton_atten import sdnq_triton_atten, autotune_configs, min_block_size, prune_configs, block_count_chunk, block_index_chunk, get_block_mask_input, check_block_lists
+from .triton_atten import sdnq_triton_atten, autotune_configs, block_size_divisor, prune_configs, block_count_chunk, block_index_chunk, get_block_mask_input, check_block_lists
 
 
 @triton.autotune(
@@ -610,9 +610,9 @@ def sdnq_triton_atten_bwd_dq(
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
-        math.ceil(QN / min_block_size),
-        math.ceil(KN / min_block_size),
-        math.ceil(VN / min_block_size),
+        math.ceil(QN / block_size_divisor),
+        math.ceil(KN / block_size_divisor),
+        math.ceil(VN / block_size_divisor),
         (1 if query_scale is not None else 0),
         (1 if value_scale is not None else 0),
         str(query.dtype), str(value.dtype), str(out_dtype),
@@ -670,9 +670,9 @@ def sdnq_atten_bwd_dkv(
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
-        math.ceil(QN / min_block_size),
-        math.ceil(KN / min_block_size),
-        math.ceil(VN / min_block_size),
+        math.ceil(QN / block_size_divisor),
+        math.ceil(KN / block_size_divisor),
+        math.ceil(VN / block_size_divisor),
         (1 if query_scale is not None else 0),
         (1 if value_scale is not None else 0),
         str(query.dtype), str(value.dtype), str(out_dtype),

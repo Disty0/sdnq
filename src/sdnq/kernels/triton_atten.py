@@ -14,18 +14,19 @@ from ..utils import is_pow2, next_power_of_2, get_cache_sizes
 
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
 
-min_block_size = int(os.environ.get("SDNQ_TRITON_ATTEN_MIN_BLOCK_SIZE", "256"))
 block_count_chunk = 4 # int32 entries per descriptor load of the block counts, 16 bytes
 block_index_chunk = 16 # int32 entries per descriptor load of the block index lists, 64 bytes
+block_size_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_DIVISOR", "256"))
+num_warps_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_DIVISOR", "8" if torch.xpu.is_available() else "16"))
 autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // (8 if torch.xpu.is_available() else 16)), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32,64").replace(" ","").split(",")]
     for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "1,2").replace(" ","").split(",")]
 ]
 
 small_autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // (8 if torch.xpu.is_available() else 16)), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
     for BM in [32,64] for BN in [16,32,64] for s in [1,2]
 ]
 
@@ -438,9 +439,9 @@ def sdnq_atten_fwd(
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
-        math.ceil(QN / min_block_size),
-        math.ceil(KN / min_block_size),
-        math.ceil(VN / min_block_size),
+        math.ceil(QN / block_size_divisor),
+        math.ceil(KN / block_size_divisor),
+        math.ceil(VN / block_size_divisor),
         (1 if query_scale is not None else 0),
         (1 if value_scale is not None else 0),
         str(query.dtype), str(value.dtype), str(out.dtype),
