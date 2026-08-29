@@ -80,7 +80,7 @@ def get_uint8_matmul_dynamic_inputs(
         use_sr=use_sr,
     )
     zero_bias = torch.sum(input, dim=-1, keepdim=True, dtype=torch.int32).to(dtype=input_scale.dtype).mul_(input_scale).mul(zero_point)
-    zero_bias.add_(torch.sum(weight, dim=0, keepdim=True, dtype=torch.int32).to(dtype=scale.dtype).mul_(scale).mul(input_zero_point))
+    zero_bias = torch.sum(weight, dim=0, keepdim=True, dtype=torch.int32).to(dtype=scale.dtype).mul_(scale).mul(input_zero_point).add_(zero_bias)
     zero_bias.add_(torch.mul(input_zero_point, zero_point), alpha=input.shape[-1])
     if bias is not None:
         zero_bias.add_(bias)

@@ -244,7 +244,7 @@ def sdnq_quantize_layer_weight(
         else:
             group_size = -1
     elif group_size == -2:
-        reduction_axes = tuple(range(weight.ndim))
+        reduction_axes = None
 
     cast_scale = True
     transpose_weights = False

@@ -6,9 +6,13 @@ from .utils import is_pow2, is_pow4, next_power_of_2, normalize_device
 
 
 @inference_context()
-def get_scale_asymmetric(weight: torch.FloatTensor, dim: int | list[int], weights_dtype: str) -> tuple[torch.FloatTensor, torch.FloatTensor]:
-    if isinstance(dim, int):
-        zero_point, scale = torch.aminmax(weight, dim=dim, keepdims=True)
+def get_scale_asymmetric(weight: torch.FloatTensor, dim: int | list[int] | None, weights_dtype: str) -> tuple[torch.FloatTensor, torch.FloatTensor]:
+    if dim is None or isinstance(dim, int):
+        zero_point, scale = torch.aminmax(weight, dim=dim, keepdims=bool(dim is not None))
+        if dim is None:
+            one_dims = tuple(1 for _ in range(weight.ndim))
+            zero_point = zero_point.view(one_dims)
+            scale = scale.view(one_dims)
     else:
         zero_point = torch.amin(weight, dim=dim, keepdims=True)
         scale = torch.amax(weight, dim=dim, keepdims=True)
@@ -19,12 +23,16 @@ def get_scale_asymmetric(weight: torch.FloatTensor, dim: int | list[int], weight
 
 
 @inference_context()
-def get_scale_symmetric(weight: torch.FloatTensor, dim: int | list[int], weights_dtype: str) -> torch.FloatTensor:
-    return torch.amax(weight.abs(), dim=dim, keepdims=True).div_(dtype_dict[weights_dtype]["max"])
+def get_scale_symmetric(weight: torch.FloatTensor, dim: int | list[int] | None, weights_dtype: str) -> torch.FloatTensor:
+    scale = torch.amax(weight.abs(), dim=dim, keepdims=bool(dim is not None)).div_(dtype_dict[weights_dtype]["max"])
+    if dim is None:
+        one_dims = tuple(1 for _ in range(weight.ndim))
+        scale = scale.view(one_dims)
+    return scale
 
 
 @inference_context()
-def quantize_weight(weight: torch.FloatTensor, dim: int | list[int], weights_dtype: str, dtype: torch.dtype = None, use_stochastic_rounding: bool = False) -> tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
+def quantize_weight(weight: torch.FloatTensor, dim: int | list[int] | None, weights_dtype: str, dtype: torch.dtype = None, use_stochastic_rounding: bool = False) -> tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     if weight.dtype != torch.float64:
         weight = weight.to(dtype=torch.float32, copy=False)
 
@@ -55,7 +63,7 @@ def quantize_weight(weight: torch.FloatTensor, dim: int | list[int], weights_dty
     return quantized_weight, scale, zero_point
 
 
-def quantize_weight_codebook(weight: torch.FloatTensor, dim: int,  weights_dtype: str = "uint8",  steps: int = 24, dtype: torch.dtype | None = None) -> tuple[torch.Tensor, torch.FloatTensor]:
+def quantize_weight_codebook(weight: torch.FloatTensor, dim: int | list[int] | None,  weights_dtype: str = "uint8",  steps: int = 24, dtype: torch.dtype | None = None) -> tuple[torch.Tensor, torch.FloatTensor]:
     assert dtype_dict[weights_dtype]["is_integer"] and dtype_dict[weights_dtype]["is_unsigned"], "Codebook quantization only supports unsigned integer types."
     if weight.dtype != torch.float64:
         weight = weight.to(dtype=torch.float32, copy=False)
@@ -65,8 +73,8 @@ def quantize_weight_codebook(weight: torch.FloatTensor, dim: int,  weights_dtype
     weight_ndim = weight.ndim
     permuted_shape = None
     full_flat_weight = False
-    if isinstance(dim, (list, tuple)):
-        assert len(dim) == weight_ndim, "Codebook quantization only supports quantization along a single dimension."
+    if dim is None or isinstance(dim, (list, tuple)):
+        assert dim is None or len(dim) == weight_ndim, "Codebook quantization only supports quantization along a single dimension."
         weight = weight.flatten()
         full_flat_weight = True
         scatter_add_dim = 0

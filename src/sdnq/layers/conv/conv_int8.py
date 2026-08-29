@@ -59,9 +59,12 @@ def conv_int8_matmul(
 
     input, input_scale = quantize_int_mm_input(input, dtype=scale.dtype)
     if zero_point is not None:
-        zero_bias = torch.sum(input, dim=-1, keepdim=True, dtype=torch.int32).to(input_scale.dtype).mul_(input_scale).mul(zero_point)
+        zero_bias = torch.sum(input, dim=-1, keepdim=True, dtype=torch.int32).to(dtype=input_scale.dtype).mul_(input_scale).mul(zero_point)
         if bias is not None:
-            zero_bias.add_(bias)
+            if zero_point.numel() == 1:
+                zero_bias = torch.add(zero_bias, bias)
+            else:
+                zero_bias = zero_bias.add_(bias)
         bias = zero_bias
     input, weight = check_mats(input, weight, matmul_dtype="int8")
 

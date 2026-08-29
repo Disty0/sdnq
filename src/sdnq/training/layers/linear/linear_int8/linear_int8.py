@@ -82,7 +82,10 @@ def get_int8_matmul_inputs(
     if zero_point is not None:
         zero_bias = torch.sum(input, dim=-1, keepdim=True, dtype=torch.int32).to(dtype=input_scale.dtype).mul_(input_scale).mul(zero_point)
         if bias is not None:
-            zero_bias.add_(bias)
+            if zero_point.numel() == 1:
+                zero_bias = torch.add(zero_bias, bias)
+            else:
+                zero_bias = zero_bias.add_(bias)
         bias = zero_bias
     input, weight = check_mats(input, weight, matmul_dtype="int8")
     return input, weight, input_scale, scale, bias, bias_to_add_after, return_dtype, output_shape
