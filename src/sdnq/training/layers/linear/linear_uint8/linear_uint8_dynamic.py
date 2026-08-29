@@ -79,11 +79,11 @@ def get_uint8_matmul_dynamic_inputs(
         hadamard=hadamard if rotate_weight else None,
         use_sr=use_sr,
     )
-    zero_bias = torch.sum(input, dim=-1, keepdim=True, dtype=torch.int32).to(dtype=input_scale.dtype).mul_(input_scale).mul(zero_point)
-    zero_bias = torch.sum(weight, dim=0, keepdim=True, dtype=torch.int32).to(dtype=scale.dtype).mul_(scale).mul(input_zero_point).add_(zero_bias)
-    zero_bias.add_(torch.mul(input_zero_point, zero_point), alpha=input.shape[-1])
+    zero_bias = torch.sum(weight, dim=0, keepdim=True, dtype=torch.int32).to(dtype=scale.dtype).mul_(scale).mul(input_zero_point)
+    zero_bias = zero_bias.addcmul_(torch.sum(input, dim=-1, keepdim=True, dtype=torch.int32).to(dtype=input_scale.dtype).mul_(input_scale), zero_point)
+    zero_bias = zero_bias.addcmul_(input_zero_point, zero_point, value=input.shape[-1])
     if bias is not None:
-        zero_bias.add_(bias)
+        zero_bias = zero_bias.add_(bias)
     input, weight = check_mats(input, weight, matmul_dtype="uint8")
     return input, weight, input_scale, scale, zero_bias, bias_to_add_after, return_dtype, output_shape
 
