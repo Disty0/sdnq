@@ -7,7 +7,7 @@ from torch.library import triton_op, wrap_triton
 import triton
 import triton.language as tl
 
-from ..common import logger, compile_func, inference_context
+from ..common import logger, torch_backend, compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
 from ..utils import is_pow2, next_power_of_2, get_cache_sizes
 
@@ -17,17 +17,17 @@ SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "
 block_count_chunk = 4 # int32 entries per descriptor load of the block counts, 16 bytes
 block_index_chunk = 16 # int32 entries per descriptor load of the block index lists, 64 bytes
 block_size_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_DIVISOR", "256"))
-num_warps_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_DIVISOR", "8" if torch.xpu.is_available() else "16"))
+num_warps_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_DIVISOR", "8" if torch_backend in {"ipex", "xpu"} else "16" if torch_backend in {"rocm", "zluda"} else "32"))
 autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
-    for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128").replace(" ","").split(",")]
-    for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32,64").replace(" ","").split(",")]
-    for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "1,2").replace(" ","").split(",")]
+    for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128,256").replace(" ","").split(",")]
+    for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "32,64").replace(" ","").split(",")]
+    for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "2,4" if torch_backend == "cuda" else "1,2").replace(" ","").split(",")]
 ]
 
 small_autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
-    for BM in [32,64] for BN in [16,32,64] for s in [1,2]
+    for BM in [32,64,128] for BN in [16,32] for s in [1,2]
 ]
 
 

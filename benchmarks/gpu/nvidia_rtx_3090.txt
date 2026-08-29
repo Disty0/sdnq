@@ -1,6 +1,6 @@
 ==================================================
-Platform: Linux-6.8.0-101-generic-x86_64-with-glibc2.39
-Device: NVIDIA GeForce RTX 4090
+Platform: Linux-6.8.0-87-generic-x86_64-with-glibc2.39
+Device: NVIDIA GeForce RTX 3090
 Steps: 100 | MNK: 8192 | Float: torch.bfloat16
 M: 16384 | N: 8192 | K: 4096 | Bias: True
 ==================================================
@@ -14,15 +14,15 @@ Triton MM: True
 Triton Scaled MM: True
 OpenVINO MM: True
 ==================================================
-PyTorch Float TFLOPS: 167.56
+PyTorch Float TFLOPS: 76.12
 ==================================================
-SDNQ INT8 TFLOPS: 482.22
-SDNQ UINT8 TFLOPS: 320.29
-SDNQ FP8 TFLOPS: 323.98
-SDNQ FP16 TFLOPS: 166.25
+SDNQ INT8 TFLOPS: 215.85
+SDNQ UINT8 TFLOPS: 166.1
+SDNQ FP8 TFLOPS: 0
+SDNQ FP16 TFLOPS: 73.01
 ==================================================
-SDNQ INT8 Hadamard TFLOPS: 428.01
-SDNQ UINT8 Hadamard TFLOPS: 293.66
-SDNQ FP8 Hadamard TFLOPS: 297.32
-SDNQ FP16 Hadamard TFLOPS: 157.06
+SDNQ INT8 Hadamard TFLOPS: 197.14
+SDNQ UINT8 Hadamard TFLOPS: 153.86
+SDNQ FP8 Hadamard TFLOPS: 0
+SDNQ FP16 Hadamard TFLOPS: 69.8
 ==================================================

@@ -14,15 +14,15 @@ Triton MM: True
 Triton Scaled MM: True
 OpenVINO MM: True
 ==================================================
-PyTorch Float TFLOPS: 92.26
+PyTorch Float TFLOPS: 92.59
 ==================================================
-SDNQ INT8 TFLOPS: 158.87
-SDNQ UINT8 TFLOPS: 122.47
-SDNQ FP8 TFLOPS: 75.72
-SDNQ FP16 TFLOPS: 84.63
+SDNQ INT8 TFLOPS: 160.21
+SDNQ UINT8 TFLOPS: 124.92
+SDNQ FP8 TFLOPS: 77.48
+SDNQ FP16 TFLOPS: 85.41
 ==================================================
-SDNQ INT8 Hadamard TFLOPS: 144.82
-SDNQ UINT8 Hadamard TFLOPS: 113.28
-SDNQ FP8 Hadamard TFLOPS: 72.0
-SDNQ FP16 Hadamard TFLOPS: 80.08
+SDNQ INT8 Hadamard TFLOPS: 145.2
+SDNQ UINT8 Hadamard TFLOPS: 115.39
+SDNQ FP8 Hadamard TFLOPS: 73.61
+SDNQ FP16 Hadamard TFLOPS: 80.88
 ==================================================
