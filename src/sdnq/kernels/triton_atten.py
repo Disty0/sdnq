@@ -21,13 +21,13 @@ num_warps_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_DIVISOR", "8
 autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128,256").replace(" ","").split(",")]
-    for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "32,64").replace(" ","").split(",")]
+    for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32,64").replace(" ","").split(",")]
     for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "2,4" if torch_backend == "cuda" else "1,2").replace(" ","").split(",")]
 ]
 
 small_autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
-    for BM in [32,64,128] for BN in [16,32] for s in ([2,4] if torch_backend == "cuda" else [1,2])
+    for BM in [32,64,128] for BN in [16,32,64] for s in ([2,4] if torch_backend == "cuda" else [1,2])
 ]
 
 
