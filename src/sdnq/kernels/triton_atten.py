@@ -27,7 +27,7 @@ autotune_configs = [
 
 small_autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
-    for BM in [32,64,128] for BN in [16,32] for s in [1,2]
+    for BM in [32,64,128] for BN in [16,32] for s in ([2,4] if torch_backend == "cuda" else [1,2])
 ]
 
 
