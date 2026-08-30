@@ -1,0 +1,28 @@
+==================================================
+Platform: Linux-6.8.0-90-generic-x86_64-with-glibc2.39
+Device: NVIDIA GeForce RTX 5090
+Steps: 100 | MNK: 8192 | Float: torch.bfloat16
+M: 16384 | N: 8192 | K: 4096 | Bias: True
+==================================================
+Torch Compile: True
+MM Kernel in Compile: False
+Contiguous INT8 MM: False
+Contiguous FP16 MM: False
+Contiguous FP8 MM: False
+Tensorwise FP8 MM: True
+Triton MM: True
+Triton Scaled MM: True
+OpenVINO MM: False
+==================================================
+PyTorch Float TFLOPS: 234.21
+==================================================
+SDNQ INT8 TFLOPS: 584.31
+SDNQ UINT8 TFLOPS: 389.03
+SDNQ FP8 TFLOPS: 403.74
+SDNQ FP16 TFLOPS: 200.06
+==================================================
+SDNQ INT8 Hadamard TFLOPS: 482.66
+SDNQ UINT8 Hadamard TFLOPS: 342.07
+SDNQ FP8 Hadamard TFLOPS: 351.77
+SDNQ FP16 Hadamard TFLOPS: 186.59
+==================================================

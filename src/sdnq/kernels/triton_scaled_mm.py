@@ -22,12 +22,7 @@ autotune_configs = [
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_N_LIST", "64,128,256").replace(" ","").split(",")]
     for BK in [int(BK) for BK in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_K_LIST", "32,64").replace(" ","").split(",")]
     for GM in [int(GM) for GM in os.environ.get("SDNQ_TRITON_MM_GROUP_SIZE_M_LIST", "8").replace(" ","").split(",")]
-    for s in [
-        int(s) for s in os.environ.get(
-            "SDNQ_TRITON_MM_NUM_STAGES_LIST",
-            "4" if torch_backend == "cuda" else "2" if torch_backend in {"ipex", "xpu"} else "1"
-    ).replace(" ","").split(",")
-    ]
+    for s in [int(s) for s in os.environ.get("SDNQ_TRITON_MM_NUM_STAGES_LIST", "4" if torch_backend == "cuda" else "2").replace(" ","").split(",")]
 ]
 
 small_autotune_configs = [
