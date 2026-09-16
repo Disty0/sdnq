@@ -149,31 +149,29 @@ def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, steps: int = 8, dt
 
 
 @inference_context()
-def build_hadamard_n2(n: int, dtype: torch.dtype | None = None, device: torch.device | None = None) -> torch.FloatTensor:
+def build_hadamard_n2(n: int, dtype: torch.dtype = torch.float32, device: torch.device | None = None) -> torch.FloatTensor:
     current_size = 2
     H = H_N2 = torch.tensor([[1, 1], [1, -1]], dtype=dtype, device=device)
     while current_size < n:
         H = torch.kron(H, H_N2)
         current_size *= 2
-    H = H.div_(n**0.5)
-    H = prepare_weight_for_matmul(H, matmul_dtype="float16")
+    H = H.div_(n**0.5).contiguous()
     return H
 
 
 @inference_context()
-def build_hadamard_n4(n: int, dtype: torch.dtype | None = None, device: torch.device | None = None) -> torch.FloatTensor:
+def build_hadamard_n4(n: int, dtype: torch.dtype = torch.float32, device: torch.device | None = None) -> torch.FloatTensor:
     current_size = 4
     H = H_N4 = torch.tensor([[ 1,  1,  1, -1], [ 1,  1, -1,  1], [ 1, -1,  1,  1], [-1,  1,  1,  1]], dtype=dtype, device=device)
     while current_size < n:
         H = torch.kron(H, H_N4)
         current_size *= 4
-    H = H.div_(n**0.5)
-    H = prepare_weight_for_matmul(H, matmul_dtype="float16")
+    H = H.div_(n**0.5).contiguous()
     return H
 
 
 @inference_context()
-def build_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.device | None = None) -> torch.FloatTensor:
+def build_hadamard(n: int, dtype: torch.dtype = torch.float32, device: torch.device | None = None) -> torch.FloatTensor:
     if is_pow4(n):
         return build_hadamard_n4(n, device=device, dtype=dtype)
     elif is_pow2(n):
@@ -185,16 +183,23 @@ def build_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.devic
 # 256x256 Hadamard matrix is just 256 KB at FP32
 # And is the exact same matrix on all model layers
 # So we can safely cache a single one
+# using custom_op to avoid tracing in torch.compile
 HADAMARD_MATRIX_CACHE: dict[tuple[int, torch.device, torch.dtype], torch.FloatTensor] = {}
+
+@torch.library.custom_op("sdnq::get_hadamard", mutates_args=())
 @inference_context()
-def get_hadamard(n: int, dtype: torch.dtype | None = None, device: torch.device | None = None) -> torch.FloatTensor:
+def get_hadamard(n: int, dtype: torch.dtype = torch.float32, device: torch.device | None = None) -> torch.Tensor:
     device = normalize_device(device)
     H_key = (n, device, dtype)
     H = HADAMARD_MATRIX_CACHE.get(H_key, None)
     if H is None:
         H = build_hadamard(n, dtype=dtype, device=device)
         HADAMARD_MATRIX_CACHE[H_key] = H
-    return H
+    return H.clone()
+
+@get_hadamard.register_fake
+def get_hadamard_fake(n: int, dtype: torch.dtype = torch.float32, device: torch.device | None = None) -> torch.Tensor:
+    return torch.empty((n,n), dtype=dtype, device=device)
 
 
 @inference_context()
@@ -209,8 +214,12 @@ def rotate_hadamard(weight: torch.Tensor, group_size: int = 256, hadamard: torch
         weight_shape = list(weight.shape)[1:]
         weight = weight.flatten(1,-1)
     weight = weight.contiguous().unflatten(-1, (-1,group_size))
+    if use_contiguous_fp16_mm:
+        # Hadamard matrix is symmetric
+        hadamard = torch.as_strided(hadamard, (group_size, group_size), (group_size, 1))
+    else:
+        hadamard = torch.as_strided(hadamard, (group_size, group_size), (1, group_size))
     result = torch.matmul(weight, hadamard).flatten(-2,-1)
-    del hadamard
     if is_conv:
         result = result.unflatten(-1, weight_shape)
     return result
