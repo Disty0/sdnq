@@ -404,7 +404,7 @@ else:
 
 
 def check_torch_compile() -> bool: # dynamo can be disabled after startup
-    return use_torch_compile and not torch._dynamo.config.disable # pylint: disable=protected-access
+    return use_torch_compile and not torch._dynamo.config.disable
 
 
 if use_torch_compile:
@@ -432,15 +432,16 @@ else:
         return fn
 
 
-def reset_compile_caches():
-    if check_torch_compile():
-        logger.debug('SDNQ compile: dynamo reset')
-        torch._dynamo.reset()
+def reset_caches():
     from .kernel_wrappers import use_openvino_mm
+    from .quant_utils import HADAMARD_MATRIX_CACHE
+    if check_torch_compile():
+        torch._dynamo.reset()
     if use_openvino_mm:
-        logger.debug('SDNQ compile: openvino reset')
         from .kernels.openvino_mm import OV_COMPILED_CACHE
         OV_COMPILED_CACHE.clear()
+    HADAMARD_MATRIX_CACHE.clear()
+reset_compile_caches = reset_caches
 
 
 common_skip_keys = (
