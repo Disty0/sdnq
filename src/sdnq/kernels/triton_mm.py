@@ -18,6 +18,7 @@ from .triton_scaled_mm import block_size_divisor, autotune_configs, prune_config
         "use_fp16_accum",
         "M_AT", "N_AT", "K_AT",
         "a_dtype", "out_dtype",
+        "block_size_divisor_at",
     ],
     prune_configs_by={'early_config_prune': prune_configs},
     cache_results=True,
@@ -31,11 +32,12 @@ def sdnq_triton_mm_kernel(
     bias_ndim: tl.constexpr,
     b_is_contiguous: tl.constexpr,
     use_fp16_accum: tl.constexpr,
+    a_dtype: tl.constexpr, # pylint: disable=unused-argument
+    out_dtype: tl.constexpr, # pylint: disable=unused-argument
     M_AT: tl.constexpr, # pylint: disable=unused-argument
     N_AT: tl.constexpr, # pylint: disable=unused-argument
     K_AT: tl.constexpr, # pylint: disable=unused-argument
-    a_dtype: tl.constexpr, # pylint: disable=unused-argument
-    out_dtype: tl.constexpr, # pylint: disable=unused-argument
+    block_size_divisor_at: tl.constexpr, # pylint: disable=unused-argument
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
     BLOCK_SIZE_K: tl.constexpr,
@@ -142,9 +144,10 @@ def sdnq_triton_mm(
         (0 if bias is None else bias.ndim),
         (1 if b.is_contiguous() else 0),
         (1 if USE_FP16_ACCUM else 0),
+        str(a.dtype), str(c.dtype),
         math.ceil(M / block_size_divisor),
         math.ceil(N / block_size_divisor),
         math.ceil(K / block_size_divisor),
-        str(a.dtype), str(c.dtype),
+        block_size_divisor,
     )
     return c

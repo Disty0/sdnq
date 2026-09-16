@@ -19,6 +19,7 @@ from .triton_atten import sdnq_triton_atten, autotune_configs, block_size_diviso
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
         "VZ", "VH", "VN_AT", "VHD",
+        "block_size_divisor_at",
         "qk_is_quantized",
         "pv_is_quantized",
         "q_dtype", "v_dtype",
@@ -46,15 +47,16 @@ def sdnq_attn_bwd_dq_kernel(
     BLOCK_COUNT_CHUNK: tl.constexpr,
     BLOCK_INDEX_CHUNK: tl.constexpr,
     BZ: tl.constexpr, BH: tl.constexpr,
-    QN_AT: tl.constexpr, # pylint: disable=unused-argument
-    KN_AT: tl.constexpr, # pylint: disable=unused-argument
-    VN_AT: tl.constexpr, # pylint: disable=unused-argument
     qk_is_quantized: tl.constexpr,
     pv_is_quantized: tl.constexpr,
     q_dtype: tl.constexpr, # pylint: disable=unused-argument
     v_dtype: tl.constexpr, # pylint: disable=unused-argument
     out_dtype: tl.constexpr, # pylint: disable=unused-argument
     mask_dtype: tl.constexpr, # pylint: disable=unused-argument
+    QN_AT: tl.constexpr, # pylint: disable=unused-argument
+    KN_AT: tl.constexpr, # pylint: disable=unused-argument
+    VN_AT: tl.constexpr, # pylint: disable=unused-argument
+    block_size_divisor_at: tl.constexpr, # pylint: disable=unused-argument
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
 ) -> None:
@@ -273,6 +275,7 @@ def sdnq_attn_bwd_dq_kernel(
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
         "VZ", "VH", "VN_AT", "VHD",
+        "block_size_divisor_at",
         "qk_is_quantized",
         "pv_is_quantized",
         "q_dtype", "v_dtype",
@@ -302,15 +305,16 @@ def sdnq_attn_bwd_dkv_kernel(
     BLOCK_COUNT_CHUNK: tl.constexpr,
     BLOCK_INDEX_CHUNK: tl.constexpr,
     BZ: tl.constexpr, BH: tl.constexpr,
-    QN_AT: tl.constexpr, # pylint: disable=unused-argument
-    KN_AT: tl.constexpr, # pylint: disable=unused-argument
-    VN_AT: tl.constexpr, # pylint: disable=unused-argument
     qk_is_quantized: tl.constexpr,
     pv_is_quantized: tl.constexpr,
     q_dtype: tl.constexpr, # pylint: disable=unused-argument
     v_dtype: tl.constexpr, # pylint: disable=unused-argument
     out_dtype: tl.constexpr, # pylint: disable=unused-argument
     mask_dtype: tl.constexpr, # pylint: disable=unused-argument
+    QN_AT: tl.constexpr, # pylint: disable=unused-argument
+    KN_AT: tl.constexpr, # pylint: disable=unused-argument
+    VN_AT: tl.constexpr, # pylint: disable=unused-argument
+    block_size_divisor_at: tl.constexpr, # pylint: disable=unused-argument
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
 ) -> None:
@@ -610,13 +614,14 @@ def sdnq_triton_atten_bwd_dq(
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
-        math.ceil(QN / block_size_divisor),
-        math.ceil(KN / block_size_divisor),
-        math.ceil(VN / block_size_divisor),
         (1 if query_scale is not None else 0),
         (1 if value_scale is not None else 0),
         str(query.dtype), str(value.dtype), str(out_dtype),
         str(attn_mask.dtype if attn_mask is not None else None),
+        math.ceil(QN / block_size_divisor),
+        math.ceil(KN / block_size_divisor),
+        math.ceil(VN / block_size_divisor),
+        block_size_divisor,
     )
     return dq
 
@@ -670,13 +675,14 @@ def sdnq_atten_bwd_dkv(
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
-        math.ceil(QN / block_size_divisor),
-        math.ceil(KN / block_size_divisor),
-        math.ceil(VN / block_size_divisor),
         (1 if query_scale is not None else 0),
         (1 if value_scale is not None else 0),
         str(query.dtype), str(value.dtype), str(out_dtype),
         str(attn_mask.dtype if attn_mask is not None else None),
+        math.ceil(QN / block_size_divisor),
+        math.ceil(KN / block_size_divisor),
+        math.ceil(VN / block_size_divisor),
+        block_size_divisor,
     )
     return dk, dv
 
