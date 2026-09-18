@@ -151,7 +151,7 @@ def apply_svdquant(weight: torch.FloatTensor, rank: int = 32, steps: int = 8, dt
 @inference_context()
 def build_hadamard_n2(n: int, dtype: torch.dtype = torch.float32, device: torch.device | None = None) -> torch.FloatTensor:
     current_size = 2
-    H = H_N2 = torch.tensor([[1, 1], [1, -1]], dtype=dtype, device=device)
+    H = H_N2 = torch.tensor([[1.0, 1.0], [1.0, -1.0]], dtype=dtype, device=device)
     while current_size < n:
         H = torch.kron(H, H_N2)
         current_size *= 2
@@ -162,7 +162,7 @@ def build_hadamard_n2(n: int, dtype: torch.dtype = torch.float32, device: torch.
 @inference_context()
 def build_hadamard_n4(n: int, dtype: torch.dtype = torch.float32, device: torch.device | None = None) -> torch.FloatTensor:
     current_size = 4
-    H = H_N4 = torch.tensor([[ 1,  1,  1, -1], [ 1,  1, -1,  1], [ 1, -1,  1,  1], [-1,  1,  1,  1]], dtype=dtype, device=device)
+    H = H_N4 = torch.tensor([[1.0, 1.0, 1.0, -1.0], [1.0, 1.0, -1.0, 1.0], [1.0, -1.0, 1.0, 1.0], [-1.0, 1.0, 1.0, 1.0]], dtype=dtype, device=device)
     while current_size < n:
         H = torch.kron(H, H_N4)
         current_size *= 4
