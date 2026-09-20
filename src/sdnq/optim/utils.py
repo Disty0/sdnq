@@ -38,7 +38,11 @@ def get_param_grad(
             max_val = torch.finfo(param.dtype).max
             param_fp32 = param_fp32.clamp_(-max_val, max_val)
     else:
-        param_fp32 = param.nan_to_num_().to(dtype=torch.float32)
+        param = param.nan_to_num_()
+        if param.dtype == torch.float32:
+            param_fp32 = param.clone()
+        else:
+            param_fp32 = param.to(dtype=torch.float32)
     return param_fp32, grad
 
 
@@ -66,7 +70,7 @@ def update_param_(
         param_fp32.mul_(1 - learning_rate * weight_decay)
 
     if kahan_buffer is not None:
-        update = update.mul_(-learning_rate).add_(kahan_buffer)
+        update = torch.add(kahan_buffer.to(dtype=torch.float32), update, alpha=-learning_rate)
         param_fp32 = param_fp32.add_(update)
 
         new_param = param.clone()
