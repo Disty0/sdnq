@@ -51,14 +51,15 @@ def quantize_weight(weight: torch.FloatTensor, dim: int | list[int] | None, weig
 
     if dtype_dict[weights_dtype]["is_integer"]:
         if use_stochastic_rounding:
-            quantized_weight.add_(torch.randn_like(quantized_weight), alpha=0.1)
-        quantized_weight.round_()
+            quantized_weight = quantized_weight.add_(torch.rand_like(quantized_weight)).floor_()
+        else:
+            quantized_weight = quantized_weight.round_()
     else:
         if use_stochastic_rounding:
             mantissa_difference = 1 << (23 - dtype_dict[weights_dtype]["mantissa"])
             quantized_weight = quantized_weight.to(dtype=torch.float32).view(dtype=torch.int32)
             quantized_weight = quantized_weight.add_(torch.randint_like(quantized_weight, low=0, high=mantissa_difference, dtype=torch.int32)).bitwise_and_(-mantissa_difference).view(dtype=torch.float32)
-        quantized_weight.nan_to_num_()
+        quantized_weight = quantized_weight.nan_to_num_()
     quantized_weight = quantized_weight.clamp_(dtype_dict[weights_dtype]["min"], dtype_dict[weights_dtype]["max"]).to(dtype_dict[weights_dtype]["torch_dtype"])
     return quantized_weight, scale, zero_point
 
@@ -284,8 +285,10 @@ def quantize_int_mm(weight: torch.FloatTensor, dim: int = -1, hadamard: torch.Fl
     scale = get_scale_symmetric(weight, dim, matmul_dtype)
     weight = torch.div(weight, scale)
     if use_sr:
-        weight = weight.add_(torch.randn_like(weight), alpha=0.1)
-    weight = weight.round_().clamp_(dtype_dict[matmul_dtype]["min"], dtype_dict[matmul_dtype]["max"]).to(dtype=dtype_dict[matmul_dtype]["torch_dtype"])
+        weight = weight.add_(torch.rand_like(weight)).floor_()
+    else:
+        weight = weight.round_()
+    weight = weight.clamp_(dtype_dict[matmul_dtype]["min"], dtype_dict[matmul_dtype]["max"]).to(dtype=dtype_dict[matmul_dtype]["torch_dtype"])
     return weight, scale
 
 
@@ -297,8 +300,10 @@ def quantize_uint_mm(weight: torch.FloatTensor, dim: int = -1, hadamard: torch.F
     scale, zero_point = get_scale_asymmetric(weight, dim, matmul_dtype)
     weight = torch.sub(weight, zero_point).div_(scale)
     if use_sr:
-        weight = weight.add_(torch.randn_like(weight), alpha=0.1)
-    weight = weight.round_().clamp_(dtype_dict[matmul_dtype]["min"], dtype_dict[matmul_dtype]["max"]).to(dtype=dtype_dict[matmul_dtype]["torch_dtype"])
+        weight = weight.add_(torch.rand_like(weight)).floor_()
+    else:
+        weight = weight.round_()
+    weight = weight.clamp_(dtype_dict[matmul_dtype]["min"], dtype_dict[matmul_dtype]["max"]).to(dtype=dtype_dict[matmul_dtype]["torch_dtype"])
     return weight, scale, zero_point
 
 
