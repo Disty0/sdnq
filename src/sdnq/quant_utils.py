@@ -41,27 +41,27 @@ def quantize_weight(weight: torch.FloatTensor, dim: int | list[int] | None, weig
         if dtype is not None:
             scale = scale.to(dtype=dtype)
             zero_point = zero_point.to(dtype=dtype)
-        quantized_weight = torch.sub(weight, zero_point).div_(scale)
+        weight = torch.sub(weight, zero_point).div_(scale)
     else:
         scale = get_scale_symmetric(weight, dim, weights_dtype)
         zero_point = None
         if dtype is not None:
             scale = scale.to(dtype=dtype)
-        quantized_weight = torch.div(weight, scale)
+        weight = torch.div(weight, scale)
 
     if dtype_dict[weights_dtype]["is_integer"]:
         if use_stochastic_rounding:
-            quantized_weight = quantized_weight.add_(torch.rand_like(quantized_weight)).floor_()
+            weight = weight.add_(torch.rand_like(weight)).floor_()
         else:
-            quantized_weight = quantized_weight.round_()
+            weight = weight.round_()
     else:
         if use_stochastic_rounding:
             mantissa_difference = 1 << (23 - dtype_dict[weights_dtype]["mantissa"])
-            quantized_weight = quantized_weight.to(dtype=torch.float32).view(dtype=torch.int32)
-            quantized_weight = quantized_weight.add_(torch.randint_like(quantized_weight, low=0, high=mantissa_difference, dtype=torch.int32)).bitwise_and_(-mantissa_difference).view(dtype=torch.float32)
-        quantized_weight = quantized_weight.nan_to_num_()
-    quantized_weight = quantized_weight.clamp_(dtype_dict[weights_dtype]["min"], dtype_dict[weights_dtype]["max"]).to(dtype_dict[weights_dtype]["torch_dtype"])
-    return quantized_weight, scale, zero_point
+            weight = weight.to(dtype=torch.float32).view(dtype=torch.int32)
+            weight = weight.add_(torch.randint_like(weight, low=0, high=mantissa_difference, dtype=torch.int32)).bitwise_and_(-mantissa_difference).view(dtype=torch.float32)
+        weight = weight.nan_to_num_()
+    weight = weight.clamp_(dtype_dict[weights_dtype]["min"], dtype_dict[weights_dtype]["max"]).to(dtype_dict[weights_dtype]["torch_dtype"])
+    return weight, scale, zero_point
 
 
 def quantize_weight_codebook(weight: torch.FloatTensor, dim: int | list[int] | None,  weights_dtype: str = "uint8",  steps: int = 24, dtype: torch.dtype | None = None) -> tuple[torch.Tensor, torch.FloatTensor]:
