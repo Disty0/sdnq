@@ -7,7 +7,16 @@ import torch
 
 from ..common import inference_context
 from ..training import SDNQTensor
-from .utils import get_param_grad, get_param_grad_compiled, update_param_, update_param_compiled_, send_buffers_to_device, send_buffers_to_cpu
+
+from .utils import (
+    create_quantized_buffer,
+    get_param_grad,
+    get_param_grad_compiled,
+    update_param_,
+    update_param_compiled_,
+    send_buffers_to_device,
+    send_buffers_to_cpu,
+)
 
 
 class SDNQOptimizer(torch.optim.Optimizer):
@@ -106,7 +115,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
                     if group["use_kahan"]:
                         use_quantized_buffers = group["use_quantized_buffers"] and param.ndim >= group["quantized_buffers_minimum_ndim"] and param.numel() >= group["quantized_buffers_minimum_numel"]
                         if use_quantized_buffers:
-                            state["kahan_buffer"] = SDNQTensor.from_float(torch.zeros_like(param, dtype=torch.float32), weights_dtype=group["quantized_buffers_dtype"], group_size=group["quantized_buffers_group_size"], svd_rank=group["quantized_buffers_svd_rank"], use_svd=group["use_svd_quantization"], use_stochastic_rounding=group["use_stochastic_buffers"])
+                            state["kahan_buffer"] = create_quantized_buffer(torch.zeros_like(param, dtype=torch.float32), group)
                         else:
                             state["kahan_buffer"] = torch.zeros_like(param)
 

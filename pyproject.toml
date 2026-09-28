@@ -44,6 +44,7 @@ messages_control.disable=[
     "protected-access",
     "redefined-builtin",
     "chained-comparison",
+    "unknown-option-value",
     "broad-exception-caught",
     "import-outside-toplevel",
     "relative-beyond-top-level",
