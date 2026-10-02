@@ -751,7 +751,16 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
 
         if self.pre_quantized:
             if param_value is not None:
-                if tensor_name == "weight":
+                scale_is_double_quant = bool(self.quantization_config.scale_dtype is not None and self.quantization_config.scale_dtype != "none")
+                zero_point_is_double_quant = bool(
+                    (self.quantization_config.zero_point_dtype is not None and self.quantization_config.zero_point_dtype != "none")
+                    or (self.quantization_config.zero_point_dtype is None and scale_is_double_quant)
+                )
+                if (
+                    tensor_name in {"weight", "scale_2", "scale_zero_point", "zero_point_scale", "zero_point_2"}
+                    or (scale_is_double_quant and tensor_name == "scale")
+                    or (zero_point_is_double_quant and tensor_name == "zero_point")
+                ):
                     return_dtype = param_value.dtype
                 elif self.quantization_config.dequantize_fp32 and tensor_name in sdnq_keys:
                     if torch.float64 not in {param_value.dtype, self.torch_dtype}:
