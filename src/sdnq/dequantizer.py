@@ -203,7 +203,11 @@ def dequantize_weight(
     re_quantize_for_matmul: bool = False,
     layer_class_name: str = "Linear",
 ) -> torch.FloatTensor:
-    weight = unpack_weights(weight, weights_dtype, quantized_weight_shape=quantized_weight_shape, dtype=scale.dtype if not use_codebook else torch.int32)
+    weight = unpack_weights(
+        weight, weights_dtype,
+        quantized_weight_shape=quantized_weight_shape,
+        dtype=torch.int32 if use_codebook else scale_2.dtype if scale_2 is not None else scale.dtype,
+    )
     scale, zero_point = dequantize_scales(
         scale_dtype, scale,
         scale_2=scale_2,
@@ -303,7 +307,7 @@ def re_quantize_matmul(
         use_codebook=use_codebook,
         use_codebook_scale=use_codebook_scale,
         group_size=group_size,
-        dtype=scale.dtype,
+        dtype=scale_2.dtype if scale_2 is not None else scale.dtype,
         result_shape=result_shape,
         quantized_weight_shape=quantized_weight_shape,
         quantized_scale_shape=quantized_scale_shape,
