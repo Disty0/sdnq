@@ -269,19 +269,20 @@ def apply_sdnq_options_to_module(
                 )
             )
 
-            if upcast_scale or dequantize_fp32:
-                if module.scale.dtype in {torch.float32, torch.float64}:
+            if module.scale_2 is None:
+                if upcast_scale or dequantize_fp32:
+                    if module.scale.dtype in {torch.float32, torch.float64}:
+                        scale_dtype = module.scale.dtype
+                    else:
+                        scale_dtype = torch.float32 if module.sdnq_dequantizer.result_dtype != torch.float64 else torch.float64
+                elif dequantize_fp32 is None and module.scale.dtype in {torch.float32, torch.float64}:
                     scale_dtype = module.scale.dtype
                 else:
-                    scale_dtype = torch.float32 if module.sdnq_dequantizer.result_dtype != torch.float64 else torch.float64
-            elif dequantize_fp32 is None and module.scale.dtype in {torch.float32, torch.float64}:
-                scale_dtype = module.scale.dtype
-            else:
-                scale_dtype = module.sdnq_dequantizer.result_dtype
+                    scale_dtype = module.sdnq_dequantizer.result_dtype
 
-            module.scale.data = module.scale.to(dtype=scale_dtype)
-            if module.zero_point is not None:
-                module.zero_point.data = module.zero_point.to(dtype=scale_dtype)
+                module.scale.data = module.scale.to(dtype=scale_dtype)
+                if module.zero_point is not None and module.zero_point_scale is None:
+                    module.zero_point.data = module.zero_point.to(dtype=scale_dtype)
 
             if current_use_quantized_matmul is not None:
                 if current_use_quantized_matmul != module.sdnq_dequantizer.use_quantized_matmul:

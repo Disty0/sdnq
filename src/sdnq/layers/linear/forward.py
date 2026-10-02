@@ -2,6 +2,7 @@
 
 import torch
 
+from ...utils import get_sdnq_params
 from ...common import inference_context
 from ...kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm, use_contiguous_fp8_mm
 
@@ -23,4 +24,4 @@ def check_mats(input: torch.Tensor, weight: torch.Tensor, matmul_dtype: str = "i
 
 @inference_context()
 def quantized_linear_forward(self, input: torch.FloatTensor) -> torch.FloatTensor:
-    return torch.nn.functional.linear(input, self.sdnq_dequantizer(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down), self.bias)
+    return torch.nn.functional.linear(input, self.sdnq_dequantizer(**get_sdnq_params(self)), self.bias)

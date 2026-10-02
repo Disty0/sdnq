@@ -2,6 +2,9 @@ from collections.abc import Callable
 
 import torch
 
+from ..utils import get_sdnq_params
+from ..common import sdnq_keys
+
 
 class SDNQLayer(torch.nn.Module):
     def __init__(self, original_layer: torch.nn.Module, forward_func: Callable):
@@ -20,8 +23,11 @@ class SDNQLayer(torch.nn.Module):
         if self.weight.__class__.__name__ == "SDNQTensor": # pylint: disable=access-member-before-definition
             self.weight = torch.nn.Parameter(self.weight.dequantize(), requires_grad=True) # pylint: disable=attribute-defined-outside-init
         elif hasattr(self, "sdnq_dequantizer"):
-            self.weight = torch.nn.Parameter(self.sdnq_dequantizer(self.weight, self.scale, zero_point=self.zero_point, svd_up=self.svd_up, svd_down=self.svd_down, skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul), requires_grad=True) # pylint: disable=attribute-defined-outside-init
-            del self.sdnq_dequantizer, self.scale, self.zero_point, self.svd_up, self.svd_down
+            self.weight = torch.nn.Parameter(self.sdnq_dequantizer(**get_sdnq_params(self), skip_quantized_matmul=self.sdnq_dequantizer.use_quantized_matmul), requires_grad=True) # pylint: disable=attribute-defined-outside-init
+            for key in sdnq_keys:
+                if key != "weight" and hasattr(self, key):
+                    delattr(self, key)
+            del self.sdnq_dequantizer
         self.__class__ = self.original_class # pylint: disable=attribute-defined-outside-init
         del self.original_class, self.forward_func
         return self

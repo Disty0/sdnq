@@ -6,7 +6,7 @@ import torch
 
 
 sdnq_version = "0.2.8"
-sdnq_keys = {"weight", "scale", "zero_point", "svd_up", "svd_down"}
+sdnq_keys = {"weight", "scale", "scale_2", "scale_zero_point", "zero_point", "zero_point_scale", "zero_point_2", "svd_up", "svd_down"}
 logger = logging.getLogger(os.environ.get("SDNQ_LOGGER_NAME", "sdnq"))
 
 torch_version = torch.__version__[:4]

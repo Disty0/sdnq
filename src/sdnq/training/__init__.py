@@ -3,14 +3,16 @@ from collections.abc import Callable
 import copy
 import torch
 
+from ..utils import get_sdnq_params
 from ..quantizer import SDNQConfig, QuantizationMethod
+from ..dequantizer import SDNQDequantizer
 from ..loader import apply_sdnq_options_to_model
-from ..common import logger, dtype_dict, linear_types, check_torch_compile, inference_context
+from ..common import logger, sdnq_keys, dtype_dict, linear_types, check_torch_compile, inference_context
 from ..layers import SDNQLayer, get_sdnq_wrapper_class
-
 from ..forward import get_forward_func as get_sdnq_forward_func
+
+from .tensor import SDNQTensor, apply_func_to_sdnq_params
 from .forward import get_forward_func
-from .tensor import SDNQTensor
 
 from ..utils import (
     check_param_name_in,
@@ -28,6 +30,8 @@ def get_quant_kwargs(layer: torch.nn.Module, quantization_config, torch_dtype: t
 
     quant_kwargs = {
         "weights_dtype": quantization_config.weights_dtype,
+        "scale_dtype": quantization_config.scale_dtype,
+        "zero_point_dtype": quantization_config.zero_point_dtype,
         "hadamard_group_size": quantization_config.hadamard_group_size,
         "group_size": quantization_config.group_size,
         "svd_rank": quantization_config.svd_rank,
@@ -36,6 +40,7 @@ def get_quant_kwargs(layer: torch.nn.Module, quantization_config, torch_dtype: t
         "codebook_steps": quantization_config.codebook_steps,
         "use_hadamard": quantization_config.use_hadamard,
         "use_codebook": quantization_config.use_codebook,
+        "use_codebook_scale": quantization_config.use_codebook_scale,
         "use_stochastic_rounding": quantization_config.use_stochastic_rounding,
         "dequantize_fp32": quantization_config.dequantize_fp32,
         "use_grad_ckpt": quantization_config.use_grad_ckpt,
@@ -120,6 +125,8 @@ def apply_sdnq_training_to_module(model: torch.nn.Module, quantization_config: S
                         use_static_quantization,
                         current_group_size,
                         use_codebook=quant_kwargs["use_codebook"],
+                        scale_dtype=quant_kwargs["scale_dtype"],
+                        zero_point_dtype=quant_kwargs["zero_point_dtype"],
                     )
 
                     if quantized_forward is not None:
@@ -137,6 +144,8 @@ def apply_sdnq_training_to_module(model: torch.nn.Module, quantization_config: S
 def sdnq_training_post_load_quant(
     model: torch.nn.Module,
     weights_dtype: str = "uint8",
+    scale_dtype: str | None = None,
+    zero_point_dtype: str | None = None,
     quantized_matmul_dtype: str | None = None,
     hadamard_group_size: int = 256,
     group_size: int = 32,
@@ -146,6 +155,7 @@ def sdnq_training_post_load_quant(
     use_svd: bool = False,
     use_hadamard: bool = False,
     use_codebook: bool = False,
+    use_codebook_scale: bool = False,
     use_grad_ckpt: bool = True,
     use_quantized_matmul: bool = False,
     use_static_quantization: bool = True,
@@ -162,40 +172,50 @@ def sdnq_training_post_load_quant(
     quantization_device: torch.device | None = None,
     return_device: torch.device | None = None,
     torch_dtype: torch.dtype | None = None,
+    quantization_config: SDNQConfig | None = None,
 ) -> torch.nn.Module:
-    quantization_config = SDNQConfig(
-        weights_dtype=weights_dtype,
-        quantized_matmul_dtype=quantized_matmul_dtype,
-        hadamard_group_size=hadamard_group_size,
-        group_size=group_size,
-        svd_rank=svd_rank,
-        svd_steps=svd_steps,
-        codebook_steps=codebook_steps,
-        use_svd=use_svd,
-        use_hadamard=use_hadamard,
-        use_codebook=use_codebook,
-        use_grad_ckpt=use_grad_ckpt,
-        quant_conv=False,
-        quant_embedding=False,
-        use_quantized_matmul=use_quantized_matmul,
-        use_quantized_matmul_conv=False,
-        use_static_quantization=use_static_quantization,
-        use_stochastic_rounding=use_stochastic_rounding,
-        dequantize_fp32=dequantize_fp32,
-        non_blocking=non_blocking,
-        add_skip_keys=add_skip_keys,
-        minimum_allowed_numel=minimum_allowed_numel,
-        minimum_allowed_channel_size=minimum_allowed_channel_size,
-        modules_to_not_convert=modules_to_not_convert,
-        modules_to_not_use_matmul=modules_to_not_use_matmul,
-        modules_dtype_dict=modules_dtype_dict,
-        modules_quant_config=modules_quant_config,
-        quantization_device=quantization_device,
-        return_device=return_device,
-        is_training=True,
-    )
+    if quantization_config is None:
+        quantization_config = SDNQConfig(
+            weights_dtype=weights_dtype,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
+            quantized_matmul_dtype=quantized_matmul_dtype,
+            hadamard_group_size=hadamard_group_size,
+            group_size=group_size,
+            svd_rank=svd_rank,
+            svd_steps=svd_steps,
+            codebook_steps=codebook_steps,
+            use_svd=use_svd,
+            use_hadamard=use_hadamard,
+            use_codebook=use_codebook,
+            use_codebook_scale=use_codebook_scale,
+            use_grad_ckpt=use_grad_ckpt,
+            quant_conv=False,
+            quant_embedding=False,
+            use_quantized_matmul=use_quantized_matmul,
+            use_quantized_matmul_conv=False,
+            use_static_quantization=use_static_quantization,
+            use_stochastic_rounding=use_stochastic_rounding,
+            dequantize_fp32=dequantize_fp32,
+            non_blocking=non_blocking,
+            add_skip_keys=add_skip_keys,
+            minimum_allowed_numel=minimum_allowed_numel,
+            minimum_allowed_channel_size=minimum_allowed_channel_size,
+            modules_to_not_convert=modules_to_not_convert,
+            modules_to_not_use_matmul=modules_to_not_use_matmul,
+            modules_dtype_dict=modules_dtype_dict,
+            modules_quant_config=modules_quant_config,
+            quantization_device=quantization_device,
+            return_device=return_device,
+            is_training=True,
+        )
+    else:
+        quantization_config.quant_conv = False
+        quantization_config.quant_embedding = False
+        quantization_config.use_quantized_matmul_conv = False
+        quantization_config.is_training = True
 
-    if add_skip_keys:
+    if quantization_config.add_skip_keys:
         model, quantization_config = add_module_skip_keys(model, quantization_config)
 
     model, quantization_config = apply_sdnq_training_to_module(model, quantization_config, torch_dtype=torch_dtype)
@@ -229,15 +249,28 @@ def convert_sdnq_layer_to_training(self: SDNQLayer, quantized_matmul_dtype: str 
     use_quantized_matmul = check_quantized_matmul_is_allowed(use_quantized_matmul, output_channel_size, channel_size)
 
     sdnq_dequantizer.use_stochastic_rounding = use_stochastic_rounding
-    weight = torch.nn.Parameter(SDNQTensor(self.weight, self.scale, self.zero_point, self.svd_up, self.svd_down, sdnq_dequantizer), requires_grad=True)
-    quantized_forward = get_forward_func(sdnq_dequantizer.weights_dtype, quantized_matmul_dtype, use_grad_ckpt, use_quantized_matmul, True, sdnq_dequantizer.group_size)
+    weight = torch.nn.Parameter(SDNQTensor(sdnq_dequantizer, **get_sdnq_params(self)), requires_grad=True)
+    quantized_forward = get_forward_func(
+        sdnq_dequantizer.weights_dtype,
+        quantized_matmul_dtype,
+        use_grad_ckpt,
+        use_quantized_matmul,
+        True,
+        sdnq_dequantizer.group_size,
+        use_codebook=sdnq_dequantizer.use_codebook,
+        scale_dtype=sdnq_dequantizer.scale_dtype,
+        zero_point_dtype=sdnq_dequantizer.zero_point_dtype,
+    )
     if inplace:
         self.weight = weight
         if quantized_forward is not None:
             self.forward_func = quantized_forward
         else:
             self.forward_func = getattr(torch.nn, sdnq_dequantizer.layer_class_name).forward
-        del self.sdnq_dequantizer, self.scale, self.zero_point, self.svd_up, self.svd_down
+        for key in sdnq_keys:
+            if key != "weight" and hasattr(self, key):
+                delattr(self, key)
+        del self.sdnq_dequantizer
         return self
     else:
         return weight, quantized_forward
@@ -360,7 +393,7 @@ def convert_sdnq_model_to_training(
 
 
 @inference_context()
-def convert_training_layer_to_sdnq(self: SDNQLayer, inplace: bool = False) -> SDNQLayer | tuple[torch.Tensor, Callable]:
+def convert_training_layer_to_sdnq(self: SDNQLayer, inplace: bool = False) -> SDNQLayer | tuple[SDNQDequantizer, Callable, dict[str, torch.Tensor]]:
     if inplace:
         sdnq_dequantizer = self.weight.sdnq_dequantizer
     else:
@@ -369,29 +402,15 @@ def convert_training_layer_to_sdnq(self: SDNQLayer, inplace: bool = False) -> SD
     sdnq_dequantizer.use_quantized_matmul = False
     quantized_forward = get_sdnq_forward_func(self.original_class.__name__, sdnq_dequantizer.quantized_matmul_dtype, sdnq_dequantizer.use_quantized_matmul)
 
-    weight = torch.nn.Parameter(self.weight.weight, requires_grad=False)
-    scale = torch.nn.Parameter(self.weight.scale, requires_grad=False)
-    if self.weight.zero_point is not None:
-        zero_point = torch.nn.Parameter(self.weight.zero_point, requires_grad=False)
-    else:
-        zero_point = None
-    if self.weight.svd_up is not None:
-        svd_up = torch.nn.Parameter(self.weight.svd_up, requires_grad=False)
-        svd_down = torch.nn.Parameter(self.weight.svd_down, requires_grad=False)
-    else:
-        svd_up, svd_down = None, None
-
+    parameters = apply_func_to_sdnq_params(self.weight, torch.nn.Parameter, kwargs={"requires_grad": False}, do_clone=bool(not inplace))
     if inplace:
-        self.weight = weight
-        self.scale = scale
-        self.zero_point = zero_point
-        self.svd_up = svd_up
-        self.svd_down = svd_down
+        for key in sdnq_keys:
+            setattr(self, key, parameters.get(key))
         self.sdnq_dequantizer = sdnq_dequantizer
         self.forward_func = quantized_forward
         return self
     else:
-        return weight, scale, zero_point, svd_up, svd_down, sdnq_dequantizer, quantized_forward
+        return sdnq_dequantizer, quantized_forward, parameters
 
 
 @inference_context()

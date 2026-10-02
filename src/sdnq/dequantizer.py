@@ -11,10 +11,20 @@ from .layers import SDNQLayer
 
 
 @inference_context()
+def unpack_weights(weight: torch.Tensor, weights_dtype: str | None, quantized_weight_shape: torch.Size | None = None, dtype: torch.dtype | None = None):
+    if weights_dtype is not None and dtype_dict[weights_dtype]["is_packed"]:
+        if dtype_dict[weights_dtype]["is_integer"]:
+            weight = unpack_int(weight, weights_dtype, quantized_weight_shape, dtype=dtype)
+        else:
+            weight = unpack_float(weight, weights_dtype, quantized_weight_shape)
+    return weight
+
+
+@inference_context()
 def dequantize_asymmetric(
     weight: torch.Tensor,
-    scale: torch.FloatTensor,
-    zero_point: torch.FloatTensor,
+    scale: torch.Tensor,
+    zero_point: torch.Tensor,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
@@ -50,7 +60,7 @@ def dequantize_asymmetric(
 @inference_context()
 def dequantize_symmetric(
     weight: torch.Tensor,
-    scale: torch.FloatTensor,
+    scale: torch.Tensor,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
@@ -86,7 +96,7 @@ def dequantize_symmetric(
 @inference_context()
 def dequantize_codebook(
     weight: torch.Tensor,
-    scale: torch.FloatTensor,
+    scale: torch.Tensor,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
@@ -131,28 +141,81 @@ def dequantize_codebook(
 
 
 @inference_context()
+def dequantize_scales(
+    scale_dtype: str,
+    scale: torch.Tensor,
+    scale_2: torch.FloatTensor | None = None,
+    scale_zero_point: torch.FloatTensor | None = None,
+    quantized_scale_shape: torch.Size | None = None,
+    zero_point_dtype: str | None = None,
+    zero_point: torch.Tensor | None = None,
+    zero_point_scale: torch.FloatTensor | None = None,
+    zero_point_2: torch.FloatTensor | None = None,
+    quantized_zero_point_shape: torch.Size | None = None,
+    use_codebook: bool = False,
+):
+    if scale_dtype is not None and scale_dtype != "none":
+        scale = unpack_weights(scale, scale_dtype, quantized_weight_shape=quantized_scale_shape, dtype=scale_2.dtype if scale_2 is not None else None)
+    if scale_2 is not None:
+        if use_codebook:
+            scale = dequantize_codebook(scale, scale_2, group_size=-2)
+        elif scale_zero_point is not None:
+            scale = dequantize_asymmetric(scale, scale_2, scale_zero_point)
+        else:
+            scale = dequantize_symmetric(scale, scale_2)
+    if zero_point is not None:
+        if zero_point_dtype is not None and zero_point_dtype != "none":
+            zero_point = unpack_weights(zero_point, zero_point_dtype, quantized_weight_shape=quantized_zero_point_shape, dtype=zero_point_scale.dtype if zero_point_scale is not None else None)
+        if zero_point_scale is not None:
+            if use_codebook:
+                zero_point = dequantize_codebook(zero_point, zero_point_scale, group_size=-2)
+            elif zero_point_2 is not None:
+                zero_point = dequantize_asymmetric(zero_point, zero_point_scale, zero_point_2)
+            else:
+                zero_point = dequantize_symmetric(zero_point, zero_point_scale)
+    return scale, zero_point
+
+
+@inference_context()
 def dequantize_weight(
     weights_dtype: str,
     weight: torch.Tensor,
-    scale: torch.FloatTensor,
-    zero_point: torch.FloatTensor | None = None,
+    scale: torch.Tensor,
+    scale_2: torch.FloatTensor | None = None,
+    scale_zero_point: torch.FloatTensor | None = None,
+    scale_dtype: str | None = None,
+    zero_point: torch.Tensor | None = None,
+    zero_point_scale: torch.FloatTensor | None = None,
+    zero_point_2: torch.FloatTensor | None = None,
+    zero_point_dtype: str | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
     use_codebook: bool = False,
+    use_codebook_scale: bool = False,
     group_size: int = -1,
     dtype: torch.dtype | None = None,
     result_shape: torch.Size | None = None,
     quantized_weight_shape: torch.Size | None = None,
+    quantized_scale_shape: torch.Size | None = None,
+    quantized_zero_point_shape: torch.Size | None = None,
     skip_quantized_matmul: bool = False,
     re_quantize_for_matmul: bool = False,
     layer_class_name: str = "Linear",
 ) -> torch.FloatTensor:
-    if dtype_dict[weights_dtype]["is_packed"]:
-        if dtype_dict[weights_dtype]["is_integer"]:
-            weight = unpack_int(weight, weights_dtype, quantized_weight_shape, dtype=scale.dtype if not use_codebook else torch.int32)
-        else:
-            weight = unpack_float(weight, weights_dtype, quantized_weight_shape)
+    weight = unpack_weights(weight, weights_dtype, quantized_weight_shape=quantized_weight_shape, dtype=scale.dtype if not use_codebook else torch.int32)
+    scale, zero_point = dequantize_scales(
+        scale_dtype, scale,
+        scale_2=scale_2,
+        scale_zero_point=scale_zero_point,
+        quantized_scale_shape=quantized_scale_shape,
+        zero_point_dtype=zero_point_dtype,
+        zero_point=zero_point,
+        zero_point_scale=zero_point_scale,
+        zero_point_2=zero_point_2,
+        quantized_zero_point_shape=quantized_zero_point_shape,
+        use_codebook=use_codebook_scale,
+    )
     if use_codebook:
         return dequantize_codebook(weight, scale, svd_up=svd_up, svd_down=svd_down, hadamard=hadamard, dtype=dtype, result_shape=result_shape, skip_quantized_matmul=skip_quantized_matmul, re_quantize_for_matmul=re_quantize_for_matmul, layer_class_name=layer_class_name, group_size=group_size)
     elif dtype_dict[weights_dtype]["is_unsigned"]:
@@ -203,30 +266,48 @@ def re_quantize_fp_mm(weight: torch.FloatTensor, matmul_dtype: str = "float8_e4m
 def re_quantize_matmul(
     weights_dtype: str,
     weight: torch.Tensor,
-    scale: torch.FloatTensor,
-    zero_point: torch.FloatTensor | None = None,
+    scale: torch.Tensor,
+    scale_2: torch.FloatTensor | None = None,
+    scale_zero_point: torch.FloatTensor | None = None,
+    scale_dtype: str | None = None,
+    zero_point: torch.Tensor | None = None,
+    zero_point_scale: torch.FloatTensor | None = None,
+    zero_point_2: torch.FloatTensor | None = None,
+    zero_point_dtype: str | None = None,
     svd_up: torch.FloatTensor | None = None,
     svd_down: torch.FloatTensor | None = None,
     hadamard: torch.FloatTensor | None = None,
     use_codebook: bool = False,
+    use_codebook_scale: bool = False,
     group_size: int = -1,
     matmul_dtype: str = "int8",
     result_shape: torch.Size | None = None,
     quantized_weight_shape: torch.Size | None = None,
+    quantized_scale_shape: torch.Size | None = None,
+    quantized_zero_point_shape: torch.Size | None = None,
     layer_class_name: str = "Linear",
 ) -> tuple[torch.Tensor, torch.FloatTensor] | tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     weight = dequantize_weight(
         weights_dtype,
         weight, scale,
+        scale_2=scale_2,
+        scale_zero_point=scale_zero_point,
+        scale_dtype=scale_dtype,
         zero_point=zero_point,
+        zero_point_scale=zero_point_scale,
+        zero_point_2=zero_point_2,
+        zero_point_dtype=zero_point_dtype,
         svd_up=svd_up,
         svd_down=svd_down,
         hadamard=hadamard,
         use_codebook=use_codebook,
+        use_codebook_scale=use_codebook_scale,
         group_size=group_size,
         dtype=scale.dtype,
         result_shape=result_shape,
         quantized_weight_shape=quantized_weight_shape,
+        quantized_scale_shape=quantized_scale_shape,
+        quantized_zero_point_shape=quantized_zero_point_shape,
         layer_class_name=layer_class_name,
     )
     if dtype_dict[matmul_dtype]["is_integer"]:
@@ -282,7 +363,11 @@ class SDNQDequantizer:
     original_shape: torch.Size
     original_stride: list[int]
     quantized_weight_shape: torch.Size
+    quantized_scale_shape: torch.Size
+    quantized_zero_point_shape: torch.Size
     weights_dtype: str
+    scale_dtype: str
+    zero_point_dtype: str
     quantized_matmul_dtype: str
     hadamard_group_size: int
     group_size: int
@@ -295,6 +380,7 @@ class SDNQDequantizer:
     layer_class_name: str
     use_hadamard: bool
     use_codebook: bool
+    use_codebook_scale: bool
     is_packed: bool
     is_unsigned: bool
     is_integer: bool
@@ -307,7 +393,11 @@ class SDNQDequantizer:
         original_shape: torch.Size,
         original_stride: list[int],
         quantized_weight_shape: torch.Size,
+        quantized_scale_shape: torch.Size,
+        quantized_zero_point_shape: torch.Size,
         weights_dtype: str,
+        scale_dtype: str,
+        zero_point_dtype: str,
         quantized_matmul_dtype: str,
         hadamard_group_size: int,
         group_size: int,
@@ -319,6 +409,7 @@ class SDNQDequantizer:
         use_stochastic_rounding: bool,
         use_hadamard: bool,
         use_codebook: bool,
+        use_codebook_scale: bool,
         layer_class_name: str,
     ):
         self.result_dtype = result_dtype
@@ -326,7 +417,11 @@ class SDNQDequantizer:
         self.original_shape = original_shape
         self.original_stride = original_stride
         self.quantized_weight_shape = quantized_weight_shape
+        self.quantized_scale_shape = quantized_scale_shape
+        self.quantized_zero_point_shape = quantized_zero_point_shape
         self.weights_dtype = weights_dtype
+        self.scale_dtype = scale_dtype
+        self.zero_point_dtype = zero_point_dtype
         self.quantized_matmul_dtype = quantized_matmul_dtype
         self.hadamard_group_size = hadamard_group_size
         self.group_size = group_size
@@ -338,11 +433,32 @@ class SDNQDequantizer:
         self.use_stochastic_rounding = use_stochastic_rounding
         self.use_hadamard = use_hadamard
         self.use_codebook = use_codebook
+        self.use_codebook_scale = use_codebook_scale
         self.layer_class_name = layer_class_name
         self.num_bits = dtype_dict[weights_dtype]["num_bits"]
         self.is_packed = dtype_dict[weights_dtype]["is_packed"]
         self.is_integer = dtype_dict[weights_dtype]["is_integer"]
         self.is_unsigned = dtype_dict[weights_dtype]["is_unsigned"]
+        if scale_dtype is not None and scale_dtype != "none":
+            self.num_bits_scale = dtype_dict[scale_dtype]["num_bits"]
+            self.is_packed_scale = dtype_dict[scale_dtype]["is_packed"]
+            self.is_integer_scale = dtype_dict[scale_dtype]["is_integer"]
+            self.is_unsigned_scale = dtype_dict[scale_dtype]["is_unsigned"]
+        else:
+            self.num_bits_scale = None
+            self.is_packed_scale = None
+            self.is_integer_scale = None
+            self.is_unsigned_scale = None
+        if zero_point_dtype is not None and zero_point_dtype != "none":
+            self.num_bits_zero_point = dtype_dict[zero_point_dtype]["num_bits"]
+            self.is_packed_zero_point = dtype_dict[zero_point_dtype]["is_packed"]
+            self.is_integer_zero_point = dtype_dict[zero_point_dtype]["is_integer"]
+            self.is_unsigned_zero_point = dtype_dict[zero_point_dtype]["is_unsigned"]
+        else:
+            self.num_bits_zero_point = None
+            self.is_packed_zero_point = None
+            self.is_integer_zero_point = None
+            self.is_unsigned_zero_point = None
         self.num_bits_matmul = dtype_dict[quantized_matmul_dtype]["num_bits"]
         self.is_packed_matmul = dtype_dict[quantized_matmul_dtype]["is_packed"]
         self.is_integer_matmul = dtype_dict[quantized_matmul_dtype]["is_integer"]
@@ -351,55 +467,83 @@ class SDNQDequantizer:
     @inference_context()
     def re_quantize_matmul(
         self,
-        weight: torch.Tensor,
-        scale: torch.FloatTensor,
-        zero_point: torch.FloatTensor | None = None,
+        weight: torch.Tensor | None = None,
+        scale: torch.Tensor | None = None,
+        scale_2: torch.FloatTensor | None = None,
+        scale_zero_point: torch.FloatTensor | None = None,
+        zero_point: torch.Tensor | None = None,
+        zero_point_scale: torch.FloatTensor | None = None,
+        zero_point_2: torch.FloatTensor | None = None,
         svd_up: torch.FloatTensor | None = None,
         svd_down: torch.FloatTensor | None = None,
         hadamard: torch.FloatTensor | None = None,
+        non_svd: bool = True,
         non_hadamard: bool = True,
         skip_compile: bool = False,
     ) -> tuple[torch.Tensor, torch.FloatTensor]: # pylint: disable=unused-argument
+        if non_svd:
+            svd_up = svd_down = None
         if hadamard is None and self.use_hadamard and not non_hadamard:
             hadamard = get_hadamard(self.hadamard_group_size, dtype=self.result_dtype, device=weight.device)
         if skip_compile:
             re_quantize_matmul_func = re_quantize_matmul
         else:
             re_quantize_matmul_func = re_quantize_matmul_compiled
-            if not is_fp8_compile_supported and weight.dtype == torch.float8_e4m3fn:
-                weight = weight.to(dtype=scale.dtype)
+            if not is_fp8_compile_supported:
+                if scale.dtype == torch.float8_e4m3fn:
+                    scale = scale.to(dtype=scale_2.dtype if scale_2 is not None else self.result_dtype)
+                if zero_point is not None and zero_point.dtype == torch.float8_e4m3fn:
+                    zero_point = zero_point.to(dtype=zero_point_scale.dtype if zero_point_scale is not None else self.result_dtype)
+                if weight.dtype == torch.float8_e4m3fn:
+                    weight = weight.to(dtype=scale.dtype)
         return re_quantize_matmul_func(
             self.weights_dtype,
             weight,
             scale,
+            scale_2=scale_2,
+            scale_zero_point=scale_zero_point,
+            scale_dtype=self.scale_dtype,
             zero_point=zero_point,
+            zero_point_scale=zero_point_scale,
+            zero_point_2=zero_point_2,
+            zero_point_dtype=self.zero_point_dtype,
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
             use_codebook=self.use_codebook,
+            use_codebook_scale=self.use_codebook_scale,
             group_size=self.group_size,
             matmul_dtype=self.quantized_matmul_dtype,
             result_shape=self.result_shape,
             quantized_weight_shape=self.quantized_weight_shape,
+            quantized_scale_shape=self.quantized_scale_shape,
+            quantized_zero_point_shape=self.quantized_zero_point_shape,
             layer_class_name=self.layer_class_name,
         )
 
     @inference_context()
     def __call__(
         self,
-        weight: torch.Tensor,
-        scale: torch.FloatTensor,
-        zero_point: torch.FloatTensor | None = None,
+        weight: torch.Tensor | None = None,
+        scale: torch.Tensor | None = None,
+        scale_2: torch.FloatTensor | None = None,
+        scale_zero_point: torch.FloatTensor | None = None,
+        zero_point: torch.Tensor | None = None,
+        zero_point_scale: torch.FloatTensor | None = None,
+        zero_point_2: torch.FloatTensor | None = None,
         svd_up: torch.FloatTensor | None = None,
         svd_down: torch.FloatTensor | None = None,
         hadamard: torch.FloatTensor | None = None,
         skip_quantized_matmul: bool = False,
         non_hadamard: bool = False,
+        non_svd: bool = False,
         skip_compile: bool = False,
         dtype: torch.dtype | None = None,
     ) -> torch.FloatTensor: # pylint: disable=unused-argument
         if dtype is None:
             dtype = self.result_dtype
+        if non_svd:
+            svd_up = svd_down = None
         if hadamard is None and self.use_hadamard and not non_hadamard:
             hadamard = get_hadamard(self.hadamard_group_size, dtype=dtype, device=weight.device)
         re_quantize_for_matmul = self.re_quantize_for_matmul or self.is_packed
@@ -407,20 +551,33 @@ class SDNQDequantizer:
             dequantize_weight_func = dequantize_weight
         else:
             dequantize_weight_func = dequantize_weight_compiled
-            if not is_fp8_compile_supported and weight.dtype == torch.float8_e4m3fn:
-                weight = weight.to(dtype=scale.dtype)
+            if not is_fp8_compile_supported:
+                if scale.dtype == torch.float8_e4m3fn:
+                    scale = scale.to(dtype=scale_2.dtype if scale_2 is not None else self.result_dtype)
+                if zero_point is not None and zero_point.dtype == torch.float8_e4m3fn:
+                    zero_point = zero_point.to(dtype=zero_point_scale.dtype if zero_point_scale is not None else self.result_dtype)
+                if weight.dtype == torch.float8_e4m3fn:
+                    weight = weight.to(dtype=scale.dtype)
         return dequantize_weight_func(
             self.weights_dtype,
-            weight,
-            scale,
+            weight, scale,
+            scale_2=scale_2,
+            scale_zero_point=scale_zero_point,
+            scale_dtype=self.scale_dtype,
             zero_point=zero_point,
+            zero_point_scale=zero_point_scale,
+            zero_point_2=zero_point_2,
+            zero_point_dtype=self.zero_point_dtype,
             svd_up=svd_up,
             svd_down=svd_down,
             hadamard=hadamard,
             use_codebook=self.use_codebook,
+            use_codebook_scale=self.use_codebook_scale,
             group_size=self.group_size,
             result_shape=self.result_shape,
             quantized_weight_shape=self.quantized_weight_shape,
+            quantized_scale_shape=self.quantized_scale_shape,
+            quantized_zero_point_shape=self.quantized_zero_point_shape,
             skip_quantized_matmul=skip_quantized_matmul,
             re_quantize_for_matmul=re_quantize_for_matmul,
             layer_class_name=self.layer_class_name,

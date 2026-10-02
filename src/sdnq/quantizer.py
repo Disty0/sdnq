@@ -91,6 +91,8 @@ def sdnq_quantize_layer_weight(
     weight: torch.FloatTensor,
     layer_class_name: str | None = None,
     weights_dtype: str = "int8",
+    scale_dtype: str | None = None,
+    zero_point_dtype: str | None = None,
     quantized_matmul_dtype: str | None = None,
     group_size: int = 0,
     hadamard_group_size: int = 256,
@@ -100,6 +102,7 @@ def sdnq_quantize_layer_weight(
     use_svd: bool = False,
     use_hadamard: bool = False,
     use_codebook: bool = False,
+    use_codebook_scale: bool = False,
     use_quantized_matmul: bool = False,
     use_stochastic_rounding: bool = False,
     dequantize_fp32: bool = True,
@@ -115,7 +118,6 @@ def sdnq_quantize_layer_weight(
     is_conv_transpose_type = False
     is_linear_type = False
     result_shape = None
-    scale_dtype = None
 
     weight = weight.detach()
     original_shape = weight.shape
@@ -123,10 +125,12 @@ def sdnq_quantize_layer_weight(
 
     if torch_dtype is None:
         torch_dtype = weight.dtype
+    if zero_point_dtype is None:
+        zero_point_dtype = scale_dtype
     quantized_matmul_dtype = get_quantized_matmul_dtype(weights_dtype, quantized_matmul_dtype)
 
     re_quantize_for_matmul = bool(
-        use_codebook
+        use_codebook or scale_dtype is not None or zero_point_dtype is not None
         or dtype_dict[weights_dtype]["num_bits"] > dtype_dict[quantized_matmul_dtype]["num_bits"]
         or dtype_dict[weights_dtype]["is_integer"] != dtype_dict[quantized_matmul_dtype]["is_integer"]
         or (dtype_dict[weights_dtype]["is_unsigned"] and not dtype_dict[quantized_matmul_dtype]["is_integer"])
@@ -168,16 +172,16 @@ def sdnq_quantize_layer_weight(
         reduction_axes = -1
         use_quantized_matmul = False
 
-    if (
+    cast_scale = bool(
         not dequantize_fp32
+        and scale_dtype is None and zero_point_dtype is None
         and dtype_dict[weights_dtype]["max"] <= 16384 # 1/fp16_min_normal
         and not (
             use_quantized_matmul
             and not dtype_dict[quantized_matmul_dtype]["is_integer"]
             and (not use_tensorwise_fp8_matmul or dtype_dict[quantized_matmul_dtype]["num_bits"] == 16)
         )
-    ):
-        scale_dtype = torch_dtype
+    )
 
     if use_hadamard:
         weight, use_hadamard, hadamard_group_size = apply_hadamard(weight, group_size=hadamard_group_size, hadamard=hadamard, layer_class_name=layer_class_name)
@@ -246,19 +250,14 @@ def sdnq_quantize_layer_weight(
     elif group_size == -2:
         reduction_axes = None
 
-    cast_scale = True
-    transpose_weights = False
-    re_quantize_for_matmul = re_quantize_for_matmul or num_of_groups > 1
-    if use_quantized_matmul and not re_quantize_for_matmul and not dtype_dict[weights_dtype]["is_packed"]:
-        transpose_weights = True
-        if not use_tensorwise_fp8_matmul and not dtype_dict[quantized_matmul_dtype]["is_integer"]:
-            cast_scale = False
+    re_quantize_for_matmul = bool(re_quantize_for_matmul or num_of_groups > 1)
+    transpose_weights = bool(use_quantized_matmul and not re_quantize_for_matmul and not dtype_dict[weights_dtype]["is_packed"])
 
     if use_codebook:
-        weight, scale = quantize_weight_codebook(weight, reduction_axes, weights_dtype, dtype=(scale_dtype if cast_scale else None), steps=codebook_steps)
+        weight, scale = quantize_weight_codebook(weight, reduction_axes, weights_dtype, dtype=(torch_dtype if cast_scale else None), steps=codebook_steps)
         zero_point = None
     else:
-        weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype, dtype=(scale_dtype if cast_scale else None), use_stochastic_rounding=(use_stochastic_rounding and not skip_sr))
+        weight, scale, zero_point = quantize_weight(weight, reduction_axes, weights_dtype, dtype=(torch_dtype if cast_scale else None), use_stochastic_rounding=(use_stochastic_rounding and not skip_sr))
 
     if transpose_weights:
         scale = scale.t_().contiguous()
@@ -276,13 +275,59 @@ def sdnq_quantize_layer_weight(
     else:
         weight = weight.to(dtype=dtype_dict[weights_dtype]["torch_dtype"])
 
+    quantized_scale_shape = scale.shape
+    if scale_dtype is not None and scale_dtype != "none":
+        if use_codebook_scale:
+            scale, scale_2 = quantize_weight_codebook(scale, None, scale_dtype, dtype=None, steps=codebook_steps)
+            scale_zero_point=None
+        else:
+            scale, scale_2, scale_zero_point = quantize_weight(scale, None, scale_dtype, dtype=None, use_stochastic_rounding=False)
+        scale_2 = scale_2.flatten()
+        if scale_zero_point is not None:
+            scale_zero_point = scale_zero_point.flatten()
+        if dtype_dict[scale_dtype]["is_packed"]:
+            if dtype_dict[scale_dtype]["is_integer"]:
+                scale = pack_int(scale, scale_dtype)
+            else:
+                scale = pack_float(scale, scale_dtype)
+        else:
+            scale = scale.to(dtype=dtype_dict[scale_dtype]["torch_dtype"])
+    else:
+        scale_2 = None
+        scale_zero_point = None
+
+    quantized_zero_point_shape = zero_point.shape if zero_point is not None else None
+    if zero_point is not None and zero_point_dtype is not None and zero_point_dtype != "none":
+        if use_codebook_scale:
+            zero_point, zero_point_scale = quantize_weight_codebook(zero_point, None, zero_point_dtype, dtype=None, steps=codebook_steps)
+            zero_point_2 = None
+        else:
+            zero_point, zero_point_scale, zero_point_2 = quantize_weight(zero_point, None, zero_point_dtype, dtype=None, use_stochastic_rounding=False)
+        zero_point_scale = zero_point_scale.flatten()
+        if zero_point_2 is not None:
+            zero_point_2 = zero_point_2.flatten()
+        if dtype_dict[zero_point_dtype]["is_packed"]:
+            if dtype_dict[zero_point_dtype]["is_integer"]:
+                zero_point = pack_int(zero_point, zero_point_dtype)
+            else:
+                zero_point = pack_float(zero_point, zero_point_dtype)
+        else:
+            zero_point = zero_point.to(dtype=dtype_dict[zero_point_dtype]["torch_dtype"])
+    else:
+        zero_point_scale = None
+        zero_point_2 = None
+
     sdnq_dequantizer = SDNQDequantizer(
         result_dtype=torch_dtype,
         result_shape=result_shape,
         original_shape=original_shape,
         original_stride=original_stride,
         quantized_weight_shape=quantized_weight_shape,
+        quantized_scale_shape=quantized_scale_shape,
+        quantized_zero_point_shape=quantized_zero_point_shape,
         weights_dtype=weights_dtype,
+        scale_dtype=scale_dtype,
+        zero_point_dtype=zero_point_dtype,
         quantized_matmul_dtype=quantized_matmul_dtype,
         hadamard_group_size=hadamard_group_size,
         group_size=group_size,
@@ -294,10 +339,17 @@ def sdnq_quantize_layer_weight(
         use_stochastic_rounding=use_stochastic_rounding,
         use_hadamard=bool(use_hadamard or using_pre_rotated_hadamard),
         use_codebook=use_codebook,
+        use_codebook_scale=use_codebook_scale,
         layer_class_name=layer_class_name,
     )
 
-    return (sdnq_dequantizer, {"weight": weight, "scale": scale, "zero_point": zero_point, "svd_up": svd_up, "svd_down": svd_down})
+    return (
+        sdnq_dequantizer, {
+            "weight": weight, "scale": scale, "scale_2": scale_2, "scale_zero_point": scale_zero_point,
+            "zero_point": zero_point, "zero_point_scale": zero_point_scale, "zero_point_2": zero_point_2,
+            "svd_up": svd_up, "svd_down": svd_down,
+        }
+    )
 
 
 @inference_context()
@@ -305,6 +357,8 @@ def sdnq_quantize_layer_weight_dynamic(
     weight: torch.FloatTensor,
     layer_class_name: str | None = None,
     weights_dtype: str = "uint4",
+    scale_dtype: str | None = None,
+    zero_point_dtype: str | None = None,
     quantized_matmul_dtype: str | None = None,
     group_size: int = 0,
     hadamard_group_size: int = 256,
@@ -315,6 +369,7 @@ def sdnq_quantize_layer_weight_dynamic(
     use_svd: bool = False,
     use_hadamard: bool = False,
     use_codebook: bool = False,
+    use_codebook_scale: bool = False,
     use_quantized_matmul: bool = False,
     use_stochastic_rounding: bool = False,
     dequantize_fp32: bool = True,
@@ -384,6 +439,8 @@ def sdnq_quantize_layer_weight_dynamic(
             weight,
             layer_class_name=layer_class_name,
             weights_dtype=current_weights_dtype,
+            scale_dtype=scale_dtype,
+            zero_point_dtype=zero_point_dtype,
             quantized_matmul_dtype=current_quantized_matmul_dtype,
             torch_dtype=torch_dtype,
             hadamard_group_size=hadamard_group_size,
@@ -394,6 +451,7 @@ def sdnq_quantize_layer_weight_dynamic(
             use_svd=False,
             use_hadamard=False,
             use_codebook=use_codebook,
+            use_codebook_scale=use_codebook_scale,
             use_quantized_matmul=current_use_quantized_matmul,
             use_stochastic_rounding=use_stochastic_rounding,
             dequantize_fp32=dequantize_fp32,
@@ -412,11 +470,7 @@ def sdnq_quantize_layer_weight_dynamic(
         quantization_loss = torch.nn.functional.mse_loss(
             original_weight_fp32,
             sdnq_dequantizer(
-                weight_data["weight"],
-                weight_data["scale"],
-                zero_point=weight_data["zero_point"],
-                svd_up=weight_data["svd_up"],
-                svd_down=weight_data["svd_down"],
+                **weight_data,
                 skip_quantized_matmul=sdnq_dequantizer.use_quantized_matmul,
                 dtype=weight.dtype,
                 skip_compile=True,
@@ -534,6 +588,7 @@ def sdnq_post_load_quant( # pylint: disable=unused-argument
     use_svd: bool = False,
     use_hadamard: bool = False,
     use_codebook: bool = False,
+    use_codebook_scale: bool = False,
     quant_conv: bool = False,
     quant_embedding: bool = False,
     use_quantized_matmul: bool = False,
@@ -582,6 +637,7 @@ def sdnq_post_load_quant( # pylint: disable=unused-argument
             use_svd=use_svd,
             use_hadamard=use_hadamard,
             use_codebook=use_codebook,
+            use_codebook_scale=use_codebook_scale,
             quant_conv=quant_conv,
             quant_embedding=quant_embedding,
             use_quantized_matmul=use_quantized_matmul,
@@ -876,6 +932,13 @@ class SDNQConfig(QuantizationConfigMixin):
             The target dtype for the weights after quantization.
             See `sdnq.common.accepted_weight_dtypes` for all the supported values.
             These are some of the recommended values to use: ("int8", "int7", "int6", "uint5", "uint4", "uint3", "uint2", "float8_e4m3fn", "float7_e3m3fn", "float6_e3m2fn", "float5_e2m2fn", "float4_e2m1fn", "float3_e1m1fn", "float2_e1m0fn")
+        scale_dtype (`str`, *optional*, defaults to `None`):
+            The target dtype for double quantization for scales.
+            See `sdnq.common.accepted_weight_dtypes` for all the supported values.
+        zero_point_dtype (`str`, *optional*, defaults to `None`):
+            The target dtype for double quantization for zero points.
+            If zero_point_dtype is `None`, it will use the same dtype as the scale_dtype.
+            See `sdnq.common.accepted_weight_dtypes` for all the supported values.
         quantized_matmul_dtype (`str`, *optional*, defaults to `None`):
             The target dtype for quantized matmul.
             `None` will use "int8" with integer weight dtypes and "float8_e4m3fn" or "float16" with float weight dtypes.
@@ -902,6 +965,8 @@ class SDNQConfig(QuantizationConfigMixin):
             Enabling this option will use Hadamard rotation on top of SDNQ quantization.
         use_codebook (`bool`, *optional*, defaults to `False`):
             Enabling this option will use Lloyd-Max quantization and create an optimal floating point lookup table format for the quantized weights.
+        use_codebook_scale (`bool`, *optional*, defaults to `False`):
+            Enabling this option will enable use_codebook for the scales and the zero points when double quantization is also enabled.
         use_grad_ckpt (`bool`, *optional*, defaults to `True`):
             This option is only used for training models when `is_training` is enabled or with `sdnq.training.sdnq_training_post_load_quant`.
             Disabling this option will quantize the tensors needed for the backward pass before saving in the forward pass.
@@ -961,6 +1026,8 @@ class SDNQConfig(QuantizationConfigMixin):
     def __init__( # pylint: disable=super-init-not-called,unused-argument
         self,
         weights_dtype: str = "int8",
+        scale_dtype: str | None = None,
+        zero_point_dtype: str | None = None,
         quantized_matmul_dtype: str | None = None,
         hadamard_group_size: int = 256,
         group_size: int = 0,
@@ -971,6 +1038,7 @@ class SDNQConfig(QuantizationConfigMixin):
         use_svd: bool = False,
         use_hadamard: bool = False,
         use_codebook: bool = False,
+        use_codebook_scale: bool = False,
         use_grad_ckpt: bool = True,
         quant_conv: bool = False,
         quant_embedding: bool = False,
@@ -995,6 +1063,8 @@ class SDNQConfig(QuantizationConfigMixin):
         **kwargs,
     ):
         self.weights_dtype = weights_dtype
+        self.scale_dtype = scale_dtype
+        self.zero_point_dtype = zero_point_dtype
         self.quantized_matmul_dtype = quantized_matmul_dtype
         self.is_training = is_training
         self.hadamard_group_size = hadamard_group_size
@@ -1006,6 +1076,7 @@ class SDNQConfig(QuantizationConfigMixin):
         self.codebook_steps = codebook_steps
         self.use_hadamard = use_hadamard
         self.use_codebook = use_codebook
+        self.use_codebook_scale = use_codebook_scale
         self.use_grad_ckpt = use_grad_ckpt
         self.quant_conv = quant_conv
         self.quant_embedding = quant_embedding
@@ -1103,6 +1174,9 @@ class SDNQConfig(QuantizationConfigMixin):
 
     def __str__(self) -> str:
         return f"SDNQConfig(weights_dtype={self.weights_dtype} quantization_device={self.quantization_device} return_device={self.return_device} group_size={self.group_size} use_quantized_matmul={self.use_quantized_matmul} quantized_matmul_dtype={self.quantized_matmul_dtype} quant_conv={self.quant_conv} quant_embedding={self.quant_embedding} use_quantized_matmul_conv={self.use_quantized_matmul_conv} use_static_quantization={self.use_static_quantization} use_dynamic_quantization={self.use_dynamic_quantization} dynamic_loss_threshold={self.dynamic_loss_threshold} use_stochastic_rounding={self.use_stochastic_rounding} use_hadamard={self.use_hadamard} hadamard_group_size={self.hadamard_group_size} use_svd={self.use_svd} svd_rank={self.svd_rank} svd_steps={self.svd_steps} use_codebook={self.use_codebook} codebook_steps={self.codebook_steps} dequantize_fp32={self.dequantize_fp32} non_blocking={self.non_blocking} add_skip_keys={self.add_skip_keys} modules_to_not_convert={self.modules_to_not_convert} modules_to_not_use_matmul={self.modules_to_not_use_matmul} modules_dtype_dict={self.modules_dtype_dict} modules_quant_config={self.modules_quant_config} )"
+
+    def __repr__(self) -> str:
+        return self.__str__()
 
 
 if diffusers_available and (

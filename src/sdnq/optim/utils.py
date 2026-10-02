@@ -9,6 +9,8 @@ def create_quantized_buffer(buffer: torch.FloatTensor, group: dict) -> SDNQTenso
     return SDNQTensor.from_float(
         buffer.to(dtype=torch.float32),
         weights_dtype=group["quantized_buffers_dtype"],
+        scale_dtype=group["quantized_buffers_scale_dtype"],
+        zero_point_dtype=group["quantized_buffers_zero_point_dtype"],
         group_size=group["quantized_buffers_group_size"],
         hadamard_group_size=group["quantized_buffers_hadamard_group_size"],
         svd_rank=group["quantized_buffers_svd_rank"],
@@ -17,6 +19,7 @@ def create_quantized_buffer(buffer: torch.FloatTensor, group: dict) -> SDNQTenso
         use_svd=group["quantized_buffers_use_svd"],
         use_hadamard=group["quantized_buffers_use_hadamard"],
         use_codebook=group["quantized_buffers_use_codebook"],
+        use_codebook_scale=group["quantized_buffers_use_codebook_scale"],
         use_stochastic_rounding=group["use_stochastic_buffers"],
 )
 

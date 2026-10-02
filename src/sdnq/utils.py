@@ -2,6 +2,7 @@ import re
 import torch
 
 from .common import (
+    sdnq_keys,
     dtype_dict,
     common_skip_keys,
     module_skip_keys_dict,
@@ -77,6 +78,13 @@ def get_module_from_name(module: torch.nn.Module, tensor_name: str) -> tuple[tor
             module = new_module
         tensor_name = splits[-1]
     return module, tensor_name
+
+
+def get_sdnq_params(module: torch.nn.Module) -> dict[str, torch.nn.Parameter]:
+    sdnq_params = {}
+    for name in sdnq_keys:
+        sdnq_params[name] = getattr(module, name, None)
+    return sdnq_params
 
 
 def check_param_name_in(param_name: str, param_list: list[str]) -> str:
@@ -180,6 +188,8 @@ def get_quant_kwargs(layer: torch.nn.Module, quantization_config, torch_dtype: t
 
     quant_kwargs = {
         "weights_dtype": quantization_config.weights_dtype,
+        "scale_dtype": quantization_config.scale_dtype,
+        "zero_point_dtype": quantization_config.zero_point_dtype,
         "quantized_matmul_dtype": quantization_config.quantized_matmul_dtype,
         "hadamard_group_size": quantization_config.hadamard_group_size,
         "group_size": quantization_config.group_size,
@@ -190,6 +200,7 @@ def get_quant_kwargs(layer: torch.nn.Module, quantization_config, torch_dtype: t
         "use_svd": quantization_config.use_svd,
         "use_hadamard": quantization_config.use_hadamard,
         "use_codebook": quantization_config.use_codebook,
+        "use_codebook_scale": quantization_config.use_codebook_scale,
         "use_quantized_matmul": quantization_config.use_quantized_matmul,
         "use_quantized_matmul_conv": quantization_config.use_quantized_matmul_conv,
         "use_dynamic_quantization": quantization_config.use_dynamic_quantization,

@@ -34,6 +34,8 @@ class SDNQOptimizer(torch.optim.Optimizer):
         "use_stochastic_buffers",
         "use_quantized_buffers",
         "quantized_buffers_dtype",
+        "quantized_buffers_scale_dtype",
+        "quantized_buffers_zero_point_dtype",
         "quantized_buffers_minimum_numel",
         "quantized_buffers_minimum_ndim",
         "quantized_buffers_hadamard_group_size",
@@ -44,6 +46,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         "quantized_buffers_use_svd",
         "quantized_buffers_use_hadamard",
         "quantized_buffers_use_codebook",
+        "quantized_buffers_use_codebook_scale",
         "offload_buffers",
         "offload_non_blocking",
         "offload_non_blocking_cpu",
@@ -71,6 +74,8 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["use_stochastic_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_stochastic_buffers", True)
         group["use_quantized_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "use_quantized_buffers", False)
         group["quantized_buffers_dtype"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_dtype", "uint8")
+        group["quantized_buffers_scale_dtype"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_scale_dtype", None)
+        group["quantized_buffers_zero_point_dtype"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_zero_point_dtype", None)
         group["quantized_buffers_minimum_numel"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_minimum_numel", 16384)
         group["quantized_buffers_minimum_ndim"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_minimum_ndim", 2)
         group["quantized_buffers_hadamard_group_size"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_hadamard_group_size", 256)
@@ -81,6 +86,7 @@ class SDNQOptimizer(torch.optim.Optimizer):
         group["quantized_buffers_use_svd"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_use_svd", False)
         group["quantized_buffers_use_hadamard"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_use_hadamard", False)
         group["quantized_buffers_use_codebook"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_use_codebook", False)
+        group["quantized_buffers_use_codebook_scale"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "quantized_buffers_use_codebook_scale", False)
         group["offload_buffers"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "offload_buffers", False)
         group["offload_non_blocking"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "offload_non_blocking", True)
         group["offload_non_blocking_cpu"] = SDNQOptimizer.get_default_kwarg(group, kwargs, "offload_non_blocking_cpu", group["offload_non_blocking"])

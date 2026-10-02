@@ -2,6 +2,7 @@
 
 import torch
 
+from ...utils import get_sdnq_params
 from ...common import compile_func, inference_context
 from ...kernel_wrappers import fp_mm_func, fp_scaled_mm_func
 from ...dequantizer import dequantize_symmetric, dequantize_asymmetric
@@ -78,9 +79,9 @@ def conv_fp16_matmul(
 @inference_context()
 def quantized_conv_forward_fp16_matmul(self, input) -> torch.FloatTensor:
     if torch.numel(input) / input.shape[2] < 32:
-        return self._conv_forward(input, self.sdnq_dequantizer(self.weight, self.scale, zero_point=self.zero_point, svd_up=self.svd_up, svd_down=self.svd_down, skip_quantized_matmul=True), self.bias)
+        return self._conv_forward(input, self.sdnq_dequantizer(**get_sdnq_params(self), skip_quantized_matmul=True), self.bias)
     if self.sdnq_dequantizer.re_quantize_for_matmul:
-        weight, scale = self.sdnq_dequantizer.re_quantize_matmul(self.weight, self.scale, zero_point=self.zero_point)
+        weight, scale = self.sdnq_dequantizer.re_quantize_matmul(**get_sdnq_params(self))
         quantized_weight_shape = None
     else:
         weight, scale = self.weight, self.scale

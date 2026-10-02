@@ -11,9 +11,12 @@ def get_forward_func(
     use_static_quantization: bool,
     current_group_size: int,
     use_codebook: bool = False,
+    scale_dtype: str | None = None,
+    zero_point_dtype: str | None = None,
 ) -> Callable:
     can_use_static_matmul = bool(
         use_static_quantization and not use_codebook and current_group_size < 0
+        and scale_dtype is None and zero_point_dtype is None
         and (
             param_weights_dtype == quantized_matmul_dtype
             or (param_weights_dtype in {"int8", "uint8"} and quantized_matmul_dtype in {"int8", "uint8"})

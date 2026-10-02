@@ -49,6 +49,8 @@ from sdnq.common import use_torch_compile as triton_is_available
 
 sdnq_config = SDNQConfig(
     weights_dtype="int8", # see `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
+    scale_dtype=None, # set this to a sdnq quantization dtype to enable double quantization of scales
+    zero_point_dtype=None, # the default `None` will use scale_dtype
     quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.
     group_size=0, # 0 means auto, -1 means row-wise, -2 means tensor-wise
     hadamard_group_size=256,
@@ -58,7 +60,8 @@ sdnq_config = SDNQConfig(
     dynamic_loss_threshold=None, # None or negative number means auto select based on weights_dtype
     use_svd=False,
     use_hadamard=False,
-    use_codebook=False,
+    use_codebook=False, # Enabling this option will use Lloyd-Max quantization
+    use_codebook_scale=False, # Enabling this option will enable use_codebook for double quantization.
     quant_conv=False,
     quant_embedding=False,
     use_quantized_matmul=triton_is_available, # use quantized matmul (False means no quantized matmul at all)
@@ -156,6 +159,8 @@ from sdnq.common import use_torch_compile as triton_is_available
 quantized_model = sdnq_training_post_load_quant(
     model,
     weights_dtype="uint8", # Check out `sdnq.common.accepted_weight_dtypes` for all the supported dtypes.
+    scale_dtype=None, # set this to a sdnq quantization dtype to enable double quantization of scales
+    zero_point_dtype=None, # the default `None` will use scale_dtype
     quantized_matmul_dtype=None, # overrides the quantized matmul dtype to be different than weights_dtype format.
     group_size=32, # 0 means auto, -1 means row-wise, -2 means tensor-wise
     hadamard_group_size=256,
@@ -165,6 +170,7 @@ quantized_model = sdnq_training_post_load_quant(
     use_svd=False,
     use_hadamard=False,
     use_codebook=False,
+    use_codebook_scale=False,
     use_grad_ckpt=True, # disable this if you are not using gradient checkpointing
     use_quantized_matmul=triton_is_available, # use quantized matmul on the forward pass and the backward pass (False means no quantized matmul at all)
     use_static_quantization=True, # quantize the model weights (False means model weights will be kept unquantized and only quantized matmul (if enabled) will be used)
@@ -213,6 +219,8 @@ optimizer = AdamW(
     parameters,
     use_quantized_buffers=True,
     quantized_buffers_dtype="uint8",
+    quantized_buffers_scale_dtype=None,
+    quantized_buffers_zero_point_dtype=None,
     quantized_buffers_group_size=32,
     quantized_buffers_hadamard_group_size=256,
     quantized_buffers_svd_rank=32,
@@ -221,6 +229,7 @@ optimizer = AdamW(
     quantized_buffers_use_svd=False,
     quantized_buffers_use_hadamard=False,
     quantized_buffers_use_codebook=False,
+    quantized_buffers_use_codebook_scale=False,
     final_norm_mode="clip", # can be one of ["none", "clip", "rms", "rms_clip", "relative", "muon"]
     use_kahan=False,
     use_cautious=False,
@@ -241,6 +250,8 @@ from sdnq.training import SDNQTensor
 state["exp_avg"] = SDNQTensor.from_float(
     torch.zeros_like(p),
     weights_dtype="int8",
+    scale_dtype=None,
+    zero_point_dtype=None,
     group_size=32,
     hadamard_group_size=256,
     svd_rank=32,
@@ -249,6 +260,7 @@ state["exp_avg"] = SDNQTensor.from_float(
     use_svd=False,
     use_hadamard=False,
     use_codebook=False,
+    use_codebook_scale=False,
     use_stochastic_rounding=True,
     dequantize_fp32=True, # keeps the quant scales in FP32 and compute the de-quant steps in FP32. Highly recommended to enable this option
     layer_class_name=None, # can be "Linear", "Conv2d" etc.
