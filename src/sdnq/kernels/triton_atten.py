@@ -340,18 +340,19 @@ def sdnq_attn_kernel(
                 if mask.dtype == tl.int1:
                     qk = tl.where(mask, qk, float("-inf"))
                 else:
-                    qk += mask
+                    qk = tl.fma(mask, 1.4426950408889634, qk)
             if do_k_mask and (start_n + BLOCK_SIZE_N) > KN:
                 qk = tl.where(offs_n[None, :] < (KN - start_n), qk, float("-inf"))
             m_ij = tl.maximum(m_i, tl.max(qk, 1))
+            alpha = tl.sub(m_i, m_ij)
             if do_mask:
-                alpha = tl.exp2(tl.where((m_i == float("-inf")) & (m_ij == float("-inf")), 0.0, tl.sub(m_i, m_ij)))
+                alpha = tl.where((m_i == float("-inf")) & (m_ij == float("-inf")), 0.0, alpha)
                 qk -= tl.where(m_ij == float("-inf"), 0.0, m_ij)[:, None]
             else:
-                m_i -= m_ij
-                alpha = tl.exp2(m_i)
                 qk -= m_ij[:, None]
+            m_i = m_ij
             p = tl.exp2(qk)
+            alpha = tl.exp2(alpha)
             l_i = tl.fma(l_i, alpha, tl.sum(p, 1))
             acc *= alpha[:, None]
 
@@ -383,16 +384,15 @@ def sdnq_attn_kernel(
             else:
                 p = p.to(v.dtype)
                 acc = tl.dot(p, v, acc, out_dtype=tl.float32)
-            m_i = m_ij
 
     acc *= tl.fdiv(1.0, l_i[:, None])
     acc = acc.to(out_ptr.type.element_ty)
     out_desc = tl.make_tensor_descriptor(out_ptr + offset_q * VHD, shape=[QN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_M, VHD])
     out_desc.store([start_m_block, 0], acc)
     if save_lse:
-        l_i = tl.add(m_i, tl.log2(l_i))
+        l_i = -tl.add(m_i, tl.log2(l_i))
         if do_mask:
-            l_i = tl.where(l_i == float("-inf"), 0.0, l_i)
+            l_i = tl.where(l_i == float("inf"), 0.0, l_i)
         l_i = l_i.to(out_ptr.type.element_ty)
         l_desc = tl.make_tensor_descriptor(lse_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
         l_desc.store([start_m_block], l_i)
