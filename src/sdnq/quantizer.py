@@ -748,13 +748,15 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
         **kwargs,
     ) -> None:
         layer, tensor_name = get_module_from_name(model, param_name)
+        torch_dtype = kwargs.get("dtype", param_value.dtype if self.torch_dtype is None else self.torch_dtype)
+        quant_kwargs = get_quant_kwargs(layer, self.quantization_config, torch_dtype=torch_dtype, param_name=param_name)
 
         if self.pre_quantized:
             if param_value is not None:
-                scale_is_double_quant = bool(self.quantization_config.scale_dtype is not None and self.quantization_config.scale_dtype != "none")
+                scale_is_double_quant = bool(quant_kwargs["scale_dtype"] is not None and quant_kwargs["scale_dtype"] != "none")
                 zero_point_is_double_quant = bool(
-                    (self.quantization_config.zero_point_dtype is not None and self.quantization_config.zero_point_dtype != "none")
-                    or (self.quantization_config.zero_point_dtype is None and scale_is_double_quant)
+                    (quant_kwargs["zero_point_dtype"] is not None and quant_kwargs["zero_point_dtype"] != "none")
+                    or (quant_kwargs["zero_point_dtype"] is None and scale_is_double_quant)
                 )
                 if (
                     tensor_name in {"weight", "scale_2", "scale_zero_point", "zero_point_scale", "zero_point_2"}
@@ -762,7 +764,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
                     or (zero_point_is_double_quant and tensor_name == "zero_point")
                 ):
                     return_dtype = param_value.dtype
-                elif self.quantization_config.dequantize_fp32 and tensor_name in sdnq_keys:
+                elif quant_kwargs["dequantize_fp32"] and tensor_name in sdnq_keys:
                     if torch.float64 not in {param_value.dtype, self.torch_dtype}:
                         return_dtype = torch.float32
                     else:
@@ -785,8 +787,6 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             setattr(layer, tensor_name, param_value)
             return
 
-        torch_dtype = kwargs.get("dtype", param_value.dtype if self.torch_dtype is None else self.torch_dtype)
-        quant_kwargs = get_quant_kwargs(layer, self.quantization_config, torch_dtype=torch_dtype, param_name=param_name)
         if quant_kwargs["return_device"] is None:
             quant_kwargs["return_device"] = target_device
         if quant_kwargs["quantization_device"] is not None:
@@ -794,7 +794,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             quant_kwargs["quantization_device"] = None
 
         param_value = param_value.detach()
-        param_value = param_value.to(target_device, non_blocking=self.quantization_config.non_blocking, copy=False).to(dtype=torch.float32 if param_value.dtype != torch.float64 else torch.float64)
+        param_value = param_value.to(target_device, non_blocking=quant_kwargs["non_blocking"], copy=False).to(dtype=torch.float32 if param_value.dtype != torch.float64 else torch.float64)
 
         layer.weight = torch.nn.Parameter(param_value, requires_grad=False)
         layer, self.quantization_config = sdnq_quantize_layer(layer, self.quantization_config, torch_dtype=torch_dtype, param_name=param_name, quant_kwargs=quant_kwargs) # pylint: disable=attribute-defined-outside-init
