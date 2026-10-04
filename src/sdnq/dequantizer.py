@@ -105,7 +105,7 @@ def dequantize_codebook(
     skip_quantized_matmul: bool = False,
     re_quantize_for_matmul: bool = False,
     group_size: int = -1,
-    layer_class_name: str = "Linear",
+    layer_class_name: str | None = None,
 ) -> torch.FloatTensor:
     if group_size == -2:
         result = scale[weight.to(dtype=torch.int32)]
@@ -201,7 +201,7 @@ def dequantize_weight(
     quantized_zero_point_shape: torch.Size | None = None,
     skip_quantized_matmul: bool = False,
     re_quantize_for_matmul: bool = False,
-    layer_class_name: str = "Linear",
+    layer_class_name: str | None = None,
 ) -> torch.FloatTensor:
     weight = unpack_weights(
         weight, weights_dtype,
@@ -289,7 +289,7 @@ def re_quantize_matmul(
     quantized_weight_shape: torch.Size | None = None,
     quantized_scale_shape: torch.Size | None = None,
     quantized_zero_point_shape: torch.Size | None = None,
-    layer_class_name: str = "Linear",
+    layer_class_name: str | None = None,
 ) -> tuple[torch.Tensor, torch.FloatTensor] | tuple[torch.Tensor, torch.FloatTensor, torch.FloatTensor]:
     weight = dequantize_weight(
         weights_dtype,
@@ -392,29 +392,29 @@ class SDNQDequantizer:
 
     def __init__(
         self,
-        result_dtype: torch.dtype,
-        result_shape: torch.Size,
-        original_shape: torch.Size,
-        original_stride: list[int],
-        quantized_weight_shape: torch.Size,
-        quantized_scale_shape: torch.Size,
-        quantized_zero_point_shape: torch.Size,
-        weights_dtype: str,
-        scale_dtype: str,
-        zero_point_dtype: str,
-        quantized_matmul_dtype: str,
-        hadamard_group_size: int,
-        group_size: int,
-        svd_rank: int,
-        svd_steps: int,
-        codebook_steps: int,
-        use_quantized_matmul: bool,
-        re_quantize_for_matmul: bool,
-        use_stochastic_rounding: bool,
-        use_hadamard: bool,
-        use_codebook: bool,
-        use_codebook_scale: bool,
-        layer_class_name: str,
+        result_dtype: torch.dtype | None = None,
+        result_shape: torch.Size | None = None,
+        original_shape: torch.Size | None = None,
+        original_stride: list[int] | None = None,
+        quantized_weight_shape: torch.Size | None = None,
+        quantized_scale_shape: torch.Size | None = None,
+        quantized_zero_point_shape: torch.Size | None = None,
+        weights_dtype: str = "int8",
+        scale_dtype: str | None = None,
+        zero_point_dtype: str | None = None,
+        quantized_matmul_dtype: str | None = None,
+        hadamard_group_size: int = 256,
+        group_size: int = 0,
+        svd_rank: int = 32,
+        svd_steps: int = 8,
+        codebook_steps: int = 24,
+        use_quantized_matmul: bool = False,
+        re_quantize_for_matmul: bool = False,
+        use_stochastic_rounding: bool = False,
+        use_hadamard: bool = False,
+        use_codebook: bool = False,
+        use_codebook_scale: bool = False,
+        layer_class_name: str | None = None,
     ):
         self.result_dtype = result_dtype
         self.result_shape = result_shape
@@ -463,10 +463,16 @@ class SDNQDequantizer:
             self.is_packed_zero_point = None
             self.is_integer_zero_point = None
             self.is_unsigned_zero_point = None
-        self.num_bits_matmul = dtype_dict[quantized_matmul_dtype]["num_bits"]
-        self.is_packed_matmul = dtype_dict[quantized_matmul_dtype]["is_packed"]
-        self.is_integer_matmul = dtype_dict[quantized_matmul_dtype]["is_integer"]
-        self.is_unsigned_matmul = dtype_dict[quantized_matmul_dtype]["is_unsigned"]
+        if quantized_matmul_dtype is not None:
+            self.num_bits_matmul = dtype_dict[quantized_matmul_dtype]["num_bits"]
+            self.is_packed_matmul = dtype_dict[quantized_matmul_dtype]["is_packed"]
+            self.is_integer_matmul = dtype_dict[quantized_matmul_dtype]["is_integer"]
+            self.is_unsigned_matmul = dtype_dict[quantized_matmul_dtype]["is_unsigned"]
+        else:
+            self.num_bits_matmul = None
+            self.is_packed_matmul = None
+            self.is_integer_matmul = None
+            self.is_unsigned_matmul = None
 
     @inference_context()
     def re_quantize_matmul(
