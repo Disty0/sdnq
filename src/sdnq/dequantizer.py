@@ -381,13 +381,25 @@ class SDNQDequantizer:
     use_quantized_matmul: bool
     re_quantize_for_matmul: bool
     use_stochastic_rounding: bool
-    layer_class_name: str
     use_hadamard: bool
     use_codebook: bool
     use_codebook_scale: bool
+    layer_class_name: str
+    num_bits: int
     is_packed: bool
     is_unsigned: bool
     is_integer: bool
+    num_bits_scale: int
+    is_packed_scale: bool
+    is_unsigned_scale: bool
+    is_integer_scale: bool
+    num_bits_zero_point: int
+    is_packed_zero_point: bool
+    is_unsigned_zero_point: bool
+    is_integer_zero_point: bool
+    num_bits_matmul: int
+    is_packed_matmul: bool
+    is_unsigned_matmul: bool
     is_integer_matmul: bool
 
     def __init__(
