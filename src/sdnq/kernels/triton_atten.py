@@ -152,7 +152,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
         "out_dtype", "mask_dtype",
         "BLOCK_MASK_M", "BLOCK_MASK_N",
     ],
-    prune_configs_by={'early_config_prune': prune_configs},
+    prune_configs_by={"early_config_prune": prune_configs},
     cache_results=True,
 )
 @triton.jit

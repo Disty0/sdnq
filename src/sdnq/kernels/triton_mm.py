@@ -20,7 +20,7 @@ from .triton_scaled_mm import block_size_divisor, autotune_configs, prune_config
         "a_dtype", "out_dtype",
         "block_size_divisor_at",
     ],
-    prune_configs_by={'early_config_prune': prune_configs},
+    prune_configs_by={"early_config_prune": prune_configs},
     cache_results=True,
 )
 @triton.jit

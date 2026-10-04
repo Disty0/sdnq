@@ -26,7 +26,7 @@ from .triton_atten import sdnq_triton_atten, autotune_configs, block_size_diviso
         "out_dtype", "mask_dtype",
         "BLOCK_MASK_M", "BLOCK_MASK_N",
     ],
-    prune_configs_by={'early_config_prune': prune_configs},
+    prune_configs_by={"early_config_prune": prune_configs},
     cache_results=True,
 )
 @triton.jit
@@ -283,7 +283,7 @@ def sdnq_attn_bwd_dq_kernel(
         "out_dtype", "mask_dtype",
         "BLOCK_MASK_M", "BLOCK_MASK_N",
     ],
-    prune_configs_by={'early_config_prune': prune_configs},
+    prune_configs_by={"early_config_prune": prune_configs},
     cache_results=True,
 )
 @triton.jit

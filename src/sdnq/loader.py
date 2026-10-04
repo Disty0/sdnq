@@ -269,7 +269,7 @@ def apply_sdnq_options_to_module(
                 )
             )
 
-            if module.scale_2 is None:
+            if getattr(module, "scale_2", None) is None:
                 if upcast_scale or dequantize_fp32:
                     if module.scale.dtype in {torch.float32, torch.float64}:
                         scale_dtype = module.scale.dtype
