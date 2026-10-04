@@ -281,7 +281,7 @@ def apply_sdnq_options_to_module(
                     scale_dtype = module.sdnq_dequantizer.result_dtype
 
                 module.scale.data = module.scale.to(dtype=scale_dtype)
-                if module.zero_point is not None and module.zero_point_scale is None:
+                if module.zero_point is not None and getattr(module, "zero_point_scale", None) is None:
                     module.zero_point.data = module.zero_point.to(dtype=scale_dtype)
 
             if current_use_quantized_matmul is not None:
