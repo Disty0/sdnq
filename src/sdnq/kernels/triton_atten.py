@@ -616,9 +616,12 @@ def get_attn_inputs(
         value = torch.nn.functional.pad(value, (0, next_power_of_2(VHD) - VHD)).contiguous()
     if attn_mask is not None:
         if attn_mask.dtype == torch.bool:
-            attn_mask = attn_mask.view(dtype=torch.int8)
+            attn_mask = attn_mask.to(dtype=torch.int8) # inductor cannot compile a bool to int8 view that it has to copy
         if attn_mask.shape[-1] == 1:
             attn_mask = attn_mask.expand(-1, -1, -1, key.shape[-2])
+        mask_align = 16 // attn_mask.element_size() # tensor descriptor strides must be 16 byte multiples
+        if attn_mask.shape[-1] % mask_align != 0:
+            attn_mask = torch.nn.functional.pad(attn_mask, (0, mask_align - attn_mask.shape[-1] % mask_align))
         attn_mask = attn_mask.contiguous()
     query, query_scale, key, key_scale, value, value_scale, use_hadamard, hadamard_group_size = quantize_attn(
         query, key, value,
