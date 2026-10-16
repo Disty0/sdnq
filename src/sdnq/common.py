@@ -450,6 +450,8 @@ common_skip_keys = (
     ".condition_embedder",
     ".x_embedder",
     ".t_embedder",
+    ".timestep_embedder",
+    ".target_timestep_embedder",
     ".y_embedder",
     ".proj_in",
     ".emb_in",
