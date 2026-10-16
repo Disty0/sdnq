@@ -7,7 +7,7 @@ from .kernel_wrappers import use_contiguous_int8_mm, use_contiguous_fp16_mm, use
 from .quant_utils import quantize_int_mm, quantize_uint_mm, quantize_fp_mm, rotate_hadamard, get_hadamard
 from .packed_int import unpack_int
 from .packed_float import unpack_float
-from .layers import SDNQLayer
+from .layers import SDNQLayer, SDNQModel
 
 
 @inference_context()
@@ -341,6 +341,8 @@ def dequantize_sdnq_module(model: torch.nn.Module) -> torch.nn.Module:
 @inference_context()
 def dequantize_sdnq_model(model: torch.nn.Module) -> torch.nn.Module:
     model = dequantize_sdnq_module(model)
+    if isinstance(model, SDNQModel):
+        model.__class__ = model.original_class
     if hasattr(model, "quantization_method"):
         del model.quantization_method
     if hasattr(model, "quantization_config"):

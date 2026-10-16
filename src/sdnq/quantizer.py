@@ -45,7 +45,7 @@ from .dequantizer import SDNQDequantizer, dequantize_sdnq_model
 from .packed_int import pack_int
 from .packed_float import pack_float
 from .forward import get_forward_func
-from .layers import get_sdnq_wrapper_class
+from .layers import get_sdnq_model_class, get_sdnq_wrapper_class
 from .common import sdnq_version as current_sdnq_version
 
 
@@ -663,6 +663,7 @@ def sdnq_post_load_quant( # pylint: disable=unused-argument
 
     model.eval()
     model, quantization_config = apply_sdnq_to_module(model, quantization_config, torch_dtype=torch_dtype, pre_quantized=pre_quantized)
+    model.__class__ = get_sdnq_model_class(model.__class__)
 
     model.quantization_config = quantization_config
     if hasattr(model, "config"):
@@ -829,6 +830,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
     def _process_model_after_weight_loading(self, model: torch.nn.Module, **kwargs) -> torch.nn.Module: # pylint: disable=unused-argument
         model.quantization_config = self.quantization_config
         model.quantization_method = QuantizationMethod.SDNQ
+        model.__class__ = get_sdnq_model_class(model.__class__)
         if hasattr(model, "config"):
             try:
                 model.config.quantization_config = self.quantization_config
