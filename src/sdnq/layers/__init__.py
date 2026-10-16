@@ -64,6 +64,29 @@ class SDNQConvTranspose3d(SDNQLayer, torch.nn.ConvTranspose3d):
     original_class: torch.nn.ConvTranspose3d
 
 
+class SDNQModel(torch.nn.Module):
+    """Mixin for a quantized model: dtype is the compute dtype of its SDNQ layers.
+
+    Diffusers and Transformers take a model's dtype from its first floating point parameter.
+    A quantized layer registers an integer weight followed by a float32 scale, so a model
+    without an early bias reports float32 and its pipeline casts the inputs to float32.
+    """
+    original_class: type
+
+    @property
+    def dtype(self: torch.nn.Module) -> torch.dtype:
+        for module in self.modules():
+            if hasattr(module, "sdnq_dequantizer"):
+                return module.sdnq_dequantizer.result_dtype
+        return self.original_class.dtype.fget(self)
+
+
+def get_sdnq_model_class(model_class: type) -> type:
+    if issubclass(model_class, SDNQModel) or not isinstance(getattr(model_class, "dtype", None), property):
+        return model_class
+    return type(model_class.__name__, (SDNQModel, model_class), {"original_class": model_class, "__module__": model_class.__module__, "__qualname__": model_class.__qualname__})
+
+
 torch.serialization.add_safe_globals([SDNQLayer])
 torch.serialization.add_safe_globals([SDNQLinear])
 torch.serialization.add_safe_globals([SDNQEmbedding])
