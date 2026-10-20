@@ -308,92 +308,91 @@ def sdnq_attn_kernel(
             start_n = block_n * BLOCK_MASK_N + (tile % SUB_TILES) * BLOCK_SIZE_N
         else:
             start_n = tile * BLOCK_SIZE_N
-        skip = False
-        if is_causal and ((start_m_block + BLOCK_SIZE_M) <= start_n):
-            skip = True
-        if do_mask:
-            if MKN == 1 and KN != 1:
-                mask = mask_desc.load([off_z, off_h, start_m_block, 0]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
-                if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
-                    mask = tl.max(tl.where(mask_cols == 0, mask, 0), axis=1, keep_dims=True).to(tl.int1)
-                else:
-                    mask = tl.max(tl.where(mask_cols == 0, mask, float("-inf")), axis=1, keep_dims=True).to(tl.float32)
-            else:
-                mask = mask_desc.load([off_z, off_h, start_m_block, start_n]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
-            mask_max = tl.max(mask)
-            if mask.dtype == tl.int8:
-                mask = mask.to(tl.int1)
-            elif mask.dtype != tl.int1:
-                mask = mask.to(tl.float32)
-            if mask.dtype == tl.int1:
-                if mask_max == 0:
-                    skip = True
-            elif mask_max == float("-inf"):
-                skip = True
-        if not skip:
-            k = k_desc.load([start_n, 0]).T
-            if qk_is_quantized:
-                k_scale = k_scale_desc.load([off_z, off_h, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
-                if q.dtype == tl.int8:
-                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
-                elif use_fp16_accum and q.dtype == tl.float16:
-                    k = tl.mul(k.to(tl.float32), in_scale_qk).to(tl.float16)
-                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk)
-                else:
-                    qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale), log2_sm_scale)
-            else:
-                qk = tl.mul(tl.dot(q, k, out_dtype=tl.float32), log2_sm_scale)
-
-            if is_causal and start_m_block < (start_n + BLOCK_SIZE_N):
-                qk = tl.where(offs_m[:, None] >= (start_n + offs_n[None, :]), qk, float("-inf"))
+        if not (is_causal and ((start_m_block + BLOCK_SIZE_M) <= start_n)):
+            skip = False
             if do_mask:
-                if mask.dtype == tl.int1:
-                    qk = tl.where(mask, qk, float("-inf"))
-                else:
-                    qk = tl.fma(mask, 1.4426950408889634, qk)
-            if do_k_mask and (start_n + BLOCK_SIZE_N) > KN:
-                qk = tl.where(offs_n[None, :] < (KN - start_n), qk, float("-inf"))
-            m_ij = tl.maximum(m_i, tl.max(qk, 1))
-            alpha = tl.sub(m_i, m_ij)
-            if do_mask:
-                alpha = tl.where((m_i == float("-inf")) & (m_ij == float("-inf")), 0.0, alpha)
-                qk -= tl.where(m_ij == float("-inf"), 0.0, m_ij)[:, None]
-            else:
-                qk -= m_ij[:, None]
-            m_i = m_ij
-            p = tl.exp2(qk)
-            alpha = tl.exp2(alpha)
-            l_i = tl.fma(l_i, alpha, tl.sum(p, 1))
-            acc *= alpha[:, None]
-
-            v = v_desc.load([start_n, 0])
-            if pv_is_quantized:
-                v_scale = v_scale_desc.load([off_z, off_h, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
-                p *= v_scale
-                p_scale = tl.max(p, 1)[:, None]
-                if v.dtype == tl.int8:
-                    p_scale *= 1.0 / 127.0
-                    p_scale = tl.where(p_scale <= 2e-38, 1.0, p_scale)
-                    p = tl.floor(tl.fma(p, tl.fdiv(1.0, p_scale), 0.5)).to(tl.int8)
-                    acc = tl.fma(tl.dot(p, v, out_dtype=tl.int32).to(tl.float32), p_scale, acc)
-                else:
-                    p_scale *= 1.0 / (65504.0 if v.dtype == tl.float16 else 448.0)
-                    p_scale = tl.where(p_scale <= 2e-38, 1.0, p_scale)
-                    p = tl.mul(p, tl.fdiv(1.0, p_scale)).to(v.dtype)
-                    if use_fp16_accum and v.dtype == tl.float16:
-                        p_scale *= fp16_scale_pv # pylint: disable=used-before-assignment
-                        v = tl.mul(v.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment
-                        p = tl.mul(p.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment
-                        acc = tl.fma(tl.dot(p, v, out_dtype=tl.float16).to(tl.float32), p_scale, acc)
+                if MKN == 1 and KN != 1:
+                    mask = mask_desc.load([off_z, off_h, start_m_block, 0]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
+                    if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
+                        mask = tl.max(tl.where(mask_cols == 0, mask, 0), axis=1, keep_dims=True).to(tl.int1)
                     else:
-                        acc = tl.fma(tl.dot(p, v, out_dtype=tl.float32), p_scale, acc)
-            elif use_fp16_accum:
-                p = p.to(tl.float16)
-                v = v.to(tl.float16)
-                acc += tl.dot(p, v, out_dtype=tl.float16).to(tl.float32)
-            else:
-                p = p.to(v.dtype)
-                acc = tl.dot(p, v, acc, out_dtype=tl.float32)
+                        mask = tl.max(tl.where(mask_cols == 0, mask, float("-inf")), axis=1, keep_dims=True).to(tl.float32)
+                else:
+                    mask = mask_desc.load([off_z, off_h, start_m_block, start_n]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
+                mask_max = tl.max(mask)
+                if mask.dtype == tl.int8:
+                    mask = mask.to(tl.int1)
+                elif mask.dtype != tl.int1:
+                    mask = mask.to(tl.float32)
+                if mask.dtype == tl.int1:
+                    if mask_max == 0:
+                        skip = True
+                elif mask_max == float("-inf"):
+                    skip = True
+            if not skip:
+                k = k_desc.load([start_n, 0]).T
+                if qk_is_quantized:
+                    k_scale = k_scale_desc.load([off_z, off_h, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
+                    if q.dtype == tl.int8:
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
+                    elif use_fp16_accum and q.dtype == tl.float16:
+                        k = tl.mul(k.to(tl.float32), in_scale_qk).to(tl.float16)
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk)
+                    else:
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale), log2_sm_scale)
+                else:
+                    qk = tl.mul(tl.dot(q, k, out_dtype=tl.float32), log2_sm_scale)
+
+                if is_causal and start_m_block < (start_n + BLOCK_SIZE_N):
+                    qk = tl.where(offs_m[:, None] >= (start_n + offs_n[None, :]), qk, float("-inf"))
+                if do_mask:
+                    if mask.dtype == tl.int1:
+                        qk = tl.where(mask, qk, float("-inf"))
+                    else:
+                        qk = tl.fma(mask, 1.4426950408889634, qk)
+                if do_k_mask and (start_n + BLOCK_SIZE_N) > KN:
+                    qk = tl.where(offs_n[None, :] < (KN - start_n), qk, float("-inf"))
+                m_ij = tl.maximum(m_i, tl.max(qk, 1))
+                alpha = tl.sub(m_i, m_ij)
+                if do_mask:
+                    alpha = tl.where((m_i == float("-inf")) & (m_ij == float("-inf")), 0.0, alpha)
+                    qk -= tl.where(m_ij == float("-inf"), 0.0, m_ij)[:, None]
+                else:
+                    qk -= m_ij[:, None]
+                m_i = m_ij
+                p = tl.exp2(qk)
+                alpha = tl.exp2(alpha)
+                l_i = tl.fma(l_i, alpha, tl.sum(p, 1))
+                acc *= alpha[:, None]
+
+                v = v_desc.load([start_n, 0])
+                if pv_is_quantized:
+                    v_scale = v_scale_desc.load([off_z, off_h, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
+                    p *= v_scale
+                    p_scale = tl.max(p, 1)[:, None]
+                    if v.dtype == tl.int8:
+                        p_scale *= 1.0 / 127.0
+                        p_scale = tl.where(p_scale <= 2e-38, 1.0, p_scale)
+                        p = tl.floor(tl.fma(p, tl.fdiv(1.0, p_scale), 0.5)).to(tl.int8)
+                        acc = tl.fma(tl.dot(p, v, out_dtype=tl.int32).to(tl.float32), p_scale, acc)
+                    else:
+                        p_scale *= 1.0 / (65504.0 if v.dtype == tl.float16 else 448.0)
+                        p_scale = tl.where(p_scale <= 2e-38, 1.0, p_scale)
+                        p = tl.mul(p, tl.fdiv(1.0, p_scale)).to(v.dtype)
+                        if use_fp16_accum and v.dtype == tl.float16:
+                            p_scale *= fp16_scale_pv # pylint: disable=used-before-assignment
+                            v = tl.mul(v.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment
+                            p = tl.mul(p.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment
+                            acc = tl.fma(tl.dot(p, v, out_dtype=tl.float16).to(tl.float32), p_scale, acc)
+                        else:
+                            acc = tl.fma(tl.dot(p, v, out_dtype=tl.float32), p_scale, acc)
+                elif use_fp16_accum:
+                    p = p.to(tl.float16)
+                    v = v.to(tl.float16)
+                    acc += tl.dot(p, v, out_dtype=tl.float16).to(tl.float32)
+                else:
+                    p = p.to(v.dtype)
+                    acc = tl.dot(p, v, acc, out_dtype=tl.float32)
 
     acc *= tl.fdiv(1.0, l_i[:, None])
     acc = acc.to(out_ptr.type.element_ty)
