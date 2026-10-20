@@ -258,6 +258,7 @@ def sdnq_attn_kernel(
         mask_desc = tl.make_tensor_descriptor(mask_ptr, shape=[QZ, QH, QN, MKN], strides=[((MH*MQN*MKN) if MZ != 1 else 0), ((MQN*MKN) if MH != 1 else 0), (MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[1, 1, BLOCK_SIZE_M, BLOCK_SIZE_N])
         if MKN == 1 and KN != 1:
             mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
+
     if do_block_mask:
         # the loop walks only the kept kv blocks of this program's query block, in ascending order, so
         # the body stays branch free and keeps its pipelining; every tile sits inside one mask block.
@@ -314,10 +315,9 @@ def sdnq_attn_kernel(
             if MKN == 1 and KN != 1:
                 mask = mask_desc.load([off_z, off_h, start_m_block, 0]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
                 if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
-                    mask = tl.where(mask_cols == 0, mask, 0)
+                    mask = tl.max(tl.where(mask_cols == 0, mask, 0), axis=1, keep_dims=True).to(tl.int1)
                 else:
-                    mask = tl.where(mask_cols == 0, mask, float("-inf"))
-                mask = tl.max(mask, axis=1, keep_dims=True)
+                    mask = tl.max(tl.where(mask_cols == 0, mask, float("-inf")), axis=1, keep_dims=True).to(tl.float32)
             else:
                 mask = mask_desc.load([off_z, off_h, start_m_block, start_n]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
             mask_max = tl.max(mask)

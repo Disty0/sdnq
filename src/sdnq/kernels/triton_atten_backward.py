@@ -189,10 +189,9 @@ def sdnq_attn_bwd_dq_kernel(
             if MKN == 1 and KN != 1:
                 mask = mask_desc.load([off_z, off_h, start_m_block, 0]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
                 if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
-                    mask = tl.where(mask_cols == 0, mask, 0)
+                    mask = tl.max(tl.where(mask_cols == 0, mask, 0), axis=1, keep_dims=True).to(tl.int1)
                 else:
-                    mask = tl.where(mask_cols == 0, mask, float("-inf"))
-                mask = tl.max(mask, axis=1, keep_dims=True)
+                    mask = tl.max(tl.where(mask_cols == 0, mask, float("-inf")), axis=1, keep_dims=True).to(tl.float32)
             else:
                 mask = mask_desc.load([off_z, off_h, start_m_block, start_n]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
             mask_max = tl.max(mask)
@@ -469,10 +468,9 @@ def sdnq_attn_bwd_dkv_kernel(
                 if MKN == 1 and KN != 1:
                     mask = mask_desc.load([off_z, off_h, start_m, 0]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
                     if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
-                        mask = tl.where(mask_cols == 0, mask, 0)
+                        mask = tl.max(tl.where(mask_cols == 0, mask, 0), axis=1, keep_dims=True).to(tl.int1)
                     else:
-                        mask = tl.where(mask_cols == 0, mask, float("-inf"))
-                    mask = tl.max(mask, axis=1, keep_dims=True)
+                        mask = tl.max(tl.where(mask_cols == 0, mask, float("-inf")), axis=1, keep_dims=True).to(tl.float32)
                 else:
                     mask = mask_desc.load([off_z, off_h, start_m, start_n_block]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
                 mask_max = tl.max(mask)
