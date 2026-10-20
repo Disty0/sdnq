@@ -34,7 +34,7 @@ small_autotune_configs = [
 def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
     device = named_args["q_ptr"].device
     is_dkv_backward = bool(named_args.get("dk_ptr") is not None or named_args.get("dv_ptr") is not None)
-    if (device.type == "xpu" or (device.type == "cuda" and torch.version.cuda)) and torch.int8 in {named_args["q_ptr"].dtype, named_args["v_ptr"].dtype}:
+    if (device.type == "xpu" or (device.type == "cuda" and torch_backend == "cuda")) and torch.int8 in {named_args["q_ptr"].dtype, named_args["v_ptr"].dtype}:
         is_int8 = True
         pruned_configs = [conf for conf in configs if (conf.kwargs["BLOCK_SIZE_M"] >= 32 and conf.kwargs["BLOCK_SIZE_N"] >= 32)]
         if pruned_configs:
@@ -228,11 +228,6 @@ def sdnq_attn_kernel(
 
     sm_scale = sm_scale.to(tl.float32)
     log2_sm_scale = sm_scale * 1.4426950408889634
-    if do_block_mask:
-        # a ragged last mask block puts whole sub tiles past KN, which the tail rule has to cover even when the tile divides KN
-        do_k_mask = (KN % BLOCK_SIZE_N != 0) or (KN % BLOCK_MASK_N != 0)
-    else:
-        do_k_mask = KN % BLOCK_SIZE_N != 0
     start_m_block = start_m * BLOCK_SIZE_M
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
     offs_n = tl.arange(0, BLOCK_SIZE_N)
@@ -243,19 +238,26 @@ def sdnq_attn_kernel(
     offset_k = off_z_64 * (KN * KH) + ((off_h_64 * KH) // QH) * KN
     offset_v = off_z_64 * (VN * VH) + ((off_h_64 * VH) // QH) * VN
 
+    if do_block_mask:
+        # a ragged last mask block puts whole sub tiles past KN, which the tail rule has to cover even when the tile divides KN
+        do_k_mask = (KN % BLOCK_SIZE_N != 0) or (KN % BLOCK_MASK_N != 0)
+    else:
+        do_k_mask = KN % BLOCK_SIZE_N != 0
+
     q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, QHD])
     k_desc = tl.make_tensor_descriptor(k_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, KHD])
     v_desc = tl.make_tensor_descriptor(v_ptr + offset_v * VHD, shape=[VN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_N, VHD])
 
     if qk_is_quantized:
-        q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
-        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr + offset_k, shape=[KN], strides=[1,], block_shape=[BLOCK_SIZE_N])
-        q_scale = q_scale_desc.load([start_m_block])[:, None].to(tl.float32)
+        q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr, shape=[KZ, KH, KN], strides=[KN*KH, KN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
+        q_scale = q_scale_desc.load([off_z, off_h, start_m_block]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
     if pv_is_quantized:
-        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr + offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
+        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[KN*VH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
     if do_mask:
-        offset_mask = off_z_64 * ((MQN * MH) if MZ != 1 else 0) + off_h_64 * (MQN if MH != 1 else 0)
-        mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask * MKN, shape=[QN, KN], strides=[(MKN if MQN != 1 else 0), 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
+        mask_desc = tl.make_tensor_descriptor(mask_ptr, shape=[QZ, QH, QN, MKN], strides=[((MH*MQN*MKN) if MZ != 1 else 0), ((MQN*MKN) if MH != 1 else 0), (MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[1, 1, BLOCK_SIZE_M, BLOCK_SIZE_N])
+        if MKN == 1 and KN != 1:
+            mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
     if do_block_mask:
         # the loop walks only the kept kv blocks of this program's query block, in ascending order, so
         # the body stays branch free and keeps its pipelining; every tile sits inside one mask block.
@@ -309,7 +311,15 @@ def sdnq_attn_kernel(
         if is_causal and ((start_m_block + BLOCK_SIZE_M) <= start_n):
             skip = True
         if do_mask:
-            mask = mask_desc.load([start_m_block, start_n])
+            if MKN == 1 and KN != 1:
+                mask = mask_desc.load([off_z, off_h, start_m_block, 0]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
+                if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
+                    mask = tl.where(mask_cols == 0, mask, 0)
+                else:
+                    mask = tl.where(mask_cols == 0, mask, float("-inf"))
+                mask = tl.max(mask, axis=1, keep_dims=True)
+            else:
+                mask = mask_desc.load([off_z, off_h, start_m_block, start_n]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
             mask_max = tl.max(mask)
             if mask.dtype == tl.int8:
                 mask = mask.to(tl.int1)
@@ -323,7 +333,7 @@ def sdnq_attn_kernel(
         if not skip:
             k = k_desc.load([start_n, 0]).T
             if qk_is_quantized:
-                k_scale = k_scale_desc.load([start_n])[None, :].to(tl.float32)
+                k_scale = k_scale_desc.load([off_z, off_h, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
                 if q.dtype == tl.int8:
                     qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
                 elif use_fp16_accum and q.dtype == tl.float16:
@@ -358,7 +368,7 @@ def sdnq_attn_kernel(
 
             v = v_desc.load([start_n, 0])
             if pv_is_quantized:
-                v_scale = v_scale_desc.load([start_n])[None, :].to(tl.float32)
+                v_scale = v_scale_desc.load([off_z, off_h, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
                 p *= v_scale
                 p_scale = tl.max(p, 1)[:, None]
                 if v.dtype == tl.int8:
@@ -393,9 +403,9 @@ def sdnq_attn_kernel(
         l_i = -tl.add(m_i, tl.log2(l_i))
         if do_mask:
             l_i = tl.where(l_i == float("inf"), 0.0, l_i)
-        l_i = l_i.to(out_ptr.type.element_ty)
-        l_desc = tl.make_tensor_descriptor(lse_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
-        l_desc.store([start_m_block], l_i)
+        l_i = l_i.to(out_ptr.type.element_ty)[None, None, :]
+        l_desc = tl.make_tensor_descriptor(lse_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+        l_desc.store([off_z, off_h, start_m_block], l_i)
 
 
 @inference_context()
@@ -615,14 +625,9 @@ def get_attn_inputs(
     if not is_pow2(VHD):
         value = torch.nn.functional.pad(value, (0, next_power_of_2(VHD) - VHD)).contiguous()
     if attn_mask is not None:
-        if attn_mask.dtype == torch.bool:
-            attn_mask = attn_mask.to(dtype=torch.int8) # inductor cannot compile a bool to int8 view that it has to copy
-        if attn_mask.shape[-1] == 1:
-            attn_mask = attn_mask.expand(-1, -1, -1, key.shape[-2])
-        mask_align = 16 // attn_mask.element_size() # tensor descriptor strides must be 16 byte multiples
-        if attn_mask.shape[-1] % mask_align != 0:
-            attn_mask = torch.nn.functional.pad(attn_mask, (0, mask_align - attn_mask.shape[-1] % mask_align))
         attn_mask = attn_mask.contiguous()
+        if attn_mask.dtype == torch.bool:
+            attn_mask = attn_mask.view(dtype=torch.int8)
     query, query_scale, key, key_scale, value, value_scale, use_hadamard, hadamard_group_size = quantize_attn(
         query, key, value,
         smooth_k=smooth_k,
