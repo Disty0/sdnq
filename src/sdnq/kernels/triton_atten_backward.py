@@ -851,6 +851,7 @@ def get_attn_backward_inputs(
     do_grad_v: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
     out = out.contiguous()
+    grad_output = grad_output.contiguous()
     delta = torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32)
     if pv_matmul_dtype in {"enabled", "uint8"}:
         pv_matmul_dtype = "int8"
@@ -859,13 +860,10 @@ def get_attn_backward_inputs(
             grad_output = rotate_hadamard(grad_output, group_size=hadamard.shape[-1], hadamard=hadamard)
         quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
         if quantize_fp32:
-            grad_output = grad_output.contiguous().to(dtype=torch.float32)
-        else:
-            grad_output = grad_output.contiguous()
+            grad_output = grad_output.to(dtype=torch.float32)
         grad_output, grad_output_scale = quantize_mm_func_pv(grad_output, dim=-1, matmul_dtype=pv_matmul_dtype)
         grad_output_scale = grad_output_scale.squeeze(-1)
     else:
-        grad_output = grad_output.contiguous()
         grad_output_scale = None
     if block_mask is not None:
         if do_grad_q:

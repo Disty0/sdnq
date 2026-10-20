@@ -543,6 +543,9 @@ def quantize_attn(
     pv_matmul_dtype: str | None = None,
     quantize_fp32: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, bool, int]:
+    q = q.contiguous()
+    k = k.contiguous()
+    v = v.contiguous()
     if matmul_dtype in {"auto", "enabled", "uint8"}:
         matmul_dtype = "int8"
     if pv_matmul_dtype in {"enabled", "uint8"}:
@@ -560,19 +563,14 @@ def quantize_attn(
             if use_hadamard:
                 k = rotate_hadamard(k.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
         if quantize_fp32:
-            q = q.contiguous().to(dtype=torch.float32)
-            k = k.contiguous().to(dtype=torch.float32)
-        else:
-            q = q.contiguous()
-            k = k.contiguous()
+            q = q.to(dtype=torch.float32)
+            k = k.to(dtype=torch.float32)
         quantize_mm_func = quantize_int_mm if matmul_dtype.startswith("int") else quantize_fp_mm
-        q_q, q_scale = quantize_mm_func(q, dim=-1, matmul_dtype=matmul_dtype)
-        k_q, k_scale = quantize_mm_func(k, dim=-1, matmul_dtype=matmul_dtype)
+        q, q_scale = quantize_mm_func(q, dim=-1, matmul_dtype=matmul_dtype)
+        k, k_scale = quantize_mm_func(k, dim=-1, matmul_dtype=matmul_dtype)
         q_scale = q_scale.squeeze(-1)
         k_scale = k_scale.squeeze(-1)
     else:
-        q_q = q.contiguous()
-        k_q = k.contiguous()
         q_scale = None
         k_scale = None
     if pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
@@ -580,15 +578,12 @@ def quantize_attn(
             v = rotate_hadamard(v.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
         quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
         if quantize_fp32:
-            v = v.contiguous().to(dtype=torch.float32)
-        else:
-            v = v.contiguous()
-        v_q, v_scale = quantize_mm_func_pv(v, dim=-1, matmul_dtype=pv_matmul_dtype)
+            v = v.to(dtype=torch.float32)
+        v, v_scale = quantize_mm_func_pv(v, dim=-1, matmul_dtype=pv_matmul_dtype)
         v_scale = v_scale.squeeze(-1)
     else:
-        v_q = v.contiguous()
         v_scale = None
-    return q_q, q_scale, k_q, k_scale, v_q, v_scale, use_hadamard, hadamard_group_size
+    return q, q_scale, k, k_scale, v, v_scale, use_hadamard, hadamard_group_size
 
 
 @inference_context()
