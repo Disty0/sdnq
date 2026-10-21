@@ -232,6 +232,8 @@ def sdnq_attn_kernel(
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
     offs_n = tl.arange(0, BLOCK_SIZE_N)
 
+    off_h_k = (off_h * KH) // QH
+    off_h_v = (off_h * VH) // QH
     off_h_64 = off_h.to(tl.int64)
     off_z_64 = off_z.to(tl.int64)
     offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
@@ -253,7 +255,7 @@ def sdnq_attn_kernel(
         k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr, shape=[KZ, KH, KN], strides=[KN*KH, KN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
         q_scale = q_scale_desc.load([off_z, off_h, start_m_block]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
     if pv_is_quantized:
-        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[KN*VH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
+        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[VN*VH, VN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
     if do_mask:
         mask_desc = tl.make_tensor_descriptor(mask_ptr, shape=[QZ, QH, QN, MKN], strides=[((MH*MQN*MKN) if MZ != 1 else 0), ((MQN*MKN) if MH != 1 else 0), (MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[1, 1, BLOCK_SIZE_M, BLOCK_SIZE_N])
         if MKN == 1 and KN != 1:
@@ -332,7 +334,7 @@ def sdnq_attn_kernel(
             if not skip:
                 k = k_desc.load([start_n, 0]).T
                 if qk_is_quantized:
-                    k_scale = k_scale_desc.load([off_z, off_h, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
+                    k_scale = k_scale_desc.load([off_z, off_h_k, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
                     if q.dtype == tl.int8:
                         qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale)
                     elif use_fp16_accum and q.dtype == tl.float16:
@@ -367,7 +369,7 @@ def sdnq_attn_kernel(
 
                 v = v_desc.load([start_n, 0])
                 if pv_is_quantized:
-                    v_scale = v_scale_desc.load([off_z, off_h, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
+                    v_scale = v_scale_desc.load([off_z, off_h_v, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
                     p *= v_scale
                     p_scale = tl.max(p, 1)[:, None]
                     if v.dtype == tl.int8:
