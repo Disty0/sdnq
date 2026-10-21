@@ -108,10 +108,8 @@ def sdnq_attn_bwd_dq_kernel(
         do_k_mask = KN % BLOCK_SIZE_N != 0
     start_m_block = start_m * BLOCK_SIZE_M
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
-    offs_n = tl.arange(0, BLOCK_SIZE_N)
+    blocks_n = tl.arange(0, BLOCK_SIZE_N)
 
-    off_h_k = (off_h * KH) // QH
-    off_h_v = (off_h * VH) // QH
     off_h_64 = off_h.to(tl.int64)
     off_z_64 = off_z.to(tl.int64)
     offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
@@ -122,21 +120,13 @@ def sdnq_attn_bwd_dq_kernel(
     k_desc = tl.make_tensor_descriptor(k_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, KHD])
     v_desc = tl.make_tensor_descriptor(v_ptr + offset_v * VHD, shape=[VN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_N, VHD])
     do_desc = tl.make_tensor_descriptor(do_ptr + offset_q * VHD, shape=[QN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_M, VHD])
-    lse_desc = tl.make_tensor_descriptor(lse_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-    delta_desc = tl.make_tensor_descriptor(delta_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
 
     if qk_is_quantized:
-        q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr, shape=[KZ, KH, KN], strides=[KN*KH, KN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
-        q_scale = q_scale_desc.load([off_z, off_h, start_m_block]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
+        q_scale = tl.load(q_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN).to(tl.float32)
     if pv_is_quantized:
-        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[VN*VH, VN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
-        do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-        do_scale = do_scale_desc.load([off_z, off_h, start_m_block]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
+        do_scale = tl.load(do_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN).to(tl.float32)
     if do_mask:
-        mask_desc = tl.make_tensor_descriptor(mask_ptr, shape=[QZ, QH, QN, MKN], strides=[((MH*MQN*MKN) if MZ != 1 else 0), ((MQN*MKN) if MH != 1 else 0), (MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[1, 1, BLOCK_SIZE_M, BLOCK_SIZE_N])
-        if MKN == 1 and KN != 1:
-            mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
+        offset_mask = (off_z_64 * ((MH * MQN * MKN) if MZ != 1 else 0)) + (off_h_64 * ((MQN * MKN) if MH != 1 else 0)) + (offs_m[:, None] * (MKN if (MQN != 1 and QN != 1) else 0))
     if do_block_mask:
         # dq walks the same kv blocks the forward walked for this query block, so it reads the forward's lists unchanged
         tl.static_assert(BLOCK_MASK_M % BLOCK_SIZE_M == 0, "BLOCK_SIZE_M must divide BLOCK_MASK_M")
@@ -159,8 +149,8 @@ def sdnq_attn_bwd_dq_kernel(
 
     q = q_desc.load([start_m_block, 0])
     do = do_desc.load([start_m_block, 0])
-    lse = lse_desc.load([off_z, off_h, start_m_block]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
-    delta = delta_desc.load([off_z, off_h, start_m_block]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
+    lse = tl.load(lse_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN).to(tl.float32)
+    delta = tl.load(delta_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN).to(tl.float32)
     dq = tl.zeros([BLOCK_SIZE_M, QHD], dtype=tl.float32)
 
     if use_fp16_accum:
@@ -184,17 +174,14 @@ def sdnq_attn_bwd_dq_kernel(
             start_n = block_n * BLOCK_MASK_N + (tile % SUB_TILES) * BLOCK_SIZE_N
         else:
             start_n = tile * BLOCK_SIZE_N
+        offs_n = start_n + blocks_n
         if not (is_causal and ((start_m_block + BLOCK_SIZE_M) <= start_n)):
             skip = False
             if do_mask:
                 if MKN == 1 and KN != 1:
-                    mask = mask_desc.load([off_z, off_h, start_m_block, 0]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
-                    if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
-                        mask = tl.max(tl.where(mask_cols == 0, mask, 0), axis=1, keep_dims=True).to(tl.int1)
-                    else:
-                        mask = tl.max(tl.where(mask_cols == 0, mask, float("-inf")), axis=1, keep_dims=True).to(tl.float32)
+                    mask = tl.load(mask_ptr + offset_mask, mask=offs_m[:, None] < QN)
                 else:
-                    mask = mask_desc.load([off_z, off_h, start_m_block, start_n]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
+                    mask = tl.load(mask_ptr + offset_mask + offs_n[None, :], mask=(offs_m[:, None] < QN) & (offs_n[None, :] < MKN), other=0)
                 mask_max = tl.max(mask)
                 if mask.dtype == tl.int8:
                     mask = mask.to(tl.int1)
@@ -208,7 +195,7 @@ def sdnq_attn_bwd_dq_kernel(
             if not skip:
                 k = k_desc.load([start_n, 0])
                 if qk_is_quantized:
-                    k_scale = k_scale_desc.load([off_z, off_h_k, start_n]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
+                    k_scale = tl.load(k_scale_ptr + offset_k + offs_n[None, :], mask=offs_n[None, :] < KN).to(tl.float32)
                     if q.dtype == tl.int8:
                         qk = tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale)
                     elif use_fp16_accum and q.dtype == tl.float16:
@@ -220,21 +207,21 @@ def sdnq_attn_bwd_dq_kernel(
                     qk = tl.dot(q, k.T, out_dtype=tl.float32)
 
                 if is_causal and start_m_block < (start_n + BLOCK_SIZE_N):
-                    qk = tl.where(offs_m[:, None] >= (start_n + offs_n[None, :]), qk, float("-inf"))
+                    qk = tl.where(offs_m[:, None] >= offs_n[None, :], qk, float("-inf"))
                 if do_mask:
                     if mask.dtype == tl.int1:
                         qk = tl.where(mask, qk, float("-inf"))
                     else:
                         qk = tl.fma(mask, inv_sm_scale, qk)
                 if do_k_mask and (start_n + BLOCK_SIZE_N) > KN:
-                    qk = tl.where(offs_n[None, :] < (KN - start_n), qk, float("-inf"))
+                    qk = tl.where(offs_n[None, :] < KN, qk, float("-inf"))
 
                 qk = tl.fma(qk, log2_sm_scale, lse)
                 p = tl.exp2(qk)
 
                 v = v_desc.load([start_n, 0]).T
                 if pv_is_quantized:
-                    v_scale = v_scale_desc.load([off_z, off_h_v, start_n]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
+                    v_scale = tl.load(v_scale_ptr + offset_v + offs_n[None, :], mask=offs_n[None, :] < VN).to(tl.float32)
                     if do.dtype == tl.int8:
                         dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.int32).to(tl.float32), do_scale), v_scale)
                     else:
@@ -371,7 +358,7 @@ def sdnq_attn_bwd_dkv_kernel(
     log2_sm_scale = sm_scale * 1.4426950408889634
     do_k_mask = KN % BLOCK_SIZE_N != 0
     start_n_block = start_n * BLOCK_SIZE_N
-    offs_m = tl.arange(0, BLOCK_SIZE_M)
+    blocks_m = tl.arange(0, BLOCK_SIZE_M)
     offs_n = start_n_block + tl.arange(0, BLOCK_SIZE_N)
 
     off_h_k_64 = off_h_k.to(tl.int64)
@@ -383,11 +370,9 @@ def sdnq_attn_bwd_dkv_kernel(
     v_desc = tl.make_tensor_descriptor(v_ptr + offset_v * VHD, shape=[VN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_N, VHD])
 
     if qk_is_quantized:
-        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr, shape=[KZ, KH, KN], strides=[KN*KH, KN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
-        k_scale = k_scale_desc.load([off_z, off_h_k, start_n_block]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
+        k_scale = tl.load(k_scale_ptr + offset_k + offs_n[None, :], mask=offs_n[None, :] < KN).to(tl.float32)
     if pv_is_quantized:
-        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[VN*VH, VN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
-        v_scale = v_scale_desc.load([off_z, off_h_k, start_n_block]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
+        v_scale = tl.load(v_scale_ptr + offset_v + offs_n[None, :], mask=offs_n[None, :] < VN).to(tl.float32)
 
     k = k_desc.load([start_n_block, 0]).T
     v = v_desc.load([start_n_block, 0]).T
@@ -413,21 +398,13 @@ def sdnq_attn_bwd_dkv_kernel(
     for qh_idx in tl.range(0, qh_ratio):
         off_h_64 = off_h_k * qh_ratio + qh_idx
         offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
-        off_h = off_h_64.to(tl.int32)
 
         q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, QHD])
         do_desc = tl.make_tensor_descriptor(do_ptr + offset_q * VHD, shape=[QN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_M, VHD])
-        lse_desc = tl.make_tensor_descriptor(lse_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-        delta_desc = tl.make_tensor_descriptor(delta_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
 
         if do_mask:
-            mask_desc = tl.make_tensor_descriptor(mask_ptr, shape=[QZ, QH, QN, MKN], strides=[((MH*MQN*MKN) if MZ != 1 else 0), ((MQN*MKN) if MH != 1 else 0), (MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[1, 1, BLOCK_SIZE_M, BLOCK_SIZE_N])
-            if MKN == 1 and KN != 1:
-                mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
-        if qk_is_quantized:
-            q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-        if pv_is_quantized:
-            do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+            stride_mqn = (MKN if (MQN != 1 and QN != 1) else 0)
+            offset_mask_base = (off_z_64 * ((MH * MQN * MKN) if MZ != 1 else 0)) + (off_h_64 * ((MQN * MKN) if MH != 1 else 0))
 
         if is_causal:
             start_m_idx_start = start_n_block // BLOCK_SIZE_M
@@ -464,16 +441,14 @@ def sdnq_attn_bwd_dkv_kernel(
                 start_m = block_m * BLOCK_MASK_M + (tile % SUB_TILES) * BLOCK_SIZE_M
             else:
                 start_m = (start_m_idx_start + tile) * BLOCK_SIZE_M
+            offs_m = start_m + blocks_m
             skip = False
             if do_mask:
+                offset_mask = offset_mask_base + (offs_m[:, None] * stride_mqn)
                 if MKN == 1 and KN != 1:
-                    mask = mask_desc.load([off_z, off_h, start_m, 0]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
-                    if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
-                        mask = tl.max(tl.where(mask_cols == 0, mask, 0), axis=1, keep_dims=True).to(tl.int1)
-                    else:
-                        mask = tl.max(tl.where(mask_cols == 0, mask, float("-inf")), axis=1, keep_dims=True).to(tl.float32)
+                    mask = tl.load(mask_ptr + offset_mask, mask=offs_m[:, None] < QN)
                 else:
-                    mask = mask_desc.load([off_z, off_h, start_m, start_n_block]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
+                    mask = tl.load(mask_ptr + offset_mask + offs_n[None, :], mask=(offs_m[:, None] < QN) & (offs_n[None, :] < MKN), other=0)
                 mask_max = tl.max(mask)
                 if mask.dtype == tl.int8:
                     mask = mask.to(tl.int1)
@@ -487,7 +462,7 @@ def sdnq_attn_bwd_dkv_kernel(
             if not skip:
                 q = q_desc.load([start_m, 0])
                 if qk_is_quantized:
-                    q_scale = q_scale_desc.load([off_z, off_h, start_m]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
+                    q_scale = tl.load(q_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN).to(tl.float32)
                     if q.dtype == tl.int8:
                         qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale)
                     elif use_fp16_accum and q.dtype == tl.float16:
@@ -499,7 +474,7 @@ def sdnq_attn_bwd_dkv_kernel(
                     qk = tl.dot(q, k, out_dtype=tl.float32)
 
                 if is_causal and start_m < (start_n_block + BLOCK_SIZE_N):
-                    qk = tl.where((start_m + offs_m[:, None]) >= offs_n[None, :], qk, float("-inf"))
+                    qk = tl.where(offs_m[:, None] >= offs_n[None, :], qk, float("-inf"))
                 if do_mask:
                     if mask.dtype == tl.int1:
                         qk = tl.where(mask, qk, float("-inf"))
@@ -508,13 +483,13 @@ def sdnq_attn_bwd_dkv_kernel(
                 if do_k_mask and (start_n_block + BLOCK_SIZE_N) > KN:
                     qk = tl.where(offs_n[None, :] < KN, qk, float("-inf"))
 
-                lse = lse_desc.load([off_z, off_h, start_m]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
+                lse = tl.load(lse_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN).to(tl.float32)
                 qk = tl.fma(qk, log2_sm_scale, lse)
                 p = tl.exp2(qk)
 
                 do = do_desc.load([start_m, 0])
                 if pv_is_quantized:
-                    do_scale = do_scale_desc.load([off_z, off_h, start_m]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
+                    do_scale = tl.load(do_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN).to(tl.float32)
 
                 if do_grad_k:
                     if pv_is_quantized:
@@ -528,7 +503,7 @@ def sdnq_attn_bwd_dkv_kernel(
                     else:
                         dp = tl.dot(do, v, out_dtype=tl.float32)
 
-                    delta = delta_desc.load([off_z, off_h, start_m]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
+                    delta = tl.load(delta_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN).to(tl.float32)
 
                     ds = tl.mul(p, tl.sub(dp, delta))
                     if qk_is_quantized:
