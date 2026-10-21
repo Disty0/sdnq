@@ -8,7 +8,7 @@ import triton.language as tl
 
 from ..common import compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, rotate_hadamard, rotate_hadamard_compiled
-from .triton_atten import sdnq_triton_atten, autotune_configs, block_size_divisor, prune_configs, block_count_chunk, block_index_chunk, get_block_mask_input, check_block_lists
+from .triton_atten import sdnq_triton_atten, autotune_configs, block_size_divisor, prune_configs, block_count_chunk, block_index_chunk, row_align, get_block_mask_input, check_block_lists, pad_rows
 
 
 @triton.autotune(
@@ -46,6 +46,7 @@ def sdnq_attn_bwd_dq_kernel(
     BLOCK_MASK_N: tl.constexpr,
     BLOCK_COUNT_CHUNK: tl.constexpr,
     BLOCK_INDEX_CHUNK: tl.constexpr,
+    ROW_ALIGN: tl.constexpr,
     BZ: tl.constexpr, BH: tl.constexpr,
     qk_is_quantized: tl.constexpr,
     pv_is_quantized: tl.constexpr,
@@ -84,6 +85,7 @@ def sdnq_attn_bwd_dq_kernel(
     tl.assume(BLOCK_MASK_N >= 0)
     tl.assume(BLOCK_COUNT_CHUNK > 0)
     tl.assume(BLOCK_INDEX_CHUNK > 0)
+    tl.assume(ROW_ALIGN > 0)
     tl.assume(BZ >= 0)
     tl.assume(BH >= 0)
     tl.assume(off_h >= 0)
@@ -115,21 +117,28 @@ def sdnq_attn_bwd_dq_kernel(
     offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
     offset_k = off_z_64 * (KN * KH) + ((off_h_64 * KH) // QH) * KN
     offset_v = off_z_64 * (VN * VH) + ((off_h_64 * VH) // QH) * VN
+    off_h_k = (off_h * KH) // QH
+    off_h_v = (off_h * VH) // QH
 
     q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, QHD])
     k_desc = tl.make_tensor_descriptor(k_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, KHD])
     v_desc = tl.make_tensor_descriptor(v_ptr + offset_v * VHD, shape=[VN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_N, VHD])
     do_desc = tl.make_tensor_descriptor(do_ptr + offset_q * VHD, shape=[QN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_M, VHD])
-    lse_desc = tl.make_tensor_descriptor(lse_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-    delta_desc = tl.make_tensor_descriptor(delta_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+
+    # the scale, lse and delta rows are padded to ROW_ALIGN elements (pad_rows), so their strides are 16 byte multiples
+    QN_PAD = ((QN + ROW_ALIGN - 1) // ROW_ALIGN) * ROW_ALIGN
+    KN_PAD = ((KN + ROW_ALIGN - 1) // ROW_ALIGN) * ROW_ALIGN
+    VN_PAD = ((VN + ROW_ALIGN - 1) // ROW_ALIGN) * ROW_ALIGN
+    lse_desc = tl.make_tensor_descriptor(lse_ptr, shape=[QZ, QH, QN], strides=[QN_PAD*QH, QN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+    delta_desc = tl.make_tensor_descriptor(delta_ptr, shape=[QZ, QH, QN], strides=[QN_PAD*QH, QN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_M])
 
     if qk_is_quantized:
-        q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr, shape=[KZ, KH, KN], strides=[KN*KH, KN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
+        q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr, shape=[QZ, QH, QN], strides=[QN_PAD*QH, QN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr, shape=[KZ, KH, KN], strides=[KN_PAD*KH, KN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_N])
         q_scale = q_scale_desc.load([off_z, off_h, start_m_block]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
     if pv_is_quantized:
-        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[KN*VH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
-        do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[VN_PAD*VH, VN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_N])
+        do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr, shape=[QZ, QH, QN], strides=[QN_PAD*QH, QN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_M])
         do_scale = do_scale_desc.load([off_z, off_h, start_m_block]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
     if do_mask:
         mask_desc = tl.make_tensor_descriptor(mask_ptr, shape=[QZ, QH, QN, MKN], strides=[((MH*MQN*MKN) if MZ != 1 else 0), ((MQN*MKN) if MH != 1 else 0), (MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[1, 1, BLOCK_SIZE_M, BLOCK_SIZE_N])
@@ -206,7 +215,7 @@ def sdnq_attn_bwd_dq_kernel(
             if not skip:
                 k = k_desc.load([start_n, 0])
                 if qk_is_quantized:
-                    k_scale = k_scale_desc.load([off_z, off_h, start_n]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
+                    k_scale = k_scale_desc.load([off_z, off_h_k, start_n]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
                     if q.dtype == tl.int8:
                         qk = tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale)
                     elif use_fp16_accum and q.dtype == tl.float16:
@@ -232,7 +241,7 @@ def sdnq_attn_bwd_dq_kernel(
 
                 v = v_desc.load([start_n, 0]).T
                 if pv_is_quantized:
-                    v_scale = v_scale_desc.load([off_z, off_h, start_n]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
+                    v_scale = v_scale_desc.load([off_z, off_h_v, start_n]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
                     if do.dtype == tl.int8:
                         dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.int32).to(tl.float32), do_scale), v_scale)
                     else:
@@ -312,6 +321,7 @@ def sdnq_attn_bwd_dkv_kernel(
     BLOCK_MASK_N: tl.constexpr,
     BLOCK_COUNT_CHUNK: tl.constexpr,
     BLOCK_INDEX_CHUNK: tl.constexpr,
+    ROW_ALIGN: tl.constexpr,
     BZ: tl.constexpr, BH: tl.constexpr,
     qk_is_quantized: tl.constexpr,
     pv_is_quantized: tl.constexpr,
@@ -350,6 +360,7 @@ def sdnq_attn_bwd_dkv_kernel(
     tl.assume(BLOCK_MASK_N >= 0)
     tl.assume(BLOCK_COUNT_CHUNK > 0)
     tl.assume(BLOCK_INDEX_CHUNK > 0)
+    tl.assume(ROW_ALIGN > 0)
     tl.assume(BZ >= 0)
     tl.assume(BH >= 0)
     tl.assume(off_z >= 0)
@@ -380,11 +391,16 @@ def sdnq_attn_bwd_dkv_kernel(
     k_desc = tl.make_tensor_descriptor(k_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, KHD])
     v_desc = tl.make_tensor_descriptor(v_ptr + offset_v * VHD, shape=[VN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_N, VHD])
 
+    # the scale, lse and delta rows are padded to ROW_ALIGN elements (pad_rows), so their strides are 16 byte multiples
+    QN_PAD = ((QN + ROW_ALIGN - 1) // ROW_ALIGN) * ROW_ALIGN
+    KN_PAD = ((KN + ROW_ALIGN - 1) // ROW_ALIGN) * ROW_ALIGN
+    VN_PAD = ((VN + ROW_ALIGN - 1) // ROW_ALIGN) * ROW_ALIGN
+
     if qk_is_quantized:
-        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr, shape=[KZ, KH, KN], strides=[KN*KH, KN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
+        k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr, shape=[KZ, KH, KN], strides=[KN_PAD*KH, KN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_N])
         k_scale = k_scale_desc.load([off_z, off_h_k, start_n_block]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
     if pv_is_quantized:
-        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[KN*VH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
+        v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[VN_PAD*VH, VN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_N])
         v_scale = v_scale_desc.load([off_z, off_h_k, start_n_block]).reshape([1, BLOCK_SIZE_N]).to(tl.float32)
 
     k = k_desc.load([start_n_block, 0]).T
@@ -415,17 +431,17 @@ def sdnq_attn_bwd_dkv_kernel(
 
         q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, QHD])
         do_desc = tl.make_tensor_descriptor(do_ptr + offset_q * VHD, shape=[QN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_M, VHD])
-        lse_desc = tl.make_tensor_descriptor(lse_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-        delta_desc = tl.make_tensor_descriptor(delta_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+        lse_desc = tl.make_tensor_descriptor(lse_ptr, shape=[QZ, QH, QN], strides=[QN_PAD*QH, QN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+        delta_desc = tl.make_tensor_descriptor(delta_ptr, shape=[QZ, QH, QN], strides=[QN_PAD*QH, QN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_M])
 
         if do_mask:
             mask_desc = tl.make_tensor_descriptor(mask_ptr, shape=[QZ, QH, QN, MKN], strides=[((MH*MQN*MKN) if MZ != 1 else 0), ((MQN*MKN) if MH != 1 else 0), (MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[1, 1, BLOCK_SIZE_M, BLOCK_SIZE_N])
             if MKN == 1 and KN != 1:
                 mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
         if qk_is_quantized:
-            q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+            q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr, shape=[QZ, QH, QN], strides=[QN_PAD*QH, QN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_M])
         if pv_is_quantized:
-            do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
+            do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr, shape=[QZ, QH, QN], strides=[QN_PAD*QH, QN_PAD, 1], block_shape=[1, 1, BLOCK_SIZE_M])
 
         if is_causal:
             start_m_idx_start = start_n_block // BLOCK_SIZE_M
@@ -630,7 +646,7 @@ def sdnq_triton_atten_bwd_dq(
         (1 if use_fp16_accum else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
-        block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
+        block_mask_m, block_mask_n, block_count_chunk, block_index_chunk, row_align,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
         (1 if query_scale is not None else 0),
         (1 if value_scale is not None else 0),
@@ -691,7 +707,7 @@ def sdnq_atten_bwd_dkv(
         (1 if use_fp16_accum else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
-        block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
+        block_mask_m, block_mask_n, block_count_chunk, block_index_chunk, row_align,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
         (1 if query_scale is not None else 0),
         (1 if value_scale is not None else 0),
@@ -851,7 +867,7 @@ def get_attn_backward_inputs(
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
     out = out.contiguous()
     grad_output = grad_output.contiguous()
-    delta = torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32)
+    delta = pad_rows(torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32))
     if pv_matmul_dtype in {"enabled", "uint8"}:
         pv_matmul_dtype = "int8"
     if pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
@@ -861,7 +877,7 @@ def get_attn_backward_inputs(
         if quantize_fp32:
             grad_output = grad_output.to(dtype=torch.float32)
         grad_output, grad_output_scale = quantize_mm_func_pv(grad_output, dim=-1, matmul_dtype=pv_matmul_dtype)
-        grad_output_scale = grad_output_scale.squeeze(-1)
+        grad_output_scale = pad_rows(grad_output_scale.squeeze(-1))
     else:
         grad_output_scale = None
     if block_mask is not None:
