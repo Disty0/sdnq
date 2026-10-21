@@ -112,13 +112,13 @@ def sdnq_attn_bwd_dq_kernel(
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
     offs_n = tl.arange(0, BLOCK_SIZE_N)
 
+    off_h_k = (off_h * KH) // QH
+    off_h_v = (off_h * VH) // QH
     off_h_64 = off_h.to(tl.int64)
     off_z_64 = off_z.to(tl.int64)
     offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
     offset_k = off_z_64 * (KN * KH) + ((off_h_64 * KH) // QH) * KN
     offset_v = off_z_64 * (VN * VH) + ((off_h_64 * VH) // QH) * VN
-    off_h_k = (off_h * KH) // QH
-    off_h_v = (off_h * VH) // QH
 
     q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, QHD])
     k_desc = tl.make_tensor_descriptor(k_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, KHD])
