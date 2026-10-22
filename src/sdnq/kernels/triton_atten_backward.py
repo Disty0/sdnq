@@ -118,8 +118,6 @@ def sdnq_attn_bwd_dq_kernel(
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
     blocks_n = tl.arange(0, BLOCK_SIZE_N)
 
-    off_h_k = (off_h * KH) // QH
-    off_h_v = (off_h * VH) // QH
     off_h_64 = off_h.to(tl.int64)
     off_z_64 = off_z.to(tl.int64)
     offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
@@ -446,7 +444,6 @@ def sdnq_attn_bwd_dkv_kernel(
     blocks_m = tl.arange(0, BLOCK_SIZE_M)
     offs_n = start_n_block + tl.arange(0, BLOCK_SIZE_N)
 
-    off_h_v = off_h_k
     off_h_k_64 = off_h_k.to(tl.int64)
     off_z_64 = off_z.to(tl.int64)
     offset_k = off_z_64 * (KN * KH) + off_h_k_64 * KN
@@ -502,7 +499,6 @@ def sdnq_attn_bwd_dkv_kernel(
     for qh_idx in tl.range(0, qh_ratio):
         off_h_64 = off_h_k * qh_ratio + qh_idx
         offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
-        off_h = off_h_64.to(tl.int32)
 
         if use_tensor_descriptors:
             q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(QHD)])
@@ -1182,12 +1178,10 @@ def sdnq_triton_atten_bwd(
             block_mask_m=block_mask_m,
             block_mask_n=block_mask_n,
         )
-    if do_grad_k:
-        if use_hadamard:
-            dk = rotate_hadamard_compiled(dk, group_size=hadamard_group_size, hadamard=hadamard)
-    if do_grad_v:
-        if use_hadamard and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
-            dv = rotate_hadamard_compiled(dv, group_size=hadamard_group_size, hadamard=hadamard)
+    if do_grad_k and use_hadamard:
+        dk = rotate_hadamard_compiled(dk, group_size=hadamard_group_size, hadamard=hadamard)
+    if do_grad_v and use_hadamard and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
+        dv = rotate_hadamard_compiled(dv, group_size=hadamard_group_size, hadamard=hadamard)
 
     return dq, dk, dv
 

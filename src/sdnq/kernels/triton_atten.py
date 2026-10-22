@@ -9,7 +9,7 @@ import triton.language as tl
 
 from ..common import logger, torch_backend, compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
-from ..utils import is_pow2, next_power_of_2, get_cache_sizes
+from ..utils import next_power_of_2, get_cache_sizes
 
 
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
@@ -240,8 +240,6 @@ def sdnq_attn_kernel(
     offs_m = start_m_block + tl.arange(0, BLOCK_SIZE_M)
     blocks_n = tl.arange(0, BLOCK_SIZE_N)
 
-    off_h_k = (off_h * KH) // QH
-    off_h_v = (off_h * VH) // QH
     off_h_64 = off_h.to(tl.int64)
     off_z_64 = off_z.to(tl.int64)
     offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
@@ -676,13 +674,10 @@ def get_attn_inputs(
     out_dtype: torch.dtype | None = None,
     block_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor | None, float, torch.dtype, bool, int]:
-    QHD = query.shape[-1]
-    KHD = key.shape[-1]
-    VHD = value.shape[-1]
     if out_dtype is None:
         out_dtype = query.dtype
     if sm_scale is None:
-        sm_scale = QHD ** -0.5
+        sm_scale = query.shape[-1] ** -0.5
     if attn_mask is not None:
         attn_mask = attn_mask.contiguous()
         if attn_mask.dtype == torch.bool:
