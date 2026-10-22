@@ -287,7 +287,7 @@ state["exp_avg"] = SDNQTensor.from_float(
   Can be `0` or `1`. Default is `0`  
 - **SDNQ_TRITON_MM_USE_TENSOR_DESCRIPTORS**:  
   Set this to `0` to disable Tensor Descriptors on SDNQ Triton MM kernels.  
-  Can be `0` or `1`. Default is `1`  
+  Can be `0` or `1`. Default is None (auto-detect)  
 - **SDNQ_USE_OPENVINO_MM**: Force the use of OpenVINO MM kernels instead of PyTorch for CPUs.  
   OpenVINO MM kernels can outperform PyTorch by 30x on CPUs that doesn't have AVX512 support.  
   OpenVINO MM can still outperform PyTorch on CPUs with AVX512 support.  
