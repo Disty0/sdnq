@@ -265,13 +265,14 @@ def sdnq_attn_kernel(
 
     if use_tensor_descriptors_for_scales:
         if qk_is_quantized:
-            q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-            k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr, shape=[KZ, KH, KN], strides=[KN*KH, KN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
-            q_scale = q_scale_desc.load([off_z, off_h, start_m_block]).reshape(BLOCK_SIZE_M, 1).to(tl.float32)
+            q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
+            k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr + offset_k, shape=[KN], strides=[1,], block_shape=[BLOCK_SIZE_N])
+            q_scale = q_scale_desc.load([start_m_block])[:, None].to(tl.float32)
         if pv_is_quantized:
-            v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr, shape=[VZ, VH, VN], strides=[VN*VH, VN, 1], block_shape=[1, 1, BLOCK_SIZE_N])
+            v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr+ offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
         if do_mask:
-            mask_desc = tl.make_tensor_descriptor(mask_ptr, shape=[QZ, QH, QN, MKN], strides=[((MH*MQN*MKN) if MZ != 1 else 0), ((MQN*MKN) if MH != 1 else 0), (MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[1, 1, BLOCK_SIZE_M, BLOCK_SIZE_N])
+            offset_mask = off_z_64 * ((MH * MQN) if (MZ != 1 and QZ != 1) else 0) + off_h_64 * (MQN if (MH != 1 and QH != 1) else 0)
+            mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask * MKN, shape=[QN, MKN], strides=[(MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
             if MKN == 1 and KN != 1:
                 mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
     else:
@@ -347,13 +348,13 @@ def sdnq_attn_kernel(
             if do_mask:
                 if use_tensor_descriptors_for_scales:
                     if MKN == 1 and KN != 1:
-                        mask = mask_desc.load([off_z, off_h, start_m_block, 0]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
+                        mask = mask_desc.load([start_m_block, 0])
                         if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
                             mask = tl.max(tl.where(mask_cols == 0, mask, 0), axis=1, keep_dims=True).to(tl.int1)
                         else:
                             mask = tl.max(tl.where(mask_cols == 0, mask, float("-inf")), axis=1, keep_dims=True).to(tl.float32)
                     else:
-                        mask = mask_desc.load([off_z, off_h, start_m_block, start_n]).reshape(BLOCK_SIZE_M, BLOCK_SIZE_N)
+                        mask = mask_desc.load([start_m_block, start_n])
                 else:
                     if MKN == 1 and KN != 1:
                         mask = tl.load(mask_ptr + offset_mask, mask=offs_m[:, None] < QN, other=mask_other)
@@ -376,7 +377,7 @@ def sdnq_attn_kernel(
                     k = tl.load(k_ptr + offset_k * KHD + offs_n[None, :] * KHD + offs_khd[:, None], mask=(offs_n[None, :] < KN) & (offs_khd[:, None] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
                 if qk_is_quantized:
                     if use_tensor_descriptors_for_scales:
-                        k_scale = k_scale_desc.load([off_z, off_h_k, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
+                        k_scale = k_scale_desc.load([start_n])[None, :].to(tl.float32)
                     else:
                         k_scale = tl.load(k_scale_ptr + offset_k + offs_n[None, :], mask=offs_n[None, :] < KN, other=0.0).to(tl.float32)
                     if q.dtype == tl.int8:
@@ -417,7 +418,7 @@ def sdnq_attn_kernel(
                     v = tl.load(v_ptr + offset_v * VHD + offs_n[:, None] * VHD + offs_vhd[None, :], mask=(offs_n[:, None] < VN) & (offs_vhd[None, :] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
                 if pv_is_quantized:
                     if use_tensor_descriptors_for_scales:
-                        v_scale = v_scale_desc.load([off_z, off_h_v, start_n]).reshape(1, BLOCK_SIZE_N).to(tl.float32)
+                        v_scale = v_scale_desc.load([start_n])[None, :].to(tl.float32)
                     else:
                         v_scale = tl.load(v_scale_ptr + offset_v + offs_n[None, :], mask=offs_n[None, :] < VN, other=0.0).to(tl.float32)
                     p *= v_scale
@@ -459,9 +460,8 @@ def sdnq_attn_kernel(
             l_i = tl.where(l_i == float("inf"), 0.0, l_i)
         l_i = l_i.to(out_ptr.type.element_ty)
         if use_tensor_descriptors_for_scales:
-            l_i = l_i.to(out_ptr.type.element_ty)[None, None, :]
-            l_desc = tl.make_tensor_descriptor(lse_ptr, shape=[QZ, QH, QN], strides=[QN*QH, QN, 1], block_shape=[1, 1, BLOCK_SIZE_M])
-            l_desc.store([off_z, off_h, start_m_block], l_i)
+            l_desc = tl.make_tensor_descriptor(lse_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
+            l_desc.store([start_m_block], l_i)
         else:
             tl.store(lse_ptr + offset_q + offs_m, l_i, mask=offs_m < QN)
 
