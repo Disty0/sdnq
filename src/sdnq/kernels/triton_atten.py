@@ -9,7 +9,7 @@ import triton.language as tl
 
 from ..common import logger, torch_backend, compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
-from ..utils import next_power_of_2, get_cache_sizes
+from ..utils import next_power_of_2, check_tma_alignment, get_cache_sizes
 
 
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
@@ -749,18 +749,28 @@ def check_tensor_descriptors(
     attn_mask: torch.Tensor | None = None,
     use_tensor_descriptors: bool | None = None,
 ) -> tuple[bool, bool, bool]:
+    if use_tensor_descriptors is not None:
+        return use_tensor_descriptors, use_tensor_descriptors, use_tensor_descriptors
     if query.device.type == "xpu":
-        if use_tensor_descriptors is None:
-            use_tensor_descriptors = True
-        return use_tensor_descriptors, use_tensor_descriptors, use_tensor_descriptors
-    if query.device.type == "cuda" and torch_backend == "rocm":
-        if use_tensor_descriptors is None:
-            use_tensor_descriptors = False
-        return use_tensor_descriptors, use_tensor_descriptors, use_tensor_descriptors
-    if use_tensor_descriptors is None:
-        # TODO: Nvidia needs 128 bit alignment checks for TMA
-        return True, False, False
-    return use_tensor_descriptors, use_tensor_descriptors, use_tensor_descriptors
+        return True, True, True
+    if query.device.type != "cuda" or torch_backend == "rocm":
+        return False, False, False
+    use_tensor_descriptors = bool(
+        check_tma_alignment(query)
+        and check_tma_alignment(key)
+        and check_tma_alignment(value)
+        and check_tma_alignment(grad_output)
+    )
+    use_tensor_descriptors_for_scales = bool(
+        check_tma_alignment(query_scale)
+        and check_tma_alignment(key_scale)
+        and check_tma_alignment(value_scale)
+        and check_tma_alignment(grad_output_scale)
+        and check_tma_alignment(delta)
+        and check_tma_alignment(lse)
+    )
+    use_tensor_descriptors_for_masks = check_tma_alignment(attn_mask)
+    return use_tensor_descriptors, use_tensor_descriptors_for_scales, use_tensor_descriptors_for_masks
 
 
 @inference_context()

@@ -41,6 +41,16 @@ def check_same_device(d1: torch.device, d2: torch.device) -> bool:
     return normalize_device(d1) == normalize_device(d2)
 
 
+def check_tma_alignment(tensor: torch.Tensor, alignment: int = 16, dim: int | None = None) -> bool:
+    if tensor is None:
+        return True
+    if dim is None:
+        dim = -1
+        while tensor.shape[dim] == 1 and dim > -tensor.ndim:
+            dim -= 1
+    return bool((tensor.shape[dim] % (alignment // tensor.element_size())) == 0)
+
+
 def get_smem_size(dev: int) -> int:
     try:
         import triton
