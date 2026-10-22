@@ -71,6 +71,7 @@ def sdnq_triton_mm_kernel(
     tl.assume(bias_ndim >= 0 and bias_ndim <= 2) # pylint: disable=consider-using-in
     tl.assume(b_is_contiguous == 0 or b_is_contiguous == 1) # pylint: disable=consider-using-in
     tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
+    tl.assume(use_tensor_descriptors == 0 or use_tensor_descriptors == 1) # pylint: disable=consider-using-in
 
     offs_k = tl.arange(0, BLOCK_SIZE_K)
     offs_m = (off_m + tl.arange(0, BLOCK_SIZE_M)) % M

@@ -179,6 +179,7 @@ def sdnq_scaled_mm_kernel(
     tl.assume(scale_a_is_tensorwise == 0 or scale_a_is_tensorwise == 1) # pylint: disable=consider-using-in
     tl.assume(scale_b_is_tensorwise == 0 or scale_b_is_tensorwise == 1) # pylint: disable=consider-using-in
     tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
+    tl.assume(use_tensor_descriptors == 0 or use_tensor_descriptors == 1) # pylint: disable=consider-using-in
 
     offs_k = tl.arange(0, BLOCK_SIZE_K)
     offs_m = (off_m + tl.arange(0, BLOCK_SIZE_M)) % M
