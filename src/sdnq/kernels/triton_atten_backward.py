@@ -8,7 +8,7 @@ import triton.language as tl
 
 from ..common import compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, rotate_hadamard, rotate_hadamard_compiled
-from .triton_atten import sdnq_triton_atten, autotune_configs, block_size_divisor, prune_configs, block_count_chunk, block_index_chunk, get_block_mask_input, check_block_lists
+from .triton_atten import sdnq_triton_atten, autotune_configs, block_size_divisor, prune_configs, block_count_chunk, block_index_chunk, get_block_mask_input, check_block_lists, check_tensor_descriptors
 
 
 @triton.autotune(
@@ -20,6 +20,7 @@ from .triton_atten import sdnq_triton_atten, autotune_configs, block_size_diviso
         "use_fp16_accum",
         "use_tensor_descriptors",
         "use_tensor_descriptors_for_scales",
+        "use_tensor_descriptors_for_masks",
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
         "VZ", "VH", "VN_AT", "VHD",
@@ -44,6 +45,7 @@ def sdnq_attn_bwd_dq_kernel(
     use_fp16_accum: tl.constexpr,
     use_tensor_descriptors: tl.constexpr,
     use_tensor_descriptors_for_scales: tl.constexpr,
+    use_tensor_descriptors_for_masks: tl.constexpr,
     QZ: tl.constexpr, QH: tl.constexpr, QN: tl.constexpr, QHD: tl.constexpr,
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
@@ -103,6 +105,7 @@ def sdnq_attn_bwd_dq_kernel(
     tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
     tl.assume(use_tensor_descriptors == 0 or use_tensor_descriptors == 1) # pylint: disable=consider-using-in
     tl.assume(use_tensor_descriptors_for_scales == 0 or use_tensor_descriptors_for_scales == 1) # pylint: disable=consider-using-in
+    tl.assume(use_tensor_descriptors_for_masks == 0 or use_tensor_descriptors_for_masks == 1) # pylint: disable=consider-using-in
     tl.assume(qk_is_quantized == 0 or qk_is_quantized == 1) # pylint: disable=consider-using-in
     tl.assume(pv_is_quantized == 0 or pv_is_quantized == 1) # pylint: disable=consider-using-in
 
@@ -145,17 +148,19 @@ def sdnq_attn_bwd_dq_kernel(
             v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr + offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
             do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
             do_scale = do_scale_desc.load([start_m_block])[:, None].to(tl.float32)
-        if do_mask:
-            offset_mask = off_z_64 * ((MH * MQN) if (MZ != 1 and QZ != 1) else 0) + off_h_64 * (MQN if (MH != 1 and QH != 1) else 0)
-            mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask * MKN, shape=[QN, MKN], strides=[(MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
-            if MKN == 1 and KN != 1:
-                mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
     else:
         if qk_is_quantized:
             q_scale = tl.load(q_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN, other=0.0).to(tl.float32)
         if pv_is_quantized:
             do_scale = tl.load(do_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN, other=0.0).to(tl.float32)
-        if do_mask:
+
+    if do_mask:
+        if use_tensor_descriptors_for_masks:
+            offset_mask = off_z_64 * ((MH * MQN) if (MZ != 1 and QZ != 1) else 0) + off_h_64 * (MQN if (MH != 1 and QH != 1) else 0)
+            mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask * MKN, shape=[QN, MKN], strides=[(MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
+            if MKN == 1 and KN != 1:
+                mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
+        else:
             mask_other = 0 if (mask_ptr.type.element_ty == tl.int1 or mask_ptr.type.element_ty == tl.int8) else 0.0 # pylint: disable=consider-using-in
             offset_mask = (off_z_64 * ((MH * MQN * MKN) if MZ != 1 else 0)) + (off_h_64 * ((MQN * MKN) if MH != 1 else 0)) + (offs_m[:, None] * (MKN if (MQN != 1 and QN != 1) else 0))
 
@@ -227,7 +232,7 @@ def sdnq_attn_bwd_dq_kernel(
         if not (is_causal and ((start_m_block + BLOCK_SIZE_M) <= start_n)):
             skip = False
             if do_mask:
-                if use_tensor_descriptors_for_scales:
+                if use_tensor_descriptors_for_masks:
                     if MKN == 1 and KN != 1:
                         mask = mask_desc.load([start_m_block, 0])
                         if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
@@ -348,6 +353,7 @@ def sdnq_attn_bwd_dq_kernel(
         "use_fp16_accum",
         "use_tensor_descriptors",
         "use_tensor_descriptors_for_scales",
+        "use_tensor_descriptors_for_masks",
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
         "VZ", "VH", "VN_AT", "VHD",
@@ -374,6 +380,7 @@ def sdnq_attn_bwd_dkv_kernel(
     use_fp16_accum: tl.constexpr,
     use_tensor_descriptors: tl.constexpr,
     use_tensor_descriptors_for_scales: tl.constexpr,
+    use_tensor_descriptors_for_masks: tl.constexpr,
     QZ: tl.constexpr, QH: tl.constexpr, QN: tl.constexpr, QHD: tl.constexpr,
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
@@ -431,6 +438,7 @@ def sdnq_attn_bwd_dkv_kernel(
     tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
     tl.assume(use_tensor_descriptors == 0 or use_tensor_descriptors == 1) # pylint: disable=consider-using-in
     tl.assume(use_tensor_descriptors_for_scales == 0 or use_tensor_descriptors_for_scales == 1) # pylint: disable=consider-using-in
+    tl.assume(use_tensor_descriptors_for_masks == 0 or use_tensor_descriptors_for_masks == 1) # pylint: disable=consider-using-in
     tl.assume(qk_is_quantized == 0 or qk_is_quantized == 1) # pylint: disable=consider-using-in
     tl.assume(pv_is_quantized == 0 or pv_is_quantized == 1) # pylint: disable=consider-using-in
     tl.assume(do_grad_k == 0 or do_grad_k == 1) # pylint: disable=consider-using-in
@@ -511,13 +519,14 @@ def sdnq_attn_bwd_dkv_kernel(
                 q_scale_desc = tl.make_tensor_descriptor(q_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
             if pv_is_quantized:
                 do_scale_desc = tl.make_tensor_descriptor(do_scale_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
-            if do_mask:
+
+        if do_mask:
+            if use_tensor_descriptors_for_masks:
                 offset_mask = off_z_64 * ((MH * MQN) if (MZ != 1 and QZ != 1) else 0) + off_h_64 * (MQN if (MH != 1 and QH != 1) else 0)
                 mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask * MKN, shape=[QN, MKN], strides=[(MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
                 if MKN == 1 and KN != 1:
                     mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
-        else:
-            if do_mask:
+            else:
                 stride_mqn = (MKN if (MQN != 1 and QN != 1) else 0)
                 mask_other = 0 if (mask_ptr.type.element_ty == tl.int1 or mask_ptr.type.element_ty == tl.int8) else 0.0 # pylint: disable=consider-using-in
                 offset_mask_base = (off_z_64 * ((MH * MQN * MKN) if MZ != 1 else 0)) + (off_h_64 * ((MQN * MKN) if MH != 1 else 0))
@@ -567,7 +576,7 @@ def sdnq_attn_bwd_dkv_kernel(
             offs_m = start_m + blocks_m
             skip = False
             if do_mask:
-                if use_tensor_descriptors_for_scales:
+                if use_tensor_descriptors_for_masks:
                     if MKN == 1 and KN != 1:
                         mask = mask_desc.load([start_m, 0])
                         if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
@@ -740,8 +749,7 @@ def sdnq_triton_atten_bwd_dq(
     sm_scale: float | None = None,
     is_causal: bool = False,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype | None = None,
     block_count: torch.Tensor | None = None,
     block_index: torch.Tensor | None = None,
@@ -751,6 +759,22 @@ def sdnq_triton_atten_bwd_dq(
     QZ, QH, QN, _ = query.shape
     _, _, KN, _ = key.shape
     _, _, VN, _ = value.shape
+    (
+        use_tensor_descriptors,
+        use_tensor_descriptors_for_scales,
+        use_tensor_descriptors_for_masks,
+    ) = check_tensor_descriptors(
+        query, key, value,
+        grad_output=grad_output,
+        delta=delta,
+        lse=lse,
+        grad_output_scale=grad_output_scale,
+        query_scale=query_scale,
+        key_scale=key_scale,
+        value_scale=value_scale,
+        attn_mask=attn_mask,
+        use_tensor_descriptors=use_tensor_descriptors,
+    )
     if block_count is not None or block_index is not None:
         check_block_lists(block_count, block_index, QZ, QH, QN, KN, block_mask_m, block_mask_n)
     else:
@@ -768,6 +792,7 @@ def sdnq_triton_atten_bwd_dq(
         (1 if use_fp16_accum else 0),
         (1 if use_tensor_descriptors else 0),
         (1 if use_tensor_descriptors_for_scales else 0),
+        (1 if use_tensor_descriptors_for_masks else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
@@ -800,8 +825,7 @@ def sdnq_atten_bwd_dkv(
     sm_scale: float | None = None,
     is_causal: bool = False,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype | None = None,
     do_grad_k: bool = True,
     do_grad_v: bool = True,
@@ -813,6 +837,22 @@ def sdnq_atten_bwd_dkv(
     QZ, QH, QN, _ = query.shape
     _, KH, KN, _ = key.shape
     _, _, VN, _ = value.shape
+    (
+        use_tensor_descriptors,
+        use_tensor_descriptors_for_scales,
+        use_tensor_descriptors_for_masks,
+    ) = check_tensor_descriptors(
+        query, key, value,
+        grad_output=grad_output,
+        delta=delta,
+        lse=lse,
+        grad_output_scale=grad_output_scale,
+        query_scale=query_scale,
+        key_scale=key_scale,
+        value_scale=value_scale,
+        attn_mask=attn_mask,
+        use_tensor_descriptors=use_tensor_descriptors,
+    )
     if block_count is not None or block_index is not None:
         check_block_lists(block_count, block_index, QZ, QH, KN, QN, block_mask_n, block_mask_m)
     else:
@@ -833,6 +873,7 @@ def sdnq_atten_bwd_dkv(
         (1 if use_fp16_accum else 0),
         (1 if use_tensor_descriptors else 0),
         (1 if use_tensor_descriptors_for_scales else 0),
+        (1 if use_tensor_descriptors_for_masks else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
@@ -866,8 +907,7 @@ def sdnq_triton_atten_bwd_dkv(
     sm_scale: float | None = None,
     is_causal: bool = False,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype | None = None,
     block_count: torch.Tensor | None = None,
     block_index: torch.Tensor | None = None,
@@ -886,7 +926,6 @@ def sdnq_triton_atten_bwd_dkv(
         is_causal=is_causal,
         use_fp16_accum=use_fp16_accum,
         use_tensor_descriptors=use_tensor_descriptors,
-        use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
         out_dtype=out_dtype,
         do_grad_k=True,
         do_grad_v=True,
@@ -914,8 +953,7 @@ def sdnq_triton_atten_bwd_dk(
     sm_scale: float | None = None,
     is_causal: bool = False,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype | None = None,
     block_count: torch.Tensor | None = None,
     block_index: torch.Tensor | None = None,
@@ -934,7 +972,6 @@ def sdnq_triton_atten_bwd_dk(
         is_causal=is_causal,
         use_fp16_accum=use_fp16_accum,
         use_tensor_descriptors=use_tensor_descriptors,
-        use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
         out_dtype=out_dtype,
         do_grad_k=True,
         do_grad_v=False,
@@ -962,8 +999,7 @@ def sdnq_triton_atten_bwd_dv(
     sm_scale: float | None = None,
     is_causal: bool = False,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype | None = None,
     block_count: torch.Tensor | None = None,
     block_index: torch.Tensor | None = None,
@@ -982,7 +1018,6 @@ def sdnq_triton_atten_bwd_dv(
         is_causal=is_causal,
         use_fp16_accum=use_fp16_accum,
         use_tensor_descriptors=use_tensor_descriptors,
-        use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
         out_dtype=out_dtype,
         do_grad_k=False,
         do_grad_v=True,
@@ -1054,8 +1089,7 @@ def sdnq_triton_atten_bwd(
     do_quantize: bool = True,
     quantize_fp32: bool = True,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype | None = None,
     do_grad_q: bool = True,
     do_grad_k: bool = True,
@@ -1104,7 +1138,6 @@ def sdnq_triton_atten_bwd(
             is_causal=is_causal,
             use_fp16_accum=use_fp16_accum,
             use_tensor_descriptors=use_tensor_descriptors,
-            use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
             out_dtype=out_dtype,
             block_count=block_count,
             block_index=block_index,
@@ -1129,7 +1162,6 @@ def sdnq_triton_atten_bwd(
             is_causal=is_causal,
             use_fp16_accum=use_fp16_accum,
             use_tensor_descriptors=use_tensor_descriptors,
-            use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
             out_dtype=out_dtype,
             block_count=block_count_t,
             block_index=block_index_t,
@@ -1150,7 +1182,6 @@ def sdnq_triton_atten_bwd(
             is_causal=is_causal,
             use_fp16_accum=use_fp16_accum,
             use_tensor_descriptors=use_tensor_descriptors,
-            use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
             out_dtype=out_dtype,
             block_count=block_count_t,
             block_index=block_index_t,
@@ -1171,7 +1202,6 @@ def sdnq_triton_atten_bwd(
             is_causal=is_causal,
             use_fp16_accum=use_fp16_accum,
             use_tensor_descriptors=use_tensor_descriptors,
-            use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
             out_dtype=out_dtype,
             block_count=block_count_t,
             block_index=block_index_t,
@@ -1205,7 +1235,6 @@ class SDNQAttenBackward(torch.autograd.Function):
         quantize_fp32: bool,
         use_fp16_accum: bool,
         use_tensor_descriptors: bool,
-        use_tensor_descriptors_for_scales: bool,
         out_dtype: torch.dtype | None,
         block_mask: torch.Tensor | None = None,
         block_mask_m: int = 0,
@@ -1216,7 +1245,6 @@ class SDNQAttenBackward(torch.autograd.Function):
         ctx.quantize_fp32 = quantize_fp32
         ctx.use_fp16_accum = use_fp16_accum
         ctx.use_tensor_descriptors = use_tensor_descriptors
-        ctx.use_tensor_descriptors_for_scales = use_tensor_descriptors_for_scales
         ctx.pv_matmul_dtype = pv_matmul_dtype
         ctx.block_mask_m = block_mask_m
         ctx.block_mask_n = block_mask_n
@@ -1240,7 +1268,6 @@ class SDNQAttenBackward(torch.autograd.Function):
             quantize_fp32=quantize_fp32,
             use_fp16_accum=use_fp16_accum,
             use_tensor_descriptors=use_tensor_descriptors,
-            use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
             out_dtype=out_dtype,
             return_backward=True,
             block_mask=block_mask,
@@ -1270,7 +1297,6 @@ class SDNQAttenBackward(torch.autograd.Function):
             quantize_fp32=ctx.do_quantize,
             use_fp16_accum=ctx.use_fp16_accum,
             use_tensor_descriptors=ctx.use_tensor_descriptors,
-            use_tensor_descriptors_for_scales=ctx.use_tensor_descriptors_for_scales,
             do_grad_q=ctx.needs_input_grad[0],
             do_grad_k=ctx.needs_input_grad[1],
             do_grad_v=ctx.needs_input_grad[2],
@@ -1278,7 +1304,7 @@ class SDNQAttenBackward(torch.autograd.Function):
             block_mask_m=ctx.block_mask_m,
             block_mask_n=ctx.block_mask_n,
         )
-        return dq, dk, dv, *(None,)*17
+        return dq, dk, dv, *(None,)*16
 
 
 def sdnq_triton_atten_with_backward(
@@ -1298,8 +1324,7 @@ def sdnq_triton_atten_with_backward(
         do_quantize: bool = True,
         quantize_fp32: bool = True,
         use_fp16_accum: bool = False,
-        use_tensor_descriptors: bool = True,
-        use_tensor_descriptors_for_scales: bool = False,
+        use_tensor_descriptors: bool | None = None,
         out_dtype: torch.dtype | None = None,
         block_mask: torch.Tensor | None = None,
         block_mask_m: int = 0,
@@ -1319,7 +1344,6 @@ def sdnq_triton_atten_with_backward(
         quantize_fp32,
         use_fp16_accum,
         use_tensor_descriptors,
-        use_tensor_descriptors_for_scales,
         out_dtype,
         block_mask,
         block_mask_m,

@@ -146,6 +146,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
         "use_fp16_accum",
         "use_tensor_descriptors",
         "use_tensor_descriptors_for_scales",
+        "use_tensor_descriptors_for_masks",
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
         "VZ", "VH", "VN_AT", "VHD",
@@ -171,6 +172,7 @@ def sdnq_attn_kernel(
     use_fp16_accum: tl.constexpr,
     use_tensor_descriptors: tl.constexpr,
     use_tensor_descriptors_for_scales: tl.constexpr,
+    use_tensor_descriptors_for_masks: tl.constexpr,
     QZ: tl.constexpr, QH: tl.constexpr, QN: tl.constexpr, QHD: tl.constexpr,
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
@@ -231,6 +233,7 @@ def sdnq_attn_kernel(
     tl.assume(use_fp16_accum == 0 or use_fp16_accum == 1) # pylint: disable=consider-using-in
     tl.assume(use_tensor_descriptors == 0 or use_tensor_descriptors == 1) # pylint: disable=consider-using-in
     tl.assume(use_tensor_descriptors_for_scales == 0 or use_tensor_descriptors_for_scales == 1) # pylint: disable=consider-using-in
+    tl.assume(use_tensor_descriptors_for_masks == 0 or use_tensor_descriptors_for_masks == 1) # pylint: disable=consider-using-in
     tl.assume(qk_is_quantized == 0 or qk_is_quantized == 1) # pylint: disable=consider-using-in
     tl.assume(pv_is_quantized == 0 or pv_is_quantized == 1) # pylint: disable=consider-using-in
 
@@ -268,15 +271,17 @@ def sdnq_attn_kernel(
             q_scale = q_scale_desc.load([start_m_block])[:, None].to(tl.float32)
         if pv_is_quantized:
             v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr+ offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
-        if do_mask:
+    else:
+        if qk_is_quantized:
+            q_scale = tl.load(q_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN, other=0.0).to(tl.float32)
+
+    if do_mask:
+        if use_tensor_descriptors_for_masks:
             offset_mask = off_z_64 * ((MH * MQN) if (MZ != 1 and QZ != 1) else 0) + off_h_64 * (MQN if (MH != 1 and QH != 1) else 0)
             mask_desc = tl.make_tensor_descriptor(mask_ptr + offset_mask * MKN, shape=[QN, MKN], strides=[(MKN if (MQN != 1 and QN != 1) else 0), 1], block_shape=[BLOCK_SIZE_M, BLOCK_SIZE_N])
             if MKN == 1 and KN != 1:
                 mask_cols = tl.arange(0, BLOCK_SIZE_N)[None, :]
-    else:
-        if qk_is_quantized:
-            q_scale = tl.load(q_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN, other=0.0).to(tl.float32)
-        if do_mask:
+        else:
             mask_other = 0 if (mask_ptr.type.element_ty == tl.int1 or mask_ptr.type.element_ty == tl.int8) else 0.0 # pylint: disable=consider-using-in
             offset_mask = (off_z_64 * ((MH * MQN * MKN) if MZ != 1 else 0)) + (off_h_64 * ((MQN * MKN) if MH != 1 else 0)) + (offs_m[:, None] * (MKN if (MQN != 1 and QN != 1) else 0))
 
@@ -344,7 +349,7 @@ def sdnq_attn_kernel(
         if not (is_causal and ((start_m_block + BLOCK_SIZE_M) <= start_n)):
             skip = False
             if do_mask:
-                if use_tensor_descriptors_for_scales:
+                if use_tensor_descriptors_for_masks:
                     if MKN == 1 and KN != 1:
                         mask = mask_desc.load([start_m_block, 0])
                         if mask.dtype == tl.int8 or mask.dtype == tl.int1: # pylint: disable=consider-using-in
@@ -476,8 +481,7 @@ def sdnq_atten_fwd(
     is_causal: bool = False,
     sm_scale: float = 1.0,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype = torch.float32,
     return_lse: bool = False,
     block_count: torch.Tensor | None = None,
@@ -488,6 +492,18 @@ def sdnq_atten_fwd(
     QZ, QH, QN, _ = query.shape
     _, _, KN, _ = key.shape
     _, _, VN, VHD = value.shape
+    (
+        use_tensor_descriptors,
+        use_tensor_descriptors_for_scales,
+        use_tensor_descriptors_for_masks,
+    ) = check_tensor_descriptors(
+        query, key, value,
+        query_scale=query_scale,
+        key_scale=key_scale,
+        value_scale=value_scale,
+        attn_mask=attn_mask,
+        use_tensor_descriptors=use_tensor_descriptors,
+    )
     if block_count is not None or block_index is not None:
         check_block_lists(block_count, block_index, QZ, QH, QN, KN, block_mask_m, block_mask_n)
     else:
@@ -507,6 +523,7 @@ def sdnq_atten_fwd(
         (1 if use_fp16_accum else 0),
         (1 if use_tensor_descriptors else 0),
         (1 if use_tensor_descriptors_for_scales else 0),
+        (1 if use_tensor_descriptors_for_masks else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
@@ -536,8 +553,7 @@ def sdnq_triton_atten_fwd(
     is_causal: bool = False,
     sm_scale: float = 1.0,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype = torch.float32,
     block_count: torch.Tensor | None = None,
     block_index: torch.Tensor | None = None,
@@ -552,7 +568,6 @@ def sdnq_triton_atten_fwd(
         sm_scale=sm_scale,
         use_fp16_accum=use_fp16_accum,
         use_tensor_descriptors=use_tensor_descriptors,
-        use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
         out_dtype=out_dtype,
         return_lse=False,
         block_count=block_count,
@@ -575,8 +590,7 @@ def sdnq_triton_atten_lse_fwd(
     is_causal: bool = False,
     sm_scale: float = 1.0,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype = torch.float32,
     block_count: torch.Tensor | None = None,
     block_index: torch.Tensor | None = None,
@@ -591,7 +605,6 @@ def sdnq_triton_atten_lse_fwd(
         sm_scale=sm_scale,
         use_fp16_accum=use_fp16_accum,
         use_tensor_descriptors=use_tensor_descriptors,
-        use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
         out_dtype=out_dtype,
         return_lse=True,
         block_count=block_count,
@@ -722,6 +735,34 @@ def check_block_lists(block_count: torch.Tensor | None, block_index: torch.Tenso
         raise ValueError(f"SDNQ Triton Atten: block_count {tuple(block_count.shape)} and block_index {tuple(block_index.shape)} do not match ({batch} or 1, {heads} or 1, {row_blocks_pad}) and (..., {row_blocks}, {col_blocks_pad}) for a {row_block}x{col_block} block over {rows}x{cols}")
 
 
+def check_tensor_descriptors(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    grad_output: torch.Tensor | None = None,
+    delta: torch.Tensor | None = None,
+    lse: torch.Tensor | None = None,
+    grad_output_scale: torch.Tensor | None = None,
+    query_scale: torch.Tensor | None = None,
+    key_scale: torch.Tensor | None = None,
+    value_scale: torch.Tensor | None = None,
+    attn_mask: torch.Tensor | None = None,
+    use_tensor_descriptors: bool | None = None,
+) -> tuple[bool, bool, bool]:
+    if query.device.type == "xpu":
+        if use_tensor_descriptors is None:
+            use_tensor_descriptors = True
+        return use_tensor_descriptors, use_tensor_descriptors, use_tensor_descriptors
+    if query.device.type == "cuda" and torch_backend == "rocm":
+        if use_tensor_descriptors is None:
+            use_tensor_descriptors = False
+        return use_tensor_descriptors, use_tensor_descriptors, use_tensor_descriptors
+    if use_tensor_descriptors is None:
+        # TODO: Nvidia needs 128 bit alignment checks for TMA
+        return True, False, False
+    return use_tensor_descriptors, use_tensor_descriptors, use_tensor_descriptors
+
+
 @inference_context()
 def get_block_mask_input(block_mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     keep = block_mask != 0
@@ -753,8 +794,7 @@ def sdnq_triton_atten(
     do_quantize: bool = True,
     quantize_fp32: bool = True,
     use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool = True,
-    use_tensor_descriptors_for_scales: bool = False,
+    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype | None = None,
     return_backward: bool = False,
     block_mask: torch.Tensor | None = None,
@@ -807,7 +847,6 @@ def sdnq_triton_atten(
             sm_scale=sm_scale,
             use_fp16_accum=use_fp16_accum,
             use_tensor_descriptors=use_tensor_descriptors,
-            use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
             out_dtype=out_dtype,
             block_count=block_count,
             block_index=block_index,
@@ -823,7 +862,6 @@ def sdnq_triton_atten(
             sm_scale=sm_scale,
             use_fp16_accum=use_fp16_accum,
             use_tensor_descriptors=use_tensor_descriptors,
-            use_tensor_descriptors_for_scales=use_tensor_descriptors_for_scales,
             out_dtype=out_dtype,
             block_count=block_count,
             block_index=block_index,
