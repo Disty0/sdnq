@@ -496,12 +496,18 @@ def sdnq_quantize_layer_weight_dynamic(
             dequant_weight = dequant_weight.unsqueeze(0)
 
         quant_diff = torch.sub(original_weight_fp32, dequant_weight)
+        del dequant_weight
+
         quant_diff_norm = torch.div(torch.linalg.vector_norm(quant_diff, dim=1), original_weight_fp32_norm)
+        max_error = quant_diff.abs().max().mul_(original_weight_fp32_inv_std)
+        del quant_diff
+
         average_error = quant_diff_norm.mean().mul_(0.5)
-        max_row_error = quant_diff_norm.max().mul_(0.3)
-        max_error = quant_diff.abs().max().mul_(original_weight_fp32_inv_std * 0.2)
-        quantization_loss = average_error + max_row_error + max_error
-        del dequant_weight, quant_diff, quant_diff_norm, average_error, max_row_error, max_error
+        max_row_error = quant_diff_norm.max()
+        del quant_diff_norm
+
+        quantization_loss = torch.add(average_error, max_row_error, alpha=0.3).add_(max_error, alpha=0.2)
+        del average_error, max_row_error, max_error
 
         if quantization_loss <= dynamic_loss_threshold:
             del original_weight_fp32
