@@ -385,7 +385,7 @@ def sdnq_quantize_layer_weight_dynamic(
     if torch_dtype is None:
         torch_dtype = weight.dtype
     if dynamic_loss_threshold is None or dynamic_loss_threshold < 0:
-        dynamic_loss_threshold = 10 ** -(dtype_dict[weights_dtype]["num_bits"] / 2)
+        dynamic_loss_threshold = (torch.e/2) ** -dtype_dict[weights_dtype]["num_bits"]
 
     if weights_dtype_order is None or (isinstance(weights_dtype_order, str) and weights_dtype_order in {"auto", "default"}):
         weights_dtype_order = weights_dtype_order_default
@@ -394,9 +394,20 @@ def sdnq_quantize_layer_weight_dynamic(
 
     weight = weight.detach()
     if weight.dtype != torch.float64:
-        weight = weight.to(dtype=torch.float32, copy=False)
-    weight_std = weight.std().square_().clamp_(min=1e-8)
-    original_weight_fp32 = weight
+        original_weight_fp32 = weight.to(dtype=torch.float32)
+    else:
+        original_weight_fp32 = weight
+
+    is_conv_transpose_type = layer_class_name in conv_transpose_types
+    if is_conv_transpose_type:
+        original_weight_fp32 = original_weight_fp32.transpose(0,1).contiguous()
+    if original_weight_fp32.ndim > 1:
+        original_weight_fp32 = original_weight_fp32.flatten(start_dim=1)
+    else:
+        original_weight_fp32 = original_weight_fp32.unsqueeze(0)
+
+    original_weight_fp32_norm = torch.linalg.vector_norm(original_weight_fp32, dim=1).clamp_(min=1e-8)
+    original_weight_fp32_inv_std = original_weight_fp32.std().clamp_(min=1e-8).reciprocal_()
 
     if use_hadamard:
         weight, use_hadamard, hadamard_group_size = apply_hadamard(weight, group_size=hadamard_group_size, hadamard=hadamard, layer_class_name=layer_class_name)
@@ -451,7 +462,6 @@ def sdnq_quantize_layer_weight_dynamic(
             scale_dtype=scale_dtype,
             zero_point_dtype=zero_point_dtype,
             quantized_matmul_dtype=current_quantized_matmul_dtype,
-            torch_dtype=torch_dtype,
             hadamard_group_size=hadamard_group_size,
             group_size=group_size,
             svd_rank=svd_rank,
@@ -467,6 +477,7 @@ def sdnq_quantize_layer_weight_dynamic(
             using_pre_calculated_svd=use_svd,
             using_pre_rotated_hadamard=use_hadamard,
             param_name=param_name,
+            torch_dtype=torch_dtype,
         )
 
         if sdnq_dequantizer.use_quantized_matmul:
@@ -476,15 +487,22 @@ def sdnq_quantize_layer_weight_dynamic(
             weight_data["svd_up"] = svd_up
             weight_data["svd_down"] = svd_down
 
-        quantization_loss = torch.nn.functional.mse_loss(
-            original_weight_fp32,
-            sdnq_dequantizer(
-                **weight_data,
-                skip_quantized_matmul=sdnq_dequantizer.use_quantized_matmul,
-                dtype=weight.dtype,
-                skip_compile=True,
-            ),
-        ).div_(weight_std)
+        dequant_weight = sdnq_dequantizer(**weight_data, skip_quantized_matmul=sdnq_dequantizer.use_quantized_matmul, skip_compile=True).to(dtype=original_weight_fp32.dtype)
+        if is_conv_transpose_type:
+            dequant_weight = dequant_weight.transpose(0,1).contiguous()
+        if original_weight_fp32.ndim > 1:
+            dequant_weight = dequant_weight.flatten(start_dim=1)
+        else:
+            dequant_weight = dequant_weight.unsqueeze(0)
+
+        quant_diff = torch.sub(original_weight_fp32, dequant_weight)
+        quant_diff_norm = torch.div(torch.linalg.vector_norm(quant_diff, dim=1), original_weight_fp32_norm)
+        average_error = quant_diff_norm.mean().mul_(0.5)
+        max_row_error = quant_diff_norm.max().mul_(0.3)
+        max_error = quant_diff.abs().max().mul_(original_weight_fp32_inv_std * 0.2)
+        quantization_loss = average_error + max_row_error + max_error
+        del dequant_weight, quant_diff, quant_diff_norm, average_error, max_row_error, max_error
+
         if quantization_loss <= dynamic_loss_threshold:
             del original_weight_fp32
             if quantization_config is not None:
@@ -530,7 +548,7 @@ def sdnq_quantize_layer(layer: torch.nn.Module, quantization_config: "SDNQConfig
     if return_device is None:
         return_device = layer.weight.device
     if quantization_device is not None:
-        layer.weight.data = layer.weight.to(quantization_device, non_blocking=non_blocking, copy=False)
+        layer.weight.data = layer.weight.to(quantization_device, non_blocking=non_blocking)
 
     if use_dynamic_quantization:
         weight_data, quantization_config = sdnq_quantize_layer_weight_dynamic(layer.weight, quantization_config=quantization_config, **quant_kwargs)
@@ -543,7 +561,7 @@ def sdnq_quantize_layer(layer: torch.nn.Module, quantization_config: "SDNQConfig
 
         for key, value in weight_data.items():
             if isinstance(value, (torch.Tensor, torch.nn.Parameter)):
-                setattr(layer, key, torch.nn.Parameter(value.to(return_device, non_blocking=non_blocking, copy=False), requires_grad=False))
+                setattr(layer, key, torch.nn.Parameter(value.to(return_device, non_blocking=non_blocking), requires_grad=False))
                 setattr(getattr(layer, key), "_is_hf_initialized", True) # noqa: B010
             else:
                 setattr(layer, key, value)
@@ -555,7 +573,7 @@ def sdnq_quantize_layer(layer: torch.nn.Module, quantization_config: "SDNQConfig
         ):
             quantization_config.modules_to_not_use_matmul.append(param_name)
     else:
-        layer.weight = torch.nn.Parameter(layer.weight.to(return_device, dtype=torch_dtype, non_blocking=non_blocking, copy=False), requires_grad=False)
+        layer.weight = torch.nn.Parameter(layer.weight.to(return_device, dtype=torch_dtype, non_blocking=non_blocking), requires_grad=False)
 
     return layer, quantization_config
 
@@ -783,7 +801,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
                     return_dtype = kwargs.get("dtype", param_value.dtype if self.torch_dtype is None else self.torch_dtype)
 
                 param_value = param_value.detach()
-                param_value = param_value.to(target_device, dtype=return_dtype, copy=False)
+                param_value = param_value.to(target_device, dtype=return_dtype)
 
                 if tensor_name == "weight" and layer.sdnq_dequantizer.use_quantized_matmul and not layer.sdnq_dequantizer.re_quantize_for_matmul:
                     param_value = prepare_weight_for_matmul(param_value, matmul_dtype=layer.sdnq_dequantizer.quantized_matmul_dtype)
@@ -804,7 +822,7 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             quant_kwargs["quantization_device"] = None
 
         param_value = param_value.detach()
-        param_value = param_value.to(target_device, non_blocking=quant_kwargs["non_blocking"], copy=False).to(dtype=torch.float32 if param_value.dtype != torch.float64 else torch.float64)
+        param_value = param_value.to(target_device, non_blocking=quant_kwargs["non_blocking"]).to(dtype=torch.float32 if param_value.dtype != torch.float64 else torch.float64)
 
         layer.weight = torch.nn.Parameter(param_value, requires_grad=False)
         layer, self.quantization_config = sdnq_quantize_layer(layer, self.quantization_config, torch_dtype=torch_dtype, param_name=param_name, quant_kwargs=quant_kwargs) # pylint: disable=attribute-defined-outside-init
@@ -979,7 +997,7 @@ class SDNQConfig(QuantizationConfigMixin):
         codebook_steps (`int`, *optional*, defaults to `24`):
             The number of iterations to use in Lloyd-Max quantization.
         dynamic_loss_threshold (`float`, *optional*, defaults to `None`):
-            The target quantization mse loss threshold to use for dynamic quantization.
+            The target quantization loss threshold to use for dynamic quantization.
             The value `None` or negative values means auto select a threshold based on the weights_dtype.
         use_svd (`bool`, *optional*, defaults to `False`):
             Enabling this option will use SVDQuant algorithm on top of SDNQ quantization.
