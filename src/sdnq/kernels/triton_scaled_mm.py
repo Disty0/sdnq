@@ -12,12 +12,8 @@ from ..utils import get_cache_sizes
 
 
 USE_FP16_ACCUM = bool(os.environ.get("SDNQ_TRITON_MM_USE_FP16_ACCUM", "0").lower() not in {"0", "false", "no"})
+USE_TENSOR_DESCRIPTORS = bool(os.environ.get("SDNQ_TRITON_MM_USE_TENSOR_DESCRIPTORS", "1").lower() not in {"0", "false", "no"})
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
-
-if os.environ.get("SDNQ_TRITON_MM_USE_TENSOR_DESCRIPTORS", None) is None:
-    USE_TENSOR_DESCRIPTORS = bool(torch_backend in {"xpu", "ipex", "cuda"})
-else:
-    USE_TENSOR_DESCRIPTORS = bool(os.environ.get("SDNQ_TRITON_MM_USE_TENSOR_DESCRIPTORS", "1").lower() not in {"0", "false", "no"})
 
 block_size_divisor = int(os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_DIVISOR", "256"))
 num_warps_divisor = int(os.environ.get("SDNQ_TRITON_MM_NUM_WARPS_DIVISOR", "16" if torch_backend in {"ipex", "xpu"} else "32"))
