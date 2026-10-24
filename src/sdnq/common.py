@@ -301,7 +301,28 @@ allowed_types = set.union(linear_types, embedding_types, conv_types, conv_transp
 accepted_weight_dtypes = set(dtype_dict.keys())
 accepted_matmul_dtypes = {"int8", "uint8", "fp8", "fp16", "float8_e4m3fn", "float16"}
 
-weights_dtype_order = [
+
+weights_dtype_order_default = [
+    "uint1", "float1_e1m0fnu",
+    "int2", "float2_e1m0fn", "uint2", "float2_e1m1fnu", "float2_e2m0fnu",
+    "int3", "float3_e1m1fn", "float3_e2m0fn", "uint3",
+    "int4", "float4_e2m1fn", "float4_e3m0fn", "uint4",
+    "int5", "float5_e2m2fn", "float5_e3m1fn", "float5_e4m0fn", "uint5",
+    "int6", "float6_e2m3fn", "float6_e3m2fn", "float6_e4m1fn", "float6_e5m0fn", "uint6",
+    "int7", "float7_e2m4fn", "float7_e3m3fn", "float7_e4m2fn", "float7_e5m1fn", "uint7",
+    "int8", "float8_e4m3fn", "float8_e5m2", "float8_e2m5fn", "float8_e3m4fn", "uint8",
+    "int9", "float9_e2m6fn", "float9_e3m5fn", "float9_e4m4fn", "float9_e5m3fn", "uint9",
+    "int10", "float10_e2m7fn", "float10_e3m6fn", "float10_e4m5fn", "float10_e5m4fn", "uint10",
+    "int11", "float11_e2m8fn", "float11_e3m7fn", "float11_e4m6fn", "float11_e5m5fn", "uint11",
+    "int12", "float12_e2m9fn", "float12_e3m8fn", "float12_e4m7fn", "float12_e5m6fn", "uint12",
+    "int13", "float13_e2m10fn", "float13_e3m9fn", "float13_e4m8fn", "float13_e5m7fn", "uint13",
+    "int14", "float14_e2m11fn", "float14_e3m10fn", "float14_e4m9fn", "float14_e5m8fn", "uint14",
+    "int15", "float15_e2m12fn", "float15_e3m11fn", "float15_e4m10fn", "float15_e5m9fn", "uint15",
+    "int16", "float16", "float16_e2m13fn", "float16_e3m12fn", "float16_e4m11fn", "uint16",
+]
+
+
+weights_dtype_order_full = [
     "uint1", "float1_e1m0fnu",
     "int2", "float2_e1m0fn",
     "uint2", "float2_e1m1fnu", "float2_e2m0fnu",

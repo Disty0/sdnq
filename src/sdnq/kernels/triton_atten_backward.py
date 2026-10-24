@@ -267,10 +267,10 @@ def sdnq_attn_bwd_dq_kernel(
                     else:
                         k_scale = tl.load(k_scale_ptr + offset_k + offs_n[None, :], mask=offs_n[None, :] < KN, other=0.0).to(tl.float32)
                     if q.dtype == tl.int8:
-                        qk = tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale) #pylint: disable=used-before-assignment
+                        qk = tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale) #pylint: disable=used-before-assignment,possibly-used-before-assignment
                     elif use_fp16_accum and q.dtype == tl.float16:
                         k_T = tl.mul(k.T.to(tl.float32), in_scale_qk).to(tl.float16)
-                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k_T, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk) #pylint: disable=used-before-assignment
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k_T, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk) #pylint: disable=used-before-assignment,possibly-used-before-assignment
                     else:
                         qk = tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.float32), q_scale), k_scale)
                 else:
@@ -323,9 +323,9 @@ def sdnq_attn_bwd_dq_kernel(
                         ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
                         ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(k.dtype)
                         if use_fp16_accum and k.dtype == tl.float16:
-                            ds_scale *= fp16_scale_dq # pylint: disable=used-before-assignment
-                            ds = tl.mul(ds.to(tl.float32), in_scale_dq).to(tl.float16) # pylint: disable=used-before-assignment
-                            k = tl.mul(k.to(tl.float32), in_scale_dq).to(tl.float16) # pylint: disable=used-before-assignment
+                            ds_scale *= fp16_scale_dq # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                            ds = tl.mul(ds.to(tl.float32), in_scale_dq).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                            k = tl.mul(k.to(tl.float32), in_scale_dq).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
                             dq = tl.fma(tl.dot(ds, k, out_dtype=tl.float16).to(tl.float32), ds_scale, dq)
                         else:
                             dq = tl.fma(tl.dot(ds, k, out_dtype=tl.float32), ds_scale, dq)
@@ -612,10 +612,10 @@ def sdnq_attn_bwd_dkv_kernel(
                     else:
                         q_scale = tl.load(q_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN, other=0.0).to(tl.float32)
                     if q.dtype == tl.int8:
-                        qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale) #pylint: disable=used-before-assignment
+                        qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale) #pylint: disable=used-before-assignment,possibly-used-before-assignment
                     elif use_fp16_accum and q.dtype == tl.float16:
                         q_k = tl.mul(q.to(tl.float32), in_scale_qk).to(tl.float16)
-                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q_k, k, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk) #pylint: disable=used-before-assignment
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q_k, k, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk) #pylint: disable=used-before-assignment,possibly-used-before-assignment
                     else:
                         qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale)
                 else:
@@ -681,9 +681,9 @@ def sdnq_attn_bwd_dkv_kernel(
                             ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
                             ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(q.dtype)
                             if use_fp16_accum and q.dtype == tl.float16:
-                                ds_scale *= fp16_scale_dk # pylint: disable=used-before-assignment
-                                q_T = tl.mul(q.T.to(tl.float32), in_scale_dk).to(tl.float16) # pylint: disable=used-before-assignment
-                                ds = tl.mul(ds.to(tl.float32), in_scale_dk).to(tl.float16) # pylint: disable=used-before-assignment
+                                ds_scale *= fp16_scale_dk # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                                q_T = tl.mul(q.T.to(tl.float32), in_scale_dk).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                                ds = tl.mul(ds.to(tl.float32), in_scale_dk).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
                                 dk_t = tl.fma(tl.dot(q_T, ds, out_dtype=tl.float16).to(tl.float32), ds_scale, dk_t)
                             else:
                                 dk_t = tl.fma(tl.dot(q.T, ds, out_dtype=tl.float32), ds_scale, dk_t)
@@ -705,9 +705,9 @@ def sdnq_attn_bwd_dkv_kernel(
                             p_scale = tl.where(p_scale <= 2e-38, 1.0, p_scale)
                             p = tl.mul(p, tl.fdiv(1.0, p_scale)).to(do.dtype)
                             if use_fp16_accum and do.dtype == tl.float16:
-                                p_scale *= fp16_scale_dv # pylint: disable=used-before-assignment
-                                do_T = tl.mul(do.T.to(tl.float32), in_scale_dv).to(tl.float16) # pylint: disable=used-before-assignment
-                                p = tl.mul(p.to(tl.float32), in_scale_dv).to(tl.float16) # pylint: disable=used-before-assignment
+                                p_scale *= fp16_scale_dv # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                                do_T = tl.mul(do.T.to(tl.float32), in_scale_dv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                                p = tl.mul(p.to(tl.float32), in_scale_dv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
                                 dv_t = tl.fma(tl.dot(do_T, p, out_dtype=tl.float16).to(tl.float32), p_scale, dv_t)
                             else:
                                 dv_t = tl.fma(tl.dot(do.T, p, out_dtype=tl.float32), p_scale, dv_t)

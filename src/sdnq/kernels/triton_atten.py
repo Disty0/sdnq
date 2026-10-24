@@ -384,7 +384,7 @@ def sdnq_attn_kernel(
                     else:
                         k_scale = tl.load(k_scale_ptr + offset_k + offs_n[None, :], mask=offs_n[None, :] < KN, other=0.0).to(tl.float32)
                     if q.dtype == tl.int8:
-                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale) #pylint: disable=used-before-assignment
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale), log2_sm_scale) #pylint: disable=used-before-assignment,possibly-used-before-assignment
                     elif use_fp16_accum and q.dtype == tl.float16:
                         k = tl.mul(k.to(tl.float32), in_scale_qk).to(tl.float16)
                         qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk)
@@ -436,9 +436,9 @@ def sdnq_attn_kernel(
                         p_scale = tl.where(p_scale <= 2e-38, 1.0, p_scale)
                         p = tl.mul(p, tl.fdiv(1.0, p_scale)).to(v.dtype)
                         if use_fp16_accum and v.dtype == tl.float16:
-                            p_scale *= fp16_scale_pv # pylint: disable=used-before-assignment
-                            v = tl.mul(v.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment
-                            p = tl.mul(p.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment
+                            p_scale *= fp16_scale_pv # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                            v = tl.mul(v.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                            p = tl.mul(p.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
                             acc = tl.fma(tl.dot(p, v, out_dtype=tl.float16).to(tl.float32), p_scale, acc)
                         else:
                             acc = tl.fma(tl.dot(p, v, out_dtype=tl.float32), p_scale, acc)

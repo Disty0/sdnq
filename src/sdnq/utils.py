@@ -207,6 +207,7 @@ def get_quant_kwargs(layer: torch.nn.Module, quantization_config, torch_dtype: t
         "svd_steps": quantization_config.svd_steps,
         "codebook_steps": quantization_config.codebook_steps,
         "dynamic_loss_threshold": quantization_config.dynamic_loss_threshold,
+        "weights_dtype_order": quantization_config.weights_dtype_order,
         "use_svd": quantization_config.use_svd,
         "use_hadamard": quantization_config.use_hadamard,
         "use_codebook": quantization_config.use_codebook,
@@ -239,6 +240,7 @@ def get_quant_kwargs(layer: torch.nn.Module, quantization_config, torch_dtype: t
 
     if not quant_kwargs["use_dynamic_quantization"]:
         quant_kwargs.pop("dynamic_loss_threshold")
+        quant_kwargs.pop("weights_dtype_order")
 
     quant_kwargs["weights_dtype"] = get_minimum_dtype(quant_kwargs["weights_dtype"], quant_kwargs["param_name"], quantization_config.modules_dtype_dict)
     if check_param_name_in(quant_kwargs["param_name"], quantization_config.modules_to_not_use_matmul) is not None:

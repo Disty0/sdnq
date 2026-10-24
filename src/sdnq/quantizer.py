@@ -14,7 +14,8 @@ from .common import (
     embedding_types,
     conv_types,
     conv_transpose_types,
-    weights_dtype_order,
+    weights_dtype_order_default,
+    weights_dtype_order_full,
     check_torch_compile,
     inference_context,
     compile_func,
@@ -367,7 +368,8 @@ def sdnq_quantize_layer_weight_dynamic(
     svd_rank: int = 32,
     svd_steps: int = 8,
     codebook_steps: int = 24,
-    dynamic_loss_threshold: float | None =None,
+    dynamic_loss_threshold: float | None = None,
+    weights_dtype_order: list[str] | str | None = None,
     use_svd: bool = False,
     use_hadamard: bool = False,
     use_codebook: bool = False,
@@ -384,6 +386,11 @@ def sdnq_quantize_layer_weight_dynamic(
         torch_dtype = weight.dtype
     if dynamic_loss_threshold is None or dynamic_loss_threshold < 0:
         dynamic_loss_threshold = 10 ** -(dtype_dict[weights_dtype]["num_bits"] / 2)
+
+    if weights_dtype_order is None or (isinstance(weights_dtype_order, str) and weights_dtype_order in {"auto", "default"}):
+        weights_dtype_order = weights_dtype_order_default
+    elif weights_dtype_order == "full":
+        weights_dtype_order = weights_dtype_order_full
 
     weight = weight.detach()
     if weight.dtype != torch.float64:
@@ -587,6 +594,7 @@ def sdnq_post_load_quant( # pylint: disable=unused-argument
     svd_steps: int = 8,
     codebook_steps: int = 24,
     dynamic_loss_threshold: float | None = None,
+    weights_dtype_order: list[str] | str | None = None,
     use_svd: bool = False,
     use_hadamard: bool = False,
     use_codebook: bool = False,
@@ -636,6 +644,7 @@ def sdnq_post_load_quant( # pylint: disable=unused-argument
             svd_steps=svd_steps,
             codebook_steps=codebook_steps,
             dynamic_loss_threshold=dynamic_loss_threshold,
+            weights_dtype_order=weights_dtype_order,
             use_svd=use_svd,
             use_hadamard=use_hadamard,
             use_codebook=use_codebook,
@@ -1048,6 +1057,7 @@ class SDNQConfig(QuantizationConfigMixin):
         svd_steps: int = 8,
         codebook_steps: int = 24,
         dynamic_loss_threshold: float | None = None,
+        weights_dtype_order: list[str] | str | None = None,
         use_svd: bool = False,
         use_hadamard: bool = False,
         use_codebook: bool = False,
@@ -1084,6 +1094,7 @@ class SDNQConfig(QuantizationConfigMixin):
         self.group_size = group_size
         self.svd_rank = svd_rank
         self.dynamic_loss_threshold = dynamic_loss_threshold
+        self.weights_dtype_order = weights_dtype_order
         self.use_svd = use_svd
         self.svd_steps = svd_steps
         self.codebook_steps = codebook_steps
@@ -1130,6 +1141,8 @@ class SDNQConfig(QuantizationConfigMixin):
             raise ValueError(f"SDNQ only support quantized matmul dtypes in {accepted_matmul_dtypes} but found {self.quantized_matmul_dtype}")
         if self.use_codebook and not (self.is_integer and self.is_unsigned):
             raise ValueError(f"SDNQ: use_codebook is only supported with unsigned integer dtypes but found {self.weights_dtype}")
+        if not (self.weights_dtype_order is None or type(self.weights_dtype_order) in {list, tuple} or (isinstance(self.weights_dtype_order, str) and self.weights_dtype_order in {"auto", "default", "full"})):
+            raise ValueError(f"SDNQ: weights_dtype_order must be a list of weight dtypes or one of 'auto', 'default', 'full' but found {self.weights_dtype_order}")
 
         if self.modules_to_not_convert is None:
             self.modules_to_not_convert = []
@@ -1186,7 +1199,7 @@ class SDNQConfig(QuantizationConfigMixin):
         return quantization_config_dict
 
     def __str__(self) -> str:
-        return f"SDNQConfig(weights_dtype={self.weights_dtype} quantization_device={self.quantization_device} return_device={self.return_device} group_size={self.group_size} use_quantized_matmul={self.use_quantized_matmul} quantized_matmul_dtype={self.quantized_matmul_dtype} quant_conv={self.quant_conv} quant_embedding={self.quant_embedding} use_quantized_matmul_conv={self.use_quantized_matmul_conv} use_static_quantization={self.use_static_quantization} use_dynamic_quantization={self.use_dynamic_quantization} dynamic_loss_threshold={self.dynamic_loss_threshold} use_stochastic_rounding={self.use_stochastic_rounding} use_hadamard={self.use_hadamard} hadamard_group_size={self.hadamard_group_size} use_svd={self.use_svd} svd_rank={self.svd_rank} svd_steps={self.svd_steps} use_codebook={self.use_codebook} codebook_steps={self.codebook_steps} dequantize_fp32={self.dequantize_fp32} non_blocking={self.non_blocking} add_skip_keys={self.add_skip_keys} modules_to_not_convert={self.modules_to_not_convert} modules_to_not_use_matmul={self.modules_to_not_use_matmul} modules_dtype_dict={self.modules_dtype_dict} modules_quant_config={self.modules_quant_config} )"
+        return f"SDNQConfig(weights_dtype={self.weights_dtype} quantization_device={self.quantization_device} return_device={self.return_device} group_size={self.group_size} use_quantized_matmul={self.use_quantized_matmul} quantized_matmul_dtype={self.quantized_matmul_dtype} quant_conv={self.quant_conv} quant_embedding={self.quant_embedding} use_quantized_matmul_conv={self.use_quantized_matmul_conv} use_static_quantization={self.use_static_quantization} use_dynamic_quantization={self.use_dynamic_quantization} dynamic_loss_threshold={self.dynamic_loss_threshold} weights_dtype_order={self.weights_dtype_order} use_stochastic_rounding={self.use_stochastic_rounding} use_hadamard={self.use_hadamard} hadamard_group_size={self.hadamard_group_size} use_svd={self.use_svd} svd_rank={self.svd_rank} svd_steps={self.svd_steps} use_codebook={self.use_codebook} codebook_steps={self.codebook_steps} dequantize_fp32={self.dequantize_fp32} non_blocking={self.non_blocking} add_skip_keys={self.add_skip_keys} modules_to_not_convert={self.modules_to_not_convert} modules_to_not_use_matmul={self.modules_to_not_use_matmul} modules_dtype_dict={self.modules_dtype_dict} modules_quant_config={self.modules_quant_config} )"
 
     def __repr__(self) -> str:
         return self.__str__()
