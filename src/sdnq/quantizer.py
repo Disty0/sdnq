@@ -369,6 +369,9 @@ def sdnq_quantize_layer_weight_dynamic(
     svd_steps: int = 8,
     codebook_steps: int = 24,
     dynamic_loss_threshold: float | None = None,
+    dynamic_loss_average_error_weight: float = 0.5,
+    dynamic_loss_max_row_error_weight: float = 0.3,
+    dynamic_loss_max_error_weight: float = 0.2,
     weights_dtype_order: list[str] | str | None = None,
     use_svd: bool = False,
     use_hadamard: bool = False,
@@ -502,11 +505,11 @@ def sdnq_quantize_layer_weight_dynamic(
         max_error = quant_diff.abs().max().mul_(original_weight_fp32_inv_std)
         del quant_diff
 
-        average_error = quant_diff_norm.mean().mul_(0.5)
+        average_error = quant_diff_norm.mean().mul_(dynamic_loss_average_error_weight)
         max_row_error = quant_diff_norm.max()
         del quant_diff_norm
 
-        quantization_loss = torch.add(average_error, max_row_error, alpha=0.3).add_(max_error, alpha=0.2)
+        quantization_loss = torch.add(average_error, max_row_error, alpha=dynamic_loss_max_row_error_weight).add_(max_error, alpha=dynamic_loss_max_error_weight)
         del average_error, max_row_error, max_error
 
         if quantization_loss <= dynamic_loss_threshold:
@@ -618,6 +621,9 @@ def sdnq_post_load_quant( # pylint: disable=unused-argument
     svd_steps: int = 8,
     codebook_steps: int = 24,
     dynamic_loss_threshold: float | None = None,
+    dynamic_loss_average_error_weight: float = 0.5,
+    dynamic_loss_max_row_error_weight: float = 0.3,
+    dynamic_loss_max_error_weight: float = 0.2,
     weights_dtype_order: list[str] | str | None = None,
     use_svd: bool = False,
     use_hadamard: bool = False,
@@ -668,6 +674,9 @@ def sdnq_post_load_quant( # pylint: disable=unused-argument
             svd_steps=svd_steps,
             codebook_steps=codebook_steps,
             dynamic_loss_threshold=dynamic_loss_threshold,
+            dynamic_loss_average_error_weight=dynamic_loss_average_error_weight,
+            dynamic_loss_max_row_error_weight=dynamic_loss_max_row_error_weight,
+            dynamic_loss_max_error_weight=dynamic_loss_max_error_weight,
             weights_dtype_order=weights_dtype_order,
             use_svd=use_svd,
             use_hadamard=use_hadamard,
@@ -1005,6 +1014,16 @@ class SDNQConfig(QuantizationConfigMixin):
         dynamic_loss_threshold (`float`, *optional*, defaults to `None`):
             The target quantization loss threshold to use for dynamic quantization.
             The value `None` or negative values means auto select a threshold based on the weights_dtype.
+        dynamic_loss_average_error_weight (`float`, *optional*, defaults to `0.5`):
+            The weight to use for the average error in the dynamic quantization loss calculation.
+        dynamic_loss_max_row_error_weight (`float`, *optional*, defaults to `0.3`):
+            The weight to use for the max row error in the dynamic quantization loss calculation.
+        dynamic_loss_max_error_weight (`float`, *optional*, defaults to `0.2`):
+            The weight to use for the max error in the dynamic quantization loss calculation.
+        weights_dtype_order (`list`, *optional*, defaults to `None`):
+            The ordered list of weight dtypes to use for dynamic quantization.
+            The value `None` will use the cleaned up default order.
+            The value `"full"` will use the full order of all supported dtypes.
         use_svd (`bool`, *optional*, defaults to `False`):
             Enabling this option will use SVDQuant algorithm on top of SDNQ quantization.
         use_hadamard (`bool`, *optional*, defaults to `False`):
@@ -1081,6 +1100,9 @@ class SDNQConfig(QuantizationConfigMixin):
         svd_steps: int = 8,
         codebook_steps: int = 24,
         dynamic_loss_threshold: float | None = None,
+        dynamic_loss_average_error_weight: float = 0.5,
+        dynamic_loss_max_row_error_weight: float = 0.3,
+        dynamic_loss_max_error_weight: float = 0.2,
         weights_dtype_order: list[str] | str | None = None,
         use_svd: bool = False,
         use_hadamard: bool = False,
@@ -1118,6 +1140,9 @@ class SDNQConfig(QuantizationConfigMixin):
         self.group_size = group_size
         self.svd_rank = svd_rank
         self.dynamic_loss_threshold = dynamic_loss_threshold
+        self.dynamic_loss_average_error_weight = dynamic_loss_average_error_weight
+        self.dynamic_loss_max_row_error_weight = dynamic_loss_max_row_error_weight
+        self.dynamic_loss_max_error_weight = dynamic_loss_max_error_weight
         self.weights_dtype_order = weights_dtype_order
         self.use_svd = use_svd
         self.svd_steps = svd_steps
