@@ -1036,6 +1036,7 @@ def get_attn_backward_inputs(
     pv_matmul_dtype: str | None = None,
     quantize_fp32: bool = True,
     block_mask: torch.Tensor | None = None,
+    do_quantize: bool = True,
     do_grad_q: bool = True,
     do_grad_k: bool = True,
     do_grad_v: bool = True,
@@ -1043,9 +1044,9 @@ def get_attn_backward_inputs(
     out = out.contiguous()
     grad_output = grad_output.contiguous()
     delta = torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32)
-    if pv_matmul_dtype in {"enabled", "uint8"}:
-        pv_matmul_dtype = "int8"
-    if pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
+    if do_quantize and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
+        if pv_matmul_dtype in {"enabled", "uint8"}:
+            pv_matmul_dtype = "int8"
         if hadamard is not None:
             grad_output = rotate_hadamard(grad_output, group_size=hadamard.shape[-1], hadamard=hadamard)
         quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
@@ -1117,9 +1118,10 @@ def sdnq_triton_atten_bwd(
     ) = get_attn_backward_inputs(
         grad_output, out,
         hadamard=hadamard,
-        pv_matmul_dtype=pv_matmul_dtype if do_quantize else "disabled",
+        pv_matmul_dtype=pv_matmul_dtype,
         quantize_fp32=quantize_fp32,
         block_mask=block_mask,
+        do_quantize=do_quantize,
         do_grad_q=do_grad_q,
         do_grad_k=do_grad_k,
         do_grad_v=do_grad_v,

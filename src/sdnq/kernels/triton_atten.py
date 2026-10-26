@@ -616,7 +616,9 @@ def sdnq_triton_atten_lse_fwd(
 
 @inference_context()
 def quantize_attn(
-    q, k, v,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
     smooth_k: bool = True,
     hadamard: torch.Tensor | None = None,
     hadamard_group_size: int = 256,
@@ -624,47 +626,44 @@ def quantize_attn(
     pv_matmul_dtype: str | None = None,
     quantize_fp32: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, bool, int]:
-    q = q.contiguous()
-    k = k.contiguous()
-    v = v.contiguous()
-    if matmul_dtype in {"auto", "enabled", "uint8"}:
-        matmul_dtype = "int8"
-    if pv_matmul_dtype in {"enabled", "uint8"}:
-        pv_matmul_dtype = "int8"
     use_hadamard = False
     if matmul_dtype not in {None, "none", "no", "disabled"}:
+        if matmul_dtype in {"auto", "enabled", "uint8"}:
+            matmul_dtype = "int8"
         if smooth_k:
-            if quantize_fp32 and k.dtype != torch.float32:
-                k = k.to(dtype=torch.float32)
-                k = k.sub_(k.mean(dim=2, keepdim=True))
+            if quantize_fp32 and key.dtype != torch.float32:
+                key = key.to(dtype=torch.float32)
+                key = key.sub_(key.mean(dim=2, keepdim=True))
             else:
-                k = k.sub(k.mean(dim=2, keepdim=True))
+                key = key.sub(key.mean(dim=2, keepdim=True))
         if hadamard is not None:
-            q, use_hadamard, hadamard_group_size = apply_hadamard(q, group_size=hadamard_group_size, hadamard=hadamard, layer_class_name="Linear")
+            query, use_hadamard, hadamard_group_size = apply_hadamard(query, group_size=hadamard_group_size, hadamard=hadamard, layer_class_name="Linear")
             if use_hadamard:
-                k = rotate_hadamard(k.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
+                key = rotate_hadamard(key.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
         if quantize_fp32:
-            q = q.to(dtype=torch.float32)
-            k = k.to(dtype=torch.float32)
+            query = query.to(dtype=torch.float32)
+            key = key.to(dtype=torch.float32)
         quantize_mm_func = quantize_int_mm if matmul_dtype.startswith("int") else quantize_fp_mm
-        q, q_scale = quantize_mm_func(q, dim=-1, matmul_dtype=matmul_dtype)
-        k, k_scale = quantize_mm_func(k, dim=-1, matmul_dtype=matmul_dtype)
-        q_scale = q_scale.squeeze(-1)
-        k_scale = k_scale.squeeze(-1)
+        query, query_scale = quantize_mm_func(query, dim=-1, matmul_dtype=matmul_dtype)
+        key, key_scale = quantize_mm_func(key, dim=-1, matmul_dtype=matmul_dtype)
+        query_scale = query_scale.squeeze(-1)
+        key_scale = key_scale.squeeze(-1)
     else:
-        q_scale = None
-        k_scale = None
+        query_scale = None
+        key_scale = None
     if pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
+        if pv_matmul_dtype in {"enabled", "uint8"}:
+            pv_matmul_dtype = "int8"
         if use_hadamard:
-            v = rotate_hadamard(v.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
+            value = rotate_hadamard(value.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
         quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
         if quantize_fp32:
-            v = v.to(dtype=torch.float32)
-        v, v_scale = quantize_mm_func_pv(v, dim=-1, matmul_dtype=pv_matmul_dtype)
-        v_scale = v_scale.squeeze(-1)
+            value = value.to(dtype=torch.float32)
+        value, value_scale = quantize_mm_func_pv(value, dim=-1, matmul_dtype=pv_matmul_dtype)
+        value_scale = value_scale.squeeze(-1)
     else:
-        v_scale = None
-    return q, q_scale, k, k_scale, v, v_scale, use_hadamard, hadamard_group_size
+        value_scale = None
+    return query, query_scale, key, key_scale, value, value_scale, use_hadamard, hadamard_group_size
 
 
 @inference_context()
@@ -687,6 +686,9 @@ def get_attn_inputs(
     out_dtype: torch.dtype | None = None,
     block_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor | None, float, torch.dtype, bool, int]:
+    query = query.contiguous()
+    key = key.contiguous()
+    value = value.contiguous()
     if out_dtype is None:
         out_dtype = query.dtype
     if sm_scale is None:
@@ -695,15 +697,19 @@ def get_attn_inputs(
         attn_mask = attn_mask.contiguous()
         if attn_mask.dtype == torch.bool:
             attn_mask = attn_mask.view(dtype=torch.int8)
-    query, query_scale, key, key_scale, value, value_scale, use_hadamard, hadamard_group_size = quantize_attn(
-        query, key, value,
-        smooth_k=smooth_k,
-        hadamard=hadamard,
-        hadamard_group_size=hadamard_group_size,
-        matmul_dtype=matmul_dtype if do_quantize else "disabled",
-        pv_matmul_dtype=pv_matmul_dtype if do_quantize else "disabled",
-        quantize_fp32=quantize_fp32,
-    )
+    if do_quantize:
+        query, query_scale, key, key_scale, value, value_scale, use_hadamard, hadamard_group_size = quantize_attn(
+            query, key, value,
+            smooth_k=smooth_k,
+            hadamard=hadamard,
+            hadamard_group_size=hadamard_group_size,
+            matmul_dtype=matmul_dtype,
+            pv_matmul_dtype=pv_matmul_dtype,
+            quantize_fp32=quantize_fp32,
+        )
+    else:
+        query_scale = key_scale = value_scale = None
+        use_hadamard = False
     if block_mask is not None:
         block_count, block_index = get_block_mask_input(block_mask)
     else:
@@ -778,11 +784,9 @@ def get_block_mask_input(block_mask: torch.Tensor) -> tuple[torch.Tensor, torch.
     keep = block_mask != 0
     nqb, nkb = keep.shape[-2:]
     block_count = keep.sum(dim=-1, dtype=torch.int32)
-    block_count = torch.nn.functional.pad(block_count, (0, triton.cdiv(nqb, block_count_chunk) * block_count_chunk - nqb))
-    block_count = block_count.contiguous()
+    block_count = torch.nn.functional.pad(block_count, (0, triton.cdiv(nqb, block_count_chunk) * block_count_chunk - nqb)).contiguous()
     block_index = torch.argsort(keep.to(dtype=torch.int8), dim=-1, descending=True, stable=True).to(dtype=torch.int32)
-    block_index = torch.nn.functional.pad(block_index, (0, triton.cdiv(nkb, block_index_chunk) * block_index_chunk - nkb))
-    block_index = block_index.contiguous()
+    block_index = torch.nn.functional.pad(block_index, (0, triton.cdiv(nkb, block_index_chunk) * block_index_chunk - nkb)).contiguous()
     return block_count, block_index
 
 
