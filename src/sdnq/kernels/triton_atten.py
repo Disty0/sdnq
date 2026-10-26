@@ -8,8 +8,8 @@ import triton
 import triton.language as tl
 
 from ..common import logger, torch_backend, compile_func, inference_context
-from ..quant_utils import quantize_int_mm, quantize_fp_mm, apply_hadamard, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
-from ..utils import next_power_of_2, check_tma_alignment, get_cache_sizes
+from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
+from ..utils import check_tma_alignment, get_cache_sizes
 
 
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
@@ -614,109 +614,6 @@ def sdnq_triton_atten_lse_fwd(
     )
 
 
-@inference_context()
-def quantize_attn(
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    smooth_k: bool = True,
-    hadamard: torch.Tensor | None = None,
-    hadamard_group_size: int = 256,
-    matmul_dtype: str = "int8",
-    pv_matmul_dtype: str | None = None,
-    quantize_fp32: bool = True,
-) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, bool, int]:
-    use_hadamard = False
-    if matmul_dtype not in {None, "none", "no", "disabled"}:
-        if matmul_dtype in {"auto", "enabled", "uint8"}:
-            matmul_dtype = "int8"
-        if smooth_k:
-            if quantize_fp32 and key.dtype != torch.float32:
-                key = key.to(dtype=torch.float32)
-                key = key.sub_(key.mean(dim=2, keepdim=True))
-            else:
-                key = key.sub(key.mean(dim=2, keepdim=True))
-        if hadamard is not None:
-            query, use_hadamard, hadamard_group_size = apply_hadamard(query, group_size=hadamard_group_size, hadamard=hadamard, layer_class_name="Linear")
-            if use_hadamard:
-                key = rotate_hadamard(key.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
-        if quantize_fp32:
-            query = query.to(dtype=torch.float32)
-            key = key.to(dtype=torch.float32)
-        quantize_mm_func = quantize_int_mm if matmul_dtype.startswith("int") else quantize_fp_mm
-        query, query_scale = quantize_mm_func(query, dim=-1, matmul_dtype=matmul_dtype)
-        key, key_scale = quantize_mm_func(key, dim=-1, matmul_dtype=matmul_dtype)
-        query_scale = query_scale.squeeze(-1)
-        key_scale = key_scale.squeeze(-1)
-    else:
-        query_scale = None
-        key_scale = None
-    if pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
-        if pv_matmul_dtype in {"enabled", "uint8"}:
-            pv_matmul_dtype = "int8"
-        if use_hadamard:
-            value = rotate_hadamard(value.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
-        quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
-        if quantize_fp32:
-            value = value.to(dtype=torch.float32)
-        value, value_scale = quantize_mm_func_pv(value, dim=-1, matmul_dtype=pv_matmul_dtype)
-        value_scale = value_scale.squeeze(-1)
-    else:
-        value_scale = None
-    return query, query_scale, key, key_scale, value, value_scale, use_hadamard, hadamard_group_size
-
-
-@inference_context()
-def get_attn_inputs(
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    hadamard: torch.Tensor | None = None,
-    attn_mask: torch.Tensor | None = None,
-    dropout_p: float = 0.0, # pylint: disable=unused-argument
-    is_causal: bool = False, # pylint: disable=unused-argument
-    sm_scale: float | None = None,
-    enable_gqa: bool = False, # pylint: disable=unused-argument
-    smooth_k: bool = True,
-    hadamard_group_size: int = 256,
-    matmul_dtype: str = "int8",
-    pv_matmul_dtype: str | None = None,
-    do_quantize: bool = True,
-    quantize_fp32: bool = True,
-    out_dtype: torch.dtype | None = None,
-    block_mask: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor | None, torch.Tensor | None, float, torch.dtype, bool, int]:
-    query = query.contiguous()
-    key = key.contiguous()
-    value = value.contiguous()
-    if out_dtype is None:
-        out_dtype = query.dtype
-    if sm_scale is None:
-        sm_scale = query.shape[-1] ** -0.5
-    if attn_mask is not None:
-        attn_mask = attn_mask.contiguous()
-        if attn_mask.dtype == torch.bool:
-            attn_mask = attn_mask.view(dtype=torch.int8)
-    if do_quantize:
-        query, query_scale, key, key_scale, value, value_scale, use_hadamard, hadamard_group_size = quantize_attn(
-            query, key, value,
-            smooth_k=smooth_k,
-            hadamard=hadamard,
-            hadamard_group_size=hadamard_group_size,
-            matmul_dtype=matmul_dtype,
-            pv_matmul_dtype=pv_matmul_dtype,
-            quantize_fp32=quantize_fp32,
-        )
-    else:
-        query_scale = key_scale = value_scale = None
-        use_hadamard = False
-    if block_mask is not None:
-        block_count, block_index = get_block_mask_input(block_mask)
-    else:
-        block_count = block_index = None
-    return query, query_scale, key, key_scale, value, value_scale, attn_mask, sm_scale, out_dtype, use_hadamard, hadamard_group_size, block_count, block_index
-
-
 def get_block_list_dims(rows: int, cols: int, row_block: int, col_block: int) -> tuple[int, int, int, int]:
     # the kernel reads both lists through descriptors in fixed chunks, so their last dims are padded to the chunk sizes
     row_blocks = triton.cdiv(rows, row_block)
@@ -791,6 +688,60 @@ def get_block_mask_input(block_mask: torch.Tensor) -> tuple[torch.Tensor, torch.
 
 
 @inference_context()
+def quantize_qk_mm(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    smooth_k: bool = True,
+    hadamard: torch.Tensor | None = None,
+    hadamard_group_size: int = 256,
+    matmul_dtype: str = "int8",
+    quantize_fp32: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    query = query.contiguous()
+    key = key.contiguous()
+    if matmul_dtype in {"auto", "enabled", "uint8"}:
+        matmul_dtype = "int8"
+    if smooth_k:
+        if quantize_fp32 and key.dtype != torch.float32:
+            key = key.to(dtype=torch.float32)
+            key = key.sub_(key.mean(dim=2, keepdim=True))
+        else:
+            key = key.sub(key.mean(dim=2, keepdim=True))
+    if hadamard is not None:
+        query = rotate_hadamard(query.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
+        key = rotate_hadamard(key.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
+    if quantize_fp32:
+        query = query.to(dtype=torch.float32)
+        key = key.to(dtype=torch.float32)
+    quantize_mm_func = quantize_int_mm if matmul_dtype.startswith("int") else quantize_fp_mm
+    query, query_scale = quantize_mm_func(query, dim=-1, matmul_dtype=matmul_dtype)
+    key, key_scale = quantize_mm_func(key, dim=-1, matmul_dtype=matmul_dtype)
+    query_scale = query_scale.squeeze(-1)
+    key_scale = key_scale.squeeze(-1)
+    return query, query_scale, key, key_scale
+
+
+def quantize_pv_mm(
+    value: torch.Tensor,
+    hadamard: torch.Tensor | None = None,
+    hadamard_group_size: int = 256,
+    pv_matmul_dtype: str | None = None,
+    quantize_fp32: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    value = value.contiguous()
+    if pv_matmul_dtype in {"enabled", "uint8"}:
+        pv_matmul_dtype = "int8"
+    if hadamard is not None:
+        value = rotate_hadamard(value.to(dtype=hadamard.dtype), group_size=hadamard_group_size, hadamard=hadamard)
+    quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
+    if quantize_fp32:
+        value = value.to(dtype=torch.float32)
+    value, value_scale = quantize_mm_func_pv(value, dim=-1, matmul_dtype=pv_matmul_dtype)
+    value_scale = value_scale.squeeze(-1)
+    return value, value_scale
+
+
+@inference_context()
 def sdnq_triton_atten(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -816,41 +767,76 @@ def sdnq_triton_atten(
     block_mask_n: int = 0,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, float, bool, int]:
     QHD = query.shape[-1]
-    KHD = key.shape[-1]
     VHD = value.shape[-1]
+
+    if scale is None:
+        scale = QHD ** -0.5
+    if out_dtype is None:
+        out_dtype = query.dtype
+
+    if block_mask is not None:
+        while block_mask.ndim < 4:
+            block_mask = block_mask.unsqueeze(0)
+        block_count, block_index = get_block_mask_input_compiled(block_mask)
+    else:
+        block_count = block_index = None
 
     if attn_mask is not None:
         while attn_mask.ndim < 4:
             attn_mask = attn_mask.unsqueeze(0)
-    if block_mask is not None:
-        while block_mask.ndim < 4:
-            block_mask = block_mask.unsqueeze(0)
+        attn_mask = attn_mask.contiguous()
+        if attn_mask.dtype == torch.bool:
+            attn_mask = attn_mask.view(dtype=torch.int8)
 
-    hadamard = None
-    if use_hadamard and do_quantize and matmul_dtype not in {None, "none", "no", "disabled"}:
-        hadamard_channel_size = next_power_of_2(min(QHD, KHD, VHD))
-        hadamard_group_size = min(hadamard_group_size, hadamard_channel_size)
-        use_hadamard, hadamard_group_size = get_hadamard_group_size(hadamard_channel_size, hadamard_group_size)
-        if use_hadamard:
-            hadamard = get_hadamard(hadamard_group_size, dtype=query.dtype, device=query.device)
+    if do_quantize:
+        quantize_qk = bool(matmul_dtype not in {None, "none", "no", "disabled"})
+        quantize_pv = bool(pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"})
+    else:
+        quantize_qk = quantize_pv = False
 
-    (
-        query, query_scale,
-        key, key_scale,
-        value, value_scale,
-        attn_mask, sm_scale, out_dtype,
-        use_hadamard, hadamard_group_size,
-        block_count, block_index,
-    ) = get_attn_inputs(
-        query=query, key=key, value=value,
-        hadamard=hadamard, attn_mask=attn_mask,
-        dropout_p=dropout_p, is_causal=is_causal,
-        sm_scale=scale, enable_gqa=enable_gqa,
-        smooth_k=smooth_k, hadamard_group_size=hadamard_group_size,
-        matmul_dtype=matmul_dtype, pv_matmul_dtype=pv_matmul_dtype,
-        do_quantize=do_quantize, quantize_fp32=quantize_fp32,
-        out_dtype=out_dtype, block_mask=block_mask,
-    )
+    hadamard_qk = None
+    if use_hadamard and quantize_qk:
+        use_hadamard_qk, hadamard_group_size_qk = get_hadamard_group_size(QHD, hadamard_group_size)
+        if use_hadamard_qk:
+            hadamard_qk = get_hadamard(hadamard_group_size_qk, dtype=query.dtype, device=query.device)
+    else:
+        use_hadamard_qk = False
+        hadamard_group_size_qk = 0
+
+    hadamard_pv = None
+    if use_hadamard and quantize_pv:
+        use_hadamard_pv, hadamard_group_size_pv = get_hadamard_group_size(VHD, hadamard_group_size)
+        if use_hadamard_pv:
+            hadamard_pv = get_hadamard(hadamard_group_size_pv, dtype=value.dtype, device=value.device)
+    else:
+        use_hadamard_pv = False
+        hadamard_group_size_pv = 0
+
+    if quantize_qk:
+        query, query_scale, key, key_scale = quantize_qk_mm(
+            query, key,
+            smooth_k=smooth_k,
+            hadamard=hadamard_qk,
+            hadamard_group_size=hadamard_group_size_qk,
+            matmul_dtype=matmul_dtype,
+            quantize_fp32=quantize_fp32,
+        )
+    else:
+        query_scale = key_scale = None
+        query = query.contiguous()
+        key = key.contiguous()
+
+    if quantize_pv:
+        value, value_scale = quantize_pv_mm(
+            value,
+            hadamard=hadamard_pv,
+            hadamard_group_size=hadamard_group_size_pv,
+            pv_matmul_dtype=pv_matmul_dtype,
+            quantize_fp32=quantize_fp32,
+        )
+    else:
+        value_scale = None
+        value = value.contiguous()
 
     if return_backward:
         out, lse = sdnq_triton_atten_lse_fwd(
@@ -858,7 +844,7 @@ def sdnq_triton_atten(
             query_scale, key_scale, value_scale,
             attn_mask=attn_mask,
             is_causal=is_causal,
-            sm_scale=sm_scale,
+            sm_scale=scale,
             use_fp16_accum=use_fp16_accum,
             use_tensor_descriptors=use_tensor_descriptors,
             out_dtype=out_dtype,
@@ -873,7 +859,7 @@ def sdnq_triton_atten(
             query_scale, key_scale, value_scale,
             attn_mask=attn_mask,
             is_causal=is_causal,
-            sm_scale=sm_scale,
+            sm_scale=scale,
             use_fp16_accum=use_fp16_accum,
             use_tensor_descriptors=use_tensor_descriptors,
             out_dtype=out_dtype,
@@ -883,14 +869,20 @@ def sdnq_triton_atten(
             block_mask_n=block_mask_n,
         )
 
-    if use_hadamard and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
-        if hadamard.shape[-1] != hadamard_group_size:
-            hadamard = get_hadamard(hadamard_group_size, dtype=out.dtype, device=out.device)
-        out = rotate_hadamard_compiled(out, group_size=hadamard_group_size, hadamard=hadamard)
+    if use_hadamard_pv:
+        out = rotate_hadamard_compiled(out, group_size=hadamard_group_size_pv, hadamard=hadamard_pv)
 
     if return_backward:
-        return out, lse, query, key, value, query_scale, key_scale, value_scale, attn_mask, block_mask, scale, use_hadamard, hadamard_group_size
+        return (
+            out, lse, query, key, value,
+            query_scale, key_scale, value_scale,
+            attn_mask, block_mask, scale,
+            use_hadamard_qk, hadamard_group_size_qk,
+            use_hadamard_pv, hadamard_group_size_pv,
+        )
     return out
 
 
-get_attn_inputs = compile_func(get_attn_inputs)
+quantize_qk_mm = compile_func(quantize_qk_mm)
+quantize_pv_mm = compile_func(quantize_pv_mm)
+get_block_mask_input_compiled = compile_func(get_block_mask_input)

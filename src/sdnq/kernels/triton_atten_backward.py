@@ -8,7 +8,18 @@ import triton.language as tl
 
 from ..common import compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, rotate_hadamard, rotate_hadamard_compiled
-from .triton_atten import sdnq_triton_atten, autotune_configs, block_size_divisor, prune_configs, block_count_chunk, block_index_chunk, get_block_mask_input, check_block_lists, check_tensor_descriptors
+
+from .triton_atten import (
+    sdnq_triton_atten,
+    autotune_configs,
+    block_size_divisor,
+    prune_configs,
+    block_count_chunk,
+    block_index_chunk,
+    get_block_mask_input,
+    check_block_lists,
+    check_tensor_descriptors,
+)
 
 
 @triton.autotune(
@@ -1029,26 +1040,40 @@ def sdnq_triton_atten_bwd_dv(
 
 
 @inference_context()
-def get_attn_backward_inputs(
-    grad_output: torch.Tensor,
-    out: torch.Tensor,
-    hadamard: torch.Tensor | None,
-    pv_matmul_dtype: str | None = None,
-    quantize_fp32: bool = True,
-    block_mask: torch.Tensor | None = None,
-    do_quantize: bool = True,
+def get_block_mask_backward_inputs(
+    block_mask: torch.Tensor,
     do_grad_q: bool = True,
     do_grad_k: bool = True,
     do_grad_v: bool = True,
+) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+    if do_grad_q:
+        block_count, block_index = get_block_mask_input(block_mask)
+    else:
+        block_count = block_index = None
+    if do_grad_k or do_grad_v:
+        block_count_t, block_index_t = get_block_mask_input(block_mask.transpose(-1, -2))
+    else:
+        block_count_t = block_index_t = None
+    return block_count, block_index, block_count_t, block_index_t
+
+
+@inference_context()
+def get_attn_backward_inputs(
+    grad_output: torch.Tensor,
+    out: torch.Tensor,
+    hadamard_pv: torch.Tensor | None,
+    pv_matmul_dtype: str | None = None,
+    quantize_fp32: bool = True,
+    quantize_pv: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
     out = out.contiguous()
     grad_output = grad_output.contiguous()
     delta = torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32)
-    if do_quantize and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
+    if quantize_pv:
         if pv_matmul_dtype in {"enabled", "uint8"}:
             pv_matmul_dtype = "int8"
-        if hadamard is not None:
-            grad_output = rotate_hadamard(grad_output, group_size=hadamard.shape[-1], hadamard=hadamard)
+        if hadamard_pv is not None:
+            grad_output = rotate_hadamard(grad_output, group_size=hadamard_pv.shape[-1], hadamard=hadamard_pv)
         quantize_mm_func_pv = quantize_int_mm if pv_matmul_dtype.startswith("int") else quantize_fp_mm
         if quantize_fp32:
             grad_output = grad_output.to(dtype=torch.float32)
@@ -1056,18 +1081,7 @@ def get_attn_backward_inputs(
         grad_output_scale = grad_output_scale.squeeze(-1)
     else:
         grad_output_scale = None
-    if block_mask is not None:
-        if do_grad_q:
-            block_count, block_index = get_block_mask_input(block_mask)
-        else:
-            block_count = block_index = None
-        if do_grad_k or do_grad_v:
-            block_count_t, block_index_t = get_block_mask_input(block_mask.transpose(-1, -2))
-        else:
-            block_count_t = block_index_t = None
-    else:
-        block_count = block_index = block_count_t = block_index_t = None
-    return grad_output, grad_output_scale, out, delta, block_count, block_index, block_count_t, block_index_t
+    return grad_output, grad_output_scale, out, delta
 
 
 @inference_context()
@@ -1084,8 +1098,10 @@ def sdnq_triton_atten_bwd(
     attn_mask: torch.Tensor | None = None,
     sm_scale: float | None = None,
     is_causal: bool = False,
-    use_hadamard: bool = False,
-    hadamard_group_size: int = 256,
+    use_hadamard_qk: bool = False,
+    hadamard_group_size_qk: int = 256,
+    use_hadamard_pv: bool = False,
+    hadamard_group_size_pv: int = 256,
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
     quantize_fp32: bool = True,
@@ -1107,24 +1123,28 @@ def sdnq_triton_atten_bwd(
     if out_dtype is None:
         out_dtype = grad_output.dtype
 
-    if use_hadamard:
-        hadamard = get_hadamard(hadamard_group_size, dtype=grad_output.dtype, device=grad_output.device)
+    if block_mask is not None:
+        block_count, block_index, block_count_t, block_index_t = get_block_mask_backward_inputs(
+            block_mask, do_grad_q=do_grad_q, do_grad_k=do_grad_k, do_grad_v=do_grad_v,
+        )
     else:
-        hadamard = None
+        block_count = block_index = block_count_t = block_index_t = None
 
-    (
-        grad_output, grad_output_scale, out, delta,
-        block_count, block_index, block_count_t, block_index_t,
-    ) = get_attn_backward_inputs(
+    quantize_pv = bool(do_quantize and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"})
+
+    if use_hadamard_qk and (do_grad_q or do_grad_k):
+        hadamard_qk = get_hadamard(hadamard_group_size_qk, dtype=grad_output.dtype, device=grad_output.device)
+    else:
+        hadamard_qk = None
+    if use_hadamard_pv:
+        hadamard_pv = get_hadamard(hadamard_group_size_pv, dtype=grad_output.dtype, device=grad_output.device)
+    else:
+        hadamard_pv = None
+
+    grad_output, grad_output_scale, out, delta = get_attn_backward_inputs(
         grad_output, out,
-        hadamard=hadamard,
-        pv_matmul_dtype=pv_matmul_dtype,
-        quantize_fp32=quantize_fp32,
-        block_mask=block_mask,
-        do_quantize=do_quantize,
-        do_grad_q=do_grad_q,
-        do_grad_k=do_grad_k,
-        do_grad_v=do_grad_v,
+        hadamard_pv=hadamard_pv, pv_matmul_dtype=pv_matmul_dtype,
+        quantize_fp32=quantize_fp32, quantize_pv=quantize_pv,
     )
 
     if do_grad_q:
@@ -1146,8 +1166,8 @@ def sdnq_triton_atten_bwd(
             block_mask_m=block_mask_m,
             block_mask_n=block_mask_n,
         )
-        if use_hadamard:
-            dq = rotate_hadamard_compiled(dq, group_size=hadamard_group_size, hadamard=hadamard)
+        if use_hadamard_qk:
+            dq = rotate_hadamard_compiled(dq, group_size=hadamard_group_size_qk, hadamard=hadamard_qk)
     else:
         dq = None
 
@@ -1210,10 +1230,10 @@ def sdnq_triton_atten_bwd(
             block_mask_m=block_mask_m,
             block_mask_n=block_mask_n,
         )
-    if do_grad_k and use_hadamard:
-        dk = rotate_hadamard_compiled(dk, group_size=hadamard_group_size, hadamard=hadamard)
-    if do_grad_v and use_hadamard and pv_matmul_dtype not in {None, "auto", "none", "no", "disabled"}:
-        dv = rotate_hadamard_compiled(dv, group_size=hadamard_group_size, hadamard=hadamard)
+    if do_grad_k and use_hadamard_qk:
+        dk = rotate_hadamard_compiled(dk, group_size=hadamard_group_size_qk, hadamard=hadamard_qk)
+    if do_grad_v and use_hadamard_pv:
+        dv = rotate_hadamard_compiled(dv, group_size=hadamard_group_size_pv, hadamard=hadamard_pv)
 
     return dq, dk, dv
 
@@ -1255,7 +1275,8 @@ class SDNQAttenBackward(torch.autograd.Function):
             out, lse, query, key, value,
             query_scale, key_scale, value_scale,
             attn_mask, block_mask, sm_scale,
-            use_hadamard, hadamard_group_size,
+            use_hadamard_qk, hadamard_group_size_qk,
+            use_hadamard_pv, hadamard_group_size_pv,
         ) = sdnq_triton_atten(
             query, key, value,
             attn_mask=attn_mask,
@@ -1278,8 +1299,10 @@ class SDNQAttenBackward(torch.autograd.Function):
         )
 
         ctx.sm_scale = sm_scale
-        ctx.use_hadamard = use_hadamard
-        ctx.hadamard_group_size = hadamard_group_size
+        ctx.use_hadamard_qk = use_hadamard_qk
+        ctx.hadamard_group_size_qk = hadamard_group_size_qk
+        ctx.use_hadamard_pv = use_hadamard_pv
+        ctx.hadamard_group_size_pv = hadamard_group_size_pv
         ctx.save_for_backward(out, lse, query, key, value, query_scale, key_scale, value_scale, attn_mask, block_mask)
         return out
 
@@ -1293,8 +1316,10 @@ class SDNQAttenBackward(torch.autograd.Function):
             sm_scale=ctx.sm_scale,
             pv_matmul_dtype=ctx.pv_matmul_dtype,
             is_causal=ctx.is_causal,
-            use_hadamard=ctx.use_hadamard,
-            hadamard_group_size=ctx.hadamard_group_size,
+            use_hadamard_qk=ctx.use_hadamard_qk,
+            hadamard_group_size_qk=ctx.hadamard_group_size_qk,
+            use_hadamard_pv=ctx.use_hadamard_pv,
+            hadamard_group_size_pv=ctx.hadamard_group_size_pv,
             do_quantize=ctx.do_quantize,
             quantize_fp32=ctx.do_quantize,
             use_fp16_accum=ctx.use_fp16_accum,
@@ -1354,3 +1379,4 @@ def sdnq_triton_atten_with_backward(
 
 
 get_attn_backward_inputs = compile_func(get_attn_backward_inputs)
+get_block_mask_backward_inputs = compile_func(get_block_mask_backward_inputs)
