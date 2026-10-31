@@ -8,7 +8,7 @@ import triton
 import triton.language as tl
 
 from ..common import logger, torch_backend, inference_context
-from ..utils import get_cache_sizes
+from ..utils import get_cache_sizes, next_power_of_2
 
 
 USE_FP16_ACCUM = bool(os.environ.get("SDNQ_TRITON_MM_USE_FP16_ACCUM", "0").lower() not in {"0", "false", "no"})
@@ -18,7 +18,7 @@ SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "
 block_size_divisor = int(os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_DIVISOR", "256"))
 num_warps_divisor = int(os.environ.get("SDNQ_TRITON_MM_NUM_WARPS_DIVISOR", "16" if torch_backend in {"ipex", "xpu"} else "32"))
 autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN, BK) // num_warps_divisor), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=next_power_of_2(max(BM, BN, BK, num_warps_divisor) // num_warps_divisor), num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_M_LIST", "64,128,256").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_N_LIST", "64,128,256").replace(" ","").split(",")]
     for BK in [int(BK) for BK in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_K_LIST", "32,64").replace(" ","").split(",")]
@@ -27,7 +27,7 @@ autotune_configs = [
 ]
 
 small_autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN, BK) // num_warps_divisor), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=next_power_of_2(max(BM, BN, BK, num_warps_divisor) // num_warps_divisor), num_stages=s)
     for BM in [32,64,128] for BN in [32,64,128] for BK in [16,32] for GM in [4,] for s in ([4,] if torch_backend == "cuda" else [2,])
 ]
 

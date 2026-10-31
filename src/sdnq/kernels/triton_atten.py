@@ -9,7 +9,7 @@ import triton.language as tl
 
 from ..common import logger, torch_backend, compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
-from ..utils import check_tma_alignment, get_cache_sizes
+from ..utils import check_tma_alignment, get_cache_sizes, next_power_of_2
 
 
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
@@ -19,7 +19,7 @@ block_index_chunk = 16 # int32 entries per descriptor load of the block index li
 block_size_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_DIVISOR", "256"))
 num_warps_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_DIVISOR", "8" if torch_backend in {"ipex", "xpu"} else "16" if torch_backend in {"rocm", "zluda"} else "32"))
 autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=next_power_of_2(max(BM, BN, num_warps_divisor) // num_warps_divisor), num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128,256").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32,64").replace(" ","").split(",")]
     for GM in [int(GM) for GM in os.environ.get("SDNQ_TRITON_ATTEN_GROUP_SIZE_M_LIST", "32" if torch_backend in {"ipex", "xpu"} else "8").replace(" ","").split(",")]
@@ -27,7 +27,7 @@ autotune_configs = [
 ]
 
 small_autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=next_power_of_2(max(BM, BN, num_warps_divisor) // num_warps_divisor), num_stages=s)
     for BM in [32,64,128] for BN in [16,32,64] for GM in ([16,] if torch_backend in {"ipex", "xpu"} else [4,]) for s in ([2,4] if torch_backend == "cuda" else [1,2])
 ]
 
