@@ -496,8 +496,10 @@ def sdnq_attn_bwd_dkv_kernel(
         k = tl.load(k_ptr + offset_k * KHD + offs_n[None, :] * KHD + offs_khd[:, None], mask=(offs_n[None, :] < KN) & (offs_khd[:, None] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
         v = tl.load(v_ptr + offset_v * VHD + offs_n[None, :] * VHD + offs_vhd[:, None], mask=(offs_n[None, :] < VN) & (offs_vhd[:, None] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
 
-    dk_t = tl.zeros([triton.next_power_of_2(KHD), BLOCK_SIZE_N], dtype=tl.float32)
-    dv_t = tl.zeros([triton.next_power_of_2(VHD), BLOCK_SIZE_N], dtype=tl.float32)
+    if do_grad_k:
+        dk_t = tl.zeros([triton.next_power_of_2(KHD), BLOCK_SIZE_N], dtype=tl.float32)
+    if do_grad_v:
+        dv_t = tl.zeros([triton.next_power_of_2(VHD), BLOCK_SIZE_N], dtype=tl.float32)
 
     if use_fp16_accum:
         if qk_is_quantized and q_ptr.type.element_ty == tl.float16:
@@ -1230,6 +1232,9 @@ def sdnq_triton_atten_bwd(
             block_mask_m=block_mask_m,
             block_mask_n=block_mask_n,
         )
+    else:
+        dk = dv = None
+
     if do_grad_k and use_hadamard_qk:
         dk = rotate_hadamard_compiled(dk, group_size=hadamard_group_size_qk, hadamard=hadamard_qk)
     if do_grad_v and use_hadamard_pv:
