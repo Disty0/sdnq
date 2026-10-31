@@ -27,8 +27,8 @@ autotune_configs = [
 ]
 
 small_autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
-    for BM in [32,64,128] for BN in [16,32,64] for s in ([2,4] if torch_backend == "cuda" else [1,2])
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
+    for BM in [32,64,128] for BN in [16,32,64] for GM in [4,] for s in ([2,4] if torch_backend == "cuda" else [1,2])
 ]
 
 
@@ -61,6 +61,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
         for config in configs:
             block_size_m = config.kwargs["BLOCK_SIZE_M"]
             block_size_n = config.kwargs["BLOCK_SIZE_N"]
+            group_size_m = config.kwargs["GROUP_SIZE_M"]
 
             smem_M = block_size_m * named_args["QHD"] * named_args["q_ptr"].element_size()
             if named_args.get("do_ptr") is not None:
@@ -108,10 +109,10 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 
             if is_dkv_backward:
                 smem_req = smem_N + ((smem_M + smem_MN) * config.num_stages)
-                cache_req = cache_N + ((cache_M + cache_MN) * config.num_stages)
+                cache_req = (cache_N * group_size_m) + ((cache_M + cache_MN) * config.num_stages)
             else:
                 smem_req = smem_M + ((smem_N + smem_MN) * config.num_stages)
-                cache_req = cache_M + ((cache_N + cache_MN) * config.num_stages)
+                cache_req = (cache_M * group_size_m) + ((cache_N + cache_MN) * config.num_stages)
 
             smem_req += 4096
             cache_req = int(cache_req * 2)
