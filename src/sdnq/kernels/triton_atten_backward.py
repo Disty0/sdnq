@@ -120,6 +120,7 @@ def sdnq_attn_bwd_dq_kernel(
     tl.assume(start_m >= 0)
     tl.assume(BLOCK_SIZE_M > 0)
     tl.assume(BLOCK_SIZE_N > 0)
+    tl.assume(GROUP_SIZE_M > 0)
     tl.assume(is_causal == 0 or is_causal == 1) # pylint: disable=consider-using-in
     tl.assume(do_mask == 0 or do_mask == 1) # pylint: disable=consider-using-in
     tl.assume(do_block_mask == 0 or do_block_mask == 1) # pylint: disable=consider-using-in
@@ -464,6 +465,7 @@ def sdnq_attn_bwd_dkv_kernel(
     tl.assume(off_h_k >= 0)
     tl.assume(BLOCK_SIZE_M > 0)
     tl.assume(BLOCK_SIZE_N > 0)
+    tl.assume(GROUP_SIZE_M > 0)
     tl.assume(is_causal == 0 or is_causal == 1) # pylint: disable=consider-using-in
     tl.assume(do_mask == 0 or do_mask == 1) # pylint: disable=consider-using-in
     tl.assume(do_block_mask == 0 or do_block_mask == 1) # pylint: disable=consider-using-in
