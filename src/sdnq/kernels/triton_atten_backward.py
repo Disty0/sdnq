@@ -78,10 +78,19 @@ def sdnq_attn_bwd_dq_kernel(
     block_size_divisor_at: tl.constexpr, # pylint: disable=unused-argument
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
+    GROUP_SIZE_M: tl.constexpr,
 ) -> None:
-    start_m = tl.program_id(0)
-    off_h = tl.program_id(1)
-    off_z = tl.program_id(2)
+    pid = tl.program_id(0)
+    off_z = tl.program_id(1)
+
+    grid_m = tl.cdiv(QN, BLOCK_SIZE_M)
+    num_pid_in_group = GROUP_SIZE_M * QH
+    group_id = pid // num_pid_in_group
+    first_pid_m = group_id * GROUP_SIZE_M
+    group_size_m = grid_m - first_pid_m
+    group_size_m = min(group_size_m, GROUP_SIZE_M)
+    start_m = first_pid_m + ((pid % num_pid_in_group) % group_size_m)
+    off_h = (pid % num_pid_in_group) // group_size_m
 
     tl.assume(QZ > 0)
     tl.assume(QH > 0)
@@ -105,6 +114,7 @@ def sdnq_attn_bwd_dq_kernel(
     tl.assume(BLOCK_INDEX_CHUNK > 0)
     tl.assume(BZ >= 0)
     tl.assume(BH >= 0)
+    tl.assume(pid >= 0)
     tl.assume(off_h >= 0)
     tl.assume(off_z >= 0)
     tl.assume(start_m >= 0)
@@ -413,10 +423,19 @@ def sdnq_attn_bwd_dkv_kernel(
     block_size_divisor_at: tl.constexpr, # pylint: disable=unused-argument
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
+    GROUP_SIZE_M: tl.constexpr, # named as GROUP_SIZE_M to re-use the autotune configs
 ) -> None:
-    start_n = tl.program_id(0)
-    off_h_k = tl.program_id(1)
-    off_z = tl.program_id(2)
+    pid = tl.program_id(0)
+    off_z = tl.program_id(1)
+
+    grid_n = tl.cdiv(KN, BLOCK_SIZE_N)
+    num_pid_in_group = GROUP_SIZE_M * KH
+    group_id = pid // num_pid_in_group
+    first_pid_n = group_id * GROUP_SIZE_M
+    group_size_n = grid_n - first_pid_n
+    group_size_n = min(group_size_n, GROUP_SIZE_M)
+    start_n = first_pid_n + ((pid % num_pid_in_group) % group_size_n)
+    off_h_k = (pid % num_pid_in_group) // group_size_n
 
     tl.assume(QZ > 0)
     tl.assume(QH > 0)
@@ -440,7 +459,9 @@ def sdnq_attn_bwd_dkv_kernel(
     tl.assume(BLOCK_INDEX_CHUNK > 0)
     tl.assume(BZ >= 0)
     tl.assume(BH >= 0)
+    tl.assume(pid >= 0)
     tl.assume(off_z >= 0)
+    tl.assume(off_h_k >= 0)
     tl.assume(BLOCK_SIZE_M > 0)
     tl.assume(BLOCK_SIZE_N > 0)
     tl.assume(is_causal == 0 or is_causal == 1) # pylint: disable=consider-using-in
@@ -793,7 +814,7 @@ def sdnq_triton_atten_bwd_dq(
     else:
         block_mask_m = block_mask_n = 0
     def grid_dq(META):
-        return (triton.cdiv(QN, META["BLOCK_SIZE_M"]), QH, QZ)
+        return (triton.cdiv(QN, META["BLOCK_SIZE_M"]) * QH, QZ)
     dq = torch.empty_like(query, dtype=out_dtype)
     wrap_triton(sdnq_attn_bwd_dq_kernel)[grid_dq](
         query, key, value, grad_output,
@@ -871,7 +892,7 @@ def sdnq_atten_bwd_dkv(
     else:
         block_mask_m = block_mask_n = 0
     def grid_dkv(META):
-        return (triton.cdiv(KN, META["BLOCK_SIZE_N"]), KH, QZ)
+        return (triton.cdiv(KN, META["BLOCK_SIZE_N"]) * KH, QZ)
     dk = torch.empty_like(key, dtype=out_dtype) if do_grad_k else None
     dv = torch.empty_like(value, dtype=out_dtype) if do_grad_v else None
     wrap_triton(sdnq_attn_bwd_dkv_kernel)[grid_dkv](

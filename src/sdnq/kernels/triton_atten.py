@@ -19,9 +19,10 @@ block_index_chunk = 16 # int32 entries per descriptor load of the block index li
 block_size_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_DIVISOR", "256"))
 num_warps_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_DIVISOR", "8" if torch_backend in {"ipex", "xpu"} else "16" if torch_backend in {"rocm", "zluda"} else "32"))
 autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=(max(BM, BN) // num_warps_divisor), num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128,256").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32,64").replace(" ","").split(",")]
+    for GM in [int(GM) for GM in os.environ.get("SDNQ_TRITON_ATTEN_GROUP_SIZE_M_LIST", "8").replace(" ","").split(",")]
     for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "2,4" if torch_backend == "cuda" else "1,2").replace(" ","").split(",")]
 ]
 
@@ -194,10 +195,19 @@ def sdnq_attn_kernel(
     block_size_divisor_at: tl.constexpr, # pylint: disable=unused-argument
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
+    GROUP_SIZE_M: tl.constexpr,
 ) -> None:
-    start_m = tl.program_id(0)
-    off_h = tl.program_id(1)
-    off_z = tl.program_id(2)
+    pid = tl.program_id(0)
+    off_z = tl.program_id(1)
+
+    grid_m = tl.cdiv(QN, BLOCK_SIZE_M)
+    num_pid_in_group = GROUP_SIZE_M * QH
+    group_id = pid // num_pid_in_group
+    first_pid_m = group_id * GROUP_SIZE_M
+    group_size_m = grid_m - first_pid_m
+    group_size_m = min(group_size_m, GROUP_SIZE_M)
+    start_m = first_pid_m + ((pid % num_pid_in_group) % group_size_m)
+    off_h = (pid % num_pid_in_group) // group_size_m
 
     tl.assume(QZ > 0)
     tl.assume(QH > 0)
@@ -221,6 +231,7 @@ def sdnq_attn_kernel(
     tl.assume(BLOCK_INDEX_CHUNK > 0)
     tl.assume(BZ >= 0)
     tl.assume(BH >= 0)
+    tl.assume(pid >= 0)
     tl.assume(off_h >= 0)
     tl.assume(off_z >= 0)
     tl.assume(start_m >= 0)
@@ -509,7 +520,7 @@ def sdnq_atten_fwd(
     else:
         block_mask_m = block_mask_n = 0
     def grid(META):
-        return (triton.cdiv(QN, META["BLOCK_SIZE_M"]), QH, QZ)
+        return (triton.cdiv(QN, META["BLOCK_SIZE_M"]) * QH, QZ)
     out = torch.empty((QZ, QH, QN, VHD), dtype=out_dtype, device=query.device)
     lse = torch.empty((QZ, QH, QN), dtype=out_dtype, device=query.device) if return_lse else None
     wrap_triton(sdnq_attn_kernel)[grid](
