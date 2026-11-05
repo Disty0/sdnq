@@ -338,7 +338,7 @@ def sdnq_attn_bwd_dq_kernel(
                     if k.dtype == tl.int8:
                         ds_scale *= 1.0 / 127.0
                         ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
-                        ds = tl.floor(tl.fma(ds, (1.0 / ds_scale), 0.5)).to(tl.int8)
+                        ds = tl.floor(tl.fma(ds, tl.fdiv(1.0, ds_scale), 0.5)).to(tl.int8)
                         dq = tl.fma(tl.dot(ds, k, out_dtype=tl.int32).to(tl.float32), ds_scale, dq)
                     else:
                         ds_scale *= 1.0 / (65504.0 if k.dtype == tl.float16 else 448.0)
@@ -710,7 +710,7 @@ def sdnq_attn_bwd_dkv_kernel(
                         if q.dtype == tl.int8:
                             ds_scale *= 1.0 / 127.0
                             ds_scale = tl.where(ds_scale <= 2e-38, 1.0, ds_scale)
-                            ds = tl.floor(tl.fma(ds, (1.0 / ds_scale), 0.5)).to(tl.int8)
+                            ds = tl.floor(tl.fma(ds, tl.fdiv(1.0, ds_scale), 0.5)).to(tl.int8)
                             dk_t = tl.fma(tl.dot(q.T, ds, out_dtype=tl.int32).to(tl.float32), ds_scale, dk_t)
                         else:
                             ds_scale *= 1.0 / (65504.0 if q.dtype == tl.float16 else 448.0)
