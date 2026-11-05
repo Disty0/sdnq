@@ -690,7 +690,7 @@ def sdnq_attn_bwd_dkv_kernel(
                     if pv_is_quantized:
                         if do.dtype == tl.int8:
                             dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.int32).to(tl.float32), do_scale), v_scale)
-                        if use_fp16_accum and v.dtype == tl.float16:
+                        elif use_fp16_accum and v.dtype == tl.float16:
                             do_pv = tl.mul(do.to(tl.float32), in_scale_pv).to(tl.float16)
                             dp = tl.mul(tl.mul(tl.dot(do_pv, v, out_dtype=tl.float16).to(tl.float32), do_scale), v_scale)
                         else:
