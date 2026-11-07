@@ -771,13 +771,12 @@ class SDNQQuantizer(DiffusersQuantizer, HfQuantizer):
             layer = get_module_from_name(model, param_name)[0]
             if hasattr(layer, "sdnq_dequantizer") and param_name.rsplit(".", maxsplit=1)[-1] in sdnq_keys:
                 return True
-        elif param_name.endswith(".weight"):
-            if check_param_name_in(param_name, self.quantization_config.modules_to_not_convert) is None:
-                layer = get_module_from_name(model, param_name)[0]
-                if check_quant_is_allowed(layer.__class__.__name__, layer.weight, self.quantization_config, pre_quantized=self.pre_quantized):
-                    return True
-                else:
-                    self.quantization_config.modules_to_not_convert.append(param_name)
+        elif param_name.endswith(".weight") and check_param_name_in(param_name, self.quantization_config.modules_to_not_convert) is None:
+            layer = get_module_from_name(model, param_name)[0]
+            if check_quant_is_allowed(layer.__class__.__name__, layer.weight, self.quantization_config, pre_quantized=self.pre_quantized):
+                return True
+            else:
+                self.quantization_config.modules_to_not_convert.append(param_name)
         return False
 
     @inference_context()
