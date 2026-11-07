@@ -67,10 +67,10 @@ def update_param_(
     update = apply_norm_to_update_(update, param_fp32, final_norm_mode, clips)
     if use_cautious:
         mask = (torch.mul(update, grad) > 0).to(dtype=torch.float32)
-        mask.div_(mask.mean().clamp_(min=clips[-1]))
+        mask = mask.div_(mask.mean().clamp_(min=clips[-1]))
         update = update.mul_(mask)
     if weight_decay != 0:
-        param_fp32.mul_(1 - learning_rate * weight_decay)
+        update = update.add_(param_fp32, alpha=weight_decay)
 
     if kahan_buffer is not None:
         update = torch.add(kahan_buffer.to(dtype=torch.float32), update, alpha=-learning_rate)
@@ -89,7 +89,7 @@ def update_param_(
         param.copy_(new_param)
         del new_param
     else:
-        param_fp32.add_(update, alpha=-learning_rate)
+        param_fp32 = param_fp32.add_(update, alpha=-learning_rate)
         del update
 
         copy_stochastic_(param, param_fp32, use_stochastic_rounding=use_stochastic_rounding)
