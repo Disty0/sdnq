@@ -74,8 +74,10 @@ def sdnq_triton_mm_kernel(
     tl.assume(use_tensor_descriptors == 0 or use_tensor_descriptors == 1) # pylint: disable=consider-using-in
 
     offs_k = tl.arange(0, BLOCK_SIZE_K)
-    offs_m = (off_m + tl.arange(0, BLOCK_SIZE_M)) % M
-    offs_n = (off_n + tl.arange(0, BLOCK_SIZE_N)) % N
+    offs_cm = off_m + tl.arange(0, BLOCK_SIZE_M)
+    offs_cn = off_n + tl.arange(0, BLOCK_SIZE_N)
+    offs_m = offs_cm % M
+    offs_n = offs_cn % N
 
     if use_tensor_descriptors:
         a_desc = tl.make_tensor_descriptor(base=a_ptr, shape=(M, K), strides=(K, 1), block_shape=(BLOCK_SIZE_M, BLOCK_SIZE_K))
@@ -121,7 +123,8 @@ def sdnq_triton_mm_kernel(
         accumulator = tl.dot(a, b, accumulator, out_dtype=accumulator_dtype)
         off_k += BLOCK_SIZE_K
     if use_fp16_accum and a_ptr.type.element_ty == tl.float16:
-        accumulator = tl.mul(accumulator.to(tl.float32), fp16_scale)
+        accumulator = accumulator.to(tl.float32)
+        accumulator = tl.mul(accumulator, fp16_scale)
 
     if bias_ndim == 1:
         accumulator = accumulator.to(tl.float32)
@@ -129,7 +132,7 @@ def sdnq_triton_mm_kernel(
             bias_desc = tl.make_tensor_descriptor(base=bias_ptr, shape=(N,), strides=(1,), block_shape=(BLOCK_SIZE_N,))
             bias = bias_desc.load([off_n])[None, :].to(tl.float32)
         else:
-            bias = tl.load(bias_ptr + offs_n[None, :], mask=offs_n[None, :] < N, other=0.0).to(tl.float32)
+            bias = tl.load(bias_ptr + offs_cn[None, :], mask=offs_cn[None, :] < N, other=0.0).to(tl.float32)
         accumulator += bias
     elif bias_ndim == 2:
         accumulator = accumulator.to(tl.float32)
@@ -137,7 +140,7 @@ def sdnq_triton_mm_kernel(
             bias_desc = tl.make_tensor_descriptor(base=bias_ptr, shape=(M, N), strides=(N, 1), block_shape=(BLOCK_SIZE_M, BLOCK_SIZE_N))
             bias = bias_desc.load([off_m, off_n]).to(tl.float32)
         else:
-            bias = tl.load(bias_ptr + (offs_m[:, None] * N + offs_n[None, :]), mask=(offs_m[:, None] < M) & (offs_n[None, :] < N), other=0.0).to(tl.float32)
+            bias = tl.load(bias_ptr + (offs_cm[:, None] * N + offs_cn[None, :]), mask=(offs_cm[:, None] < M) & (offs_cn[None, :] < N), other=0.0).to(tl.float32)
         accumulator += bias
 
     accumulator = accumulator.to(c_ptr.type.element_ty)
@@ -145,7 +148,7 @@ def sdnq_triton_mm_kernel(
         c_desc = tl.make_tensor_descriptor(base=c_ptr, shape=(M, N), strides=(N, 1), block_shape=(BLOCK_SIZE_M, BLOCK_SIZE_N))
         c_desc.store([off_m, off_n], accumulator)
     else:
-        tl.store(c_ptr + (offs_m[:, None] * N + offs_n[None, :]), accumulator, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))
+        tl.store(c_ptr + (offs_cm[:, None] * N + offs_cn[None, :]), accumulator, mask=(offs_cm[:, None] < M) & (offs_cn[None, :] < N))
 
 
 @triton_op("sdnq::triton_mm", mutates_args={})

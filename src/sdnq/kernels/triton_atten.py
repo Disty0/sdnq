@@ -9,7 +9,7 @@ import triton.language as tl
 
 from ..common import logger, torch_backend, compile_func, inference_context
 from ..quant_utils import quantize_int_mm, quantize_fp_mm, get_hadamard, get_hadamard_group_size, rotate_hadamard, rotate_hadamard_compiled
-from ..utils import check_tma_alignment, get_cache_sizes, next_power_of_2
+from ..utils import check_tma_alignment, get_warp_props, get_num_warps, get_cache_sizes, next_power_of_2
 
 
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
@@ -17,17 +17,18 @@ SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "
 block_count_chunk = 4 # int32 entries per descriptor load of the block counts, 16 bytes
 block_index_chunk = 16 # int32 entries per descriptor load of the block index lists, 64 bytes
 block_size_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_DIVISOR", "256"))
-num_warps_divisor = int(os.environ.get("SDNQ_TRITON_ATTEN_NUM_WARPS_DIVISOR", "8" if torch_backend in {"ipex", "xpu"} else "16" if torch_backend in {"rocm", "zluda"} else "32"))
+
+
 autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=next_power_of_2(max(BM, BN, num_warps_divisor) // num_warps_divisor), num_stages=s)
-    for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "64,128,256").replace(" ","").split(",")]
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=get_num_warps(max(BM, BN)), num_stages=s)
+    for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST", "32,64,128,256").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST", "16,32,64").replace(" ","").split(",")]
     for GM in [int(GM) for GM in os.environ.get("SDNQ_TRITON_ATTEN_GROUP_SIZE_M_LIST", "32" if torch_backend in {"ipex", "xpu"} else "8").replace(" ","").split(",")]
     for s in [int(s) for s in os.environ.get("SDNQ_TRITON_ATTEN_NUM_STAGES_LIST", "2,4" if torch_backend == "cuda" else "1,2").replace(" ","").split(",")]
 ]
 
 small_autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=next_power_of_2(max(BM, BN, num_warps_divisor) // num_warps_divisor), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=get_num_warps(max(BM, BN)), num_stages=s)
     for BM in [32,64,128] for BN in [16,32,64] for GM in ([16,] if torch_backend in {"ipex", "xpu"} else [4,]) for s in ([2,4] if torch_backend == "cuda" else [1,2])
 ]
 
@@ -35,6 +36,7 @@ small_autotune_configs = [
 def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
     device = named_args["q_ptr"].device
     is_dkv_backward = bool(named_args.get("dk_ptr") is not None or named_args.get("dv_ptr") is not None)
+    is_dq_backward = bool(named_args.get("dq_ptr") is not None)
     if (device.type == "xpu" or (device.type == "cuda" and torch_backend == "cuda")) and torch.int8 in {named_args["q_ptr"].dtype, named_args["v_ptr"].dtype}:
         is_int8 = True
         pruned_configs = [conf for conf in configs if (conf.kwargs["BLOCK_SIZE_M"] >= 32 and conf.kwargs["BLOCK_SIZE_N"] >= 32)]
@@ -53,81 +55,119 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
     if pruned_configs:
         configs = pruned_configs
 
+    if from_small:
+        updated_configs = []
+    warp_props = get_warp_props(device)
     cache_size, smem_size = get_cache_sizes(device)
     if SDNQ_DEBUG_TRITON_AUTOTUNE:
-        logger.debug(f"SDNQ Triton Atten: Detected device={device} cache_size={cache_size} smem_size={smem_size}")
-    if cache_size > 0 or smem_size > 0:
-        pruned_configs = []
-        for config in configs:
-            block_size_m = config.kwargs["BLOCK_SIZE_M"]
-            block_size_n = config.kwargs["BLOCK_SIZE_N"]
-            group_size_m = config.kwargs["GROUP_SIZE_M"]
+        logger.debug(f"SDNQ Triton Atten: Detected device={device} cache_size={cache_size} smem_size={smem_size} warp_props={warp_props}")
 
-            smem_M = block_size_m * named_args["QHD"] * named_args["q_ptr"].element_size()
-            if named_args.get("do_ptr") is not None:
-                smem_M += block_size_m * named_args["VHD"] * named_args["do_ptr"].element_size()
-            if named_args.get("q_scale_ptr") is not None:
-                smem_M += block_size_m * named_args["q_scale_ptr"].element_size()
-            if named_args.get("do_scale_ptr") is not None:
-                smem_M += block_size_m * named_args["do_scale_ptr"].element_size()
-            if named_args.get("lse_ptr") is not None and named_args.get("out_ptr") is None:
+    pruned_configs = []
+    for config in configs:
+        block_size_m = config.kwargs["BLOCK_SIZE_M"]
+        block_size_n = config.kwargs["BLOCK_SIZE_N"]
+        group_size_m = config.kwargs["GROUP_SIZE_M"]
+
+        qhd = next_power_of_2(named_args["QHD"])
+        khd = next_power_of_2(named_args["KHD"])
+        vhd = next_power_of_2(named_args["VHD"])
+
+        register_req = block_size_m * qhd * named_args["q_ptr"].element_size()
+        register_req += block_size_n * khd * named_args["k_ptr"].element_size()
+        register_req += block_size_n * vhd * named_args["v_ptr"].element_size()
+        if named_args.get("do_ptr") is not None:
+            register_req += block_size_m * vhd * named_args["do_ptr"].element_size()
+
+        smem_M = block_size_m * qhd * named_args["q_ptr"].element_size()
+        if named_args.get("do_ptr") is not None:
+            smem_M += block_size_m * vhd * named_args["do_ptr"].element_size()
+        if named_args.get("q_scale_ptr") is not None:
+            smem_M += block_size_m * named_args["q_scale_ptr"].element_size()
+            register_req += block_size_m * 4
+        if named_args.get("do_scale_ptr") is not None:
+            smem_M += block_size_m * named_args["do_scale_ptr"].element_size()
+            register_req += block_size_m * 4
+        if named_args.get("lse_ptr") is not None:
+            if named_args.get("save_lse", 0) or named_args.get("out_ptr") is None:
                 smem_M += block_size_m * named_args["lse_ptr"].element_size()
-            if named_args.get("delta_ptr") is not None:
-                smem_M += block_size_m * named_args["delta_ptr"].element_size()
-            if named_args.get("block_count_ptr") is not None:
-                smem_M += block_count_chunk * named_args["block_count_ptr"].element_size()
+            register_req += block_size_m * 4
+        if named_args.get("delta_ptr") is not None:
+            smem_M += block_size_m * named_args["delta_ptr"].element_size()
+            register_req += block_size_m * 4
+        if named_args.get("block_count_ptr") is not None:
+            smem_M += block_count_chunk * named_args["block_count_ptr"].element_size()
+            register_req += block_count_chunk * named_args["block_count_ptr"].element_size()
 
-            cache_M = smem_M
-            if named_args.get("out_ptr") is not None:
-                cache_M += block_size_m * named_args["VHD"] * named_args["out_ptr"].element_size()
-            if named_args.get("dq_ptr") is not None:
-                cache_M += block_size_m * named_args["QHD"] * named_args["dq_ptr"].element_size()
-            if named_args.get("lse_ptr") is not None and named_args.get("out_ptr") is not None:
-                cache_M += block_size_m * named_args["lse_ptr"].element_size()
+        cache_M = smem_M
+        if named_args.get("out_ptr") is not None:
+            cache_M += block_size_m * vhd * named_args["out_ptr"].element_size()
+            register_req += block_size_m * vhd * 4
+        if named_args.get("dq_ptr") is not None:
+            cache_M += block_size_m * qhd * named_args["dq_ptr"].element_size()
+            register_req += block_size_m * qhd * 4
 
-            smem_N = block_size_n * named_args["KHD"] * named_args["k_ptr"].element_size()
-            smem_N += block_size_n * named_args["VHD"] * named_args["v_ptr"].element_size()
-            if named_args.get("k_scale_ptr") is not None:
-                smem_N += block_size_n * named_args["k_scale_ptr"].element_size()
-            if named_args.get("v_scale_ptr") is not None:
-                smem_N += block_size_n * named_args["v_scale_ptr"].element_size()
-            if named_args.get("block_index_ptr") is not None:
-                smem_N += block_index_chunk * named_args["block_index_ptr"].element_size()
+        smem_N = block_size_n * khd * named_args["k_ptr"].element_size()
+        smem_N += block_size_n * vhd * named_args["v_ptr"].element_size()
+        if named_args.get("k_scale_ptr") is not None:
+            smem_N += block_size_n * named_args["k_scale_ptr"].element_size()
+            register_req += block_size_n * 4
+        if named_args.get("v_scale_ptr") is not None:
+            smem_N += block_size_n * named_args["v_scale_ptr"].element_size()
+            register_req += block_size_n * 4
+        if named_args.get("block_index_ptr") is not None:
+            smem_N += block_index_chunk * named_args["block_index_ptr"].element_size()
+            register_req += block_index_chunk * named_args["block_index_ptr"].element_size()
 
-            cache_N = smem_N
-            if named_args.get("dk_ptr") is not None:
-                cache_N += block_size_n * named_args["KHD"] * named_args["dk_ptr"].element_size()
-            if named_args.get("dv_ptr") is not None:
-                cache_N += block_size_n * named_args["VHD"] * named_args["dv_ptr"].element_size()
+        cache_N = smem_N
+        if named_args.get("dk_ptr") is not None:
+            cache_N += block_size_n * khd * named_args["dk_ptr"].element_size()
+            register_req += block_size_n * khd * 4
+        if named_args.get("dv_ptr") is not None:
+            cache_N += block_size_n * vhd * named_args["dv_ptr"].element_size()
+            register_req += block_size_n * vhd * 4
 
-            if named_args.get("mask_ptr") is not None:
-                size_MN = block_size_m * block_size_n * named_args["mask_ptr"].element_size()
+        if named_args.get("mask_ptr") is not None:
+            size_MN = block_size_m * block_size_n * named_args["mask_ptr"].element_size()
+            if named_args["mask_ptr"].dtype in {torch.int1, torch.int8}:
+                register_req += block_size_m * block_size_n
             else:
-                size_MN = 0
-            smem_MN = size_MN
-            cache_MN = size_MN
+                register_req += block_size_m * block_size_n * 4
+        else:
+            size_MN = 0
+        smem_MN = size_MN
+        cache_MN = size_MN
 
-            if is_dkv_backward:
-                smem_req = smem_N + ((smem_M + smem_MN) * config.num_stages)
-                cache_req = (cache_N * group_size_m) + ((cache_M + cache_MN) * config.num_stages)
-            else:
-                smem_req = smem_M + ((smem_N + smem_MN) * config.num_stages)
-                cache_req = (cache_M * group_size_m) + ((cache_N + cache_MN) * config.num_stages)
+        if is_dkv_backward:
+            smem_req = smem_N + ((smem_M + smem_MN) * config.num_stages)
+            cache_req = (cache_N * group_size_m) + ((cache_M + cache_MN) * config.num_stages)
+        else:
+            smem_req = smem_M + ((smem_N + smem_MN) * config.num_stages)
+            cache_req = (cache_M * group_size_m) + ((cache_N + cache_MN) * config.num_stages)
 
-            smem_req += 4096
-            cache_req = int(cache_req * 2)
+        register_req += 2 * (block_size_m * block_size_n * 4) # qk / p / ds
+        if not is_dkv_backward and not is_dq_backward:
+            register_req += 2 * block_size_m * 4 # m_i, l_i
+        register_req = math.ceil(register_req / 4) # 32 bit
 
-            if (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
-                pruned_configs.append(config)
-            elif SDNQ_DEBUG_TRITON_AUTOTUNE:
-                logger.debug(f"SDNQ Triton Atten: Pruned config cache_req={cache_req} smem_req={smem_req} config=({config.kwargs} num_warps={config.num_warps} num_stages={config.num_stages})")
+        num_warps, do_prune = get_num_warps(max(block_size_m, block_size_n), register_req=register_req, warp_props=warp_props, device=device, return_prune=True)
+        new_config = triton.Config(dict(config.kwargs), num_warps=num_warps, num_stages=config.num_stages)
 
-        if pruned_configs:
-            configs = pruned_configs
-        elif not from_small:
+        if not do_prune and (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
+            pruned_configs.append(new_config)
+        else:
+            if from_small:
+                updated_configs.append(new_config)
             if SDNQ_DEBUG_TRITON_AUTOTUNE:
-                logger.debug("SDNQ Triton Atten: No configs fit in cache/smem, trying small configs.")
-            return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
+                logger.debug(f"SDNQ Triton Atten: Pruned config cache_req={cache_req} smem_req={smem_req} register_req={register_req} config=({new_config.kwargs} num_warps={new_config.num_warps} num_stages={new_config.num_stages})")
+
+    if pruned_configs:
+        configs = pruned_configs
+    elif from_small:
+        configs = updated_configs
+    else:
+        if SDNQ_DEBUG_TRITON_AUTOTUNE:
+            logger.debug("SDNQ Triton Atten: No configs fit in cache/smem/registers, trying small configs.")
+        return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
 
     if named_args.get("do_block_mask"):
         pruned_configs = [conf for conf in configs if (named_args["BLOCK_MASK_M"] % conf.kwargs["BLOCK_SIZE_M"] == 0 and named_args["BLOCK_MASK_N"] % conf.kwargs["BLOCK_SIZE_N"] == 0)]
@@ -135,6 +175,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             configs = pruned_configs
         else:
             raise ValueError(f"SDNQ Triton Atten: no autotune config nests the {named_args['BLOCK_MASK_M']}x{named_args['BLOCK_MASK_N']} block mask, check SDNQ_TRITON_ATTEN_BLOCK_SIZE_M_LIST and SDNQ_TRITON_ATTEN_BLOCK_SIZE_N_LIST")
+
     return configs
 
 

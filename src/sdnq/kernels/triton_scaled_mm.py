@@ -8,7 +8,7 @@ import triton
 import triton.language as tl
 
 from ..common import logger, torch_backend, inference_context
-from ..utils import get_cache_sizes, next_power_of_2
+from ..utils import get_cache_sizes, get_warp_props, get_num_warps
 
 
 USE_FP16_ACCUM = bool(os.environ.get("SDNQ_TRITON_MM_USE_FP16_ACCUM", "0").lower() not in {"0", "false", "no"})
@@ -16,9 +16,10 @@ USE_TENSOR_DESCRIPTORS = bool(os.environ.get("SDNQ_TRITON_MM_USE_TENSOR_DESCRIPT
 SDNQ_DEBUG_TRITON_AUTOTUNE = bool(os.environ.get("SDNQ_DEBUG_TRITON_AUTOTUNE", "0").lower() not in {"0", "false", "no"})
 
 block_size_divisor = int(os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_DIVISOR", "256"))
-num_warps_divisor = int(os.environ.get("SDNQ_TRITON_MM_NUM_WARPS_DIVISOR", "16" if torch_backend in {"ipex", "xpu"} else "32"))
+
+
 autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=next_power_of_2(max(BM, BN, BK, num_warps_divisor) // num_warps_divisor), num_stages=s)
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=get_num_warps(max(BM, BN, BK)), num_stages=s)
     for BM in [int(BM) for BM in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_M_LIST", "64,128,256").replace(" ","").split(",")]
     for BN in [int(BN) for BN in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_N_LIST", "64,128,256").replace(" ","").split(",")]
     for BK in [int(BK) for BK in os.environ.get("SDNQ_TRITON_MM_BLOCK_SIZE_K_LIST", "32,64").replace(" ","").split(",")]
@@ -27,8 +28,8 @@ autotune_configs = [
 ]
 
 small_autotune_configs = [
-    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=next_power_of_2(max(BM, BN, BK, num_warps_divisor) // num_warps_divisor), num_stages=s)
-    for BM in [32,64,128] for BN in [32,64,128] for BK in [16,32] for GM in [4,] for s in ([4,] if torch_backend == "cuda" else [2,])
+    triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "BLOCK_SIZE_K": BK, "GROUP_SIZE_M": GM}, num_warps=get_num_warps(max(BM, BN, BK)), num_stages=s)
+    for BM in [32,64,128] for BN in [32,64,128] for BK in [16,32,64] for GM in [4,] for s in ([4,] if torch_backend == "cuda" else [2,])
 ]
 
 
@@ -52,62 +53,96 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
     if pruned_configs:
         configs = pruned_configs
 
+    if from_small:
+        updated_configs = []
+    warp_props = get_warp_props(device)
     cache_size, smem_size = get_cache_sizes(device)
     if SDNQ_DEBUG_TRITON_AUTOTUNE:
-        logger.debug(f"SDNQ Triton MM: Detected device={device} cache_size={cache_size} smem_size={smem_size}")
-    if cache_size > 0 or smem_size > 0:
-        pruned_configs = []
-        for config in configs:
-            block_size_m = config.kwargs["BLOCK_SIZE_M"]
-            block_size_n = config.kwargs["BLOCK_SIZE_N"]
-            block_size_k = config.kwargs["BLOCK_SIZE_K"]
-            group_size_m = config.kwargs["GROUP_SIZE_M"]
+        logger.debug(f"SDNQ Triton MM: Detected device={device} cache_size={cache_size} smem_size={smem_size} warp_props={warp_props}")
 
-            if smem_size > 0:
-                smem_req = block_size_m * block_size_k * named_args["a_ptr"].element_size()
-                smem_req += block_size_n * block_size_k * named_args["b_ptr"].element_size()
-                smem_req *= config.num_stages
+    pruned_configs = []
+    for config in configs:
+        block_size_m = config.kwargs["BLOCK_SIZE_M"]
+        block_size_n = config.kwargs["BLOCK_SIZE_N"]
+        block_size_k = config.kwargs["BLOCK_SIZE_K"]
+        group_size_m = config.kwargs["GROUP_SIZE_M"]
+
+        a_ptr_size = block_size_m * block_size_k * named_args["a_ptr"].element_size()
+        b_ptr_size = block_size_n * block_size_k * named_args["b_ptr"].element_size()
+        c_ptr_size = block_size_m * block_size_n * named_args["c_ptr"].element_size()
+        accumulator_size = block_size_m * block_size_n * 4
+
+        smem_req = (a_ptr_size + b_ptr_size + 16) * config.num_stages
+
+        cache_req = group_size_m * block_size_m * block_size_k * named_args["a_ptr"].element_size()
+        cache_req = ((cache_req + b_ptr_size) * config.num_stages) + (c_ptr_size * group_size_m)
+        if named_args.get("scale_a_ptr") is not None:
+            if named_args.get("scale_a_is_tensorwise", 0):
+                cache_req += named_args["scale_a_ptr"].element_size()
             else:
-                smem_req = 0
-
-            if cache_size > 0:
-                cache_req = group_size_m * block_size_m * block_size_k * named_args["a_ptr"].element_size()
-                cache_req += block_size_n * block_size_k * named_args["b_ptr"].element_size()
-                cache_req *= config.num_stages
-
-                cache_req += group_size_m * block_size_m * block_size_n * named_args["c_ptr"].element_size()
-                if named_args.get("scale_a_ptr") is not None:
-                    if named_args.get("scale_a_is_tensorwise", 0):
-                        cache_req += named_args["scale_a_ptr"].element_size()
-                    else:
-                        cache_req += group_size_m * block_size_m * named_args["scale_a_ptr"].element_size()
-                if named_args.get("scale_b_ptr") is not None:
-                    if named_args.get("scale_b_is_tensorwise", 0):
-                        cache_req += named_args["scale_b_ptr"].element_size()
-                    else:
-                        cache_req += block_size_n * named_args["scale_b_ptr"].element_size()
-                if named_args.get("bias_ptr") is not None:
-                    if named_args["bias_ndim"] == 1:
-                        cache_req += block_size_n * named_args["bias_ptr"].element_size()
-                    else:
-                        cache_req += group_size_m * block_size_m * block_size_n * named_args["bias_ptr"].element_size()
+                cache_req += group_size_m * block_size_m * named_args["scale_a_ptr"].element_size()
+        if named_args.get("scale_b_ptr") is not None:
+            if named_args.get("scale_b_is_tensorwise", 0):
+                cache_req += named_args["scale_b_ptr"].element_size()
             else:
-                cache_req = 0
+                cache_req += block_size_n * named_args["scale_b_ptr"].element_size()
+        if named_args.get("bias_ptr") is not None:
+            if named_args["bias_ndim"] == 1:
+                cache_req += block_size_n * named_args["bias_ptr"].element_size()
+            else:
+                cache_req += group_size_m * block_size_m * block_size_n * named_args["bias_ptr"].element_size()
 
-            smem_req += 4096
-            cache_req = int(cache_req * 2)
+        register_req = a_ptr_size + b_ptr_size
+        if named_args["use_fp16_accum"] and named_args["a_ptr"].dtype == torch.float16:
+            register_req += accumulator_size // 2
+            register_req += max((block_size_m * block_size_k * 4), (block_size_n * block_size_k * 4))
+        else:
+            register_req += accumulator_size
 
-            if (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
-                pruned_configs.append(config)
-            elif SDNQ_DEBUG_TRITON_AUTOTUNE:
-                logger.debug(f"SDNQ Triton MM: Pruned config cache_req={cache_req} smem_req={smem_req} config=({config.kwargs} num_warps={config.num_warps} num_stages={config.num_stages})")
+        if named_args.get("scale_a_ptr") is not None:
+            if named_args.get("scale_a_is_tensorwise", 0):
+                scale_a_size = 4
+            else:
+                scale_a_size = block_size_m * 4
+        else:
+            scale_a_size = 0
+        if named_args.get("scale_b_ptr") is not None:
+            if named_args.get("scale_b_is_tensorwise", 0):
+                scale_b_size = 4
+            else:
+                scale_b_size = block_size_n * 4
+        else:
+            scale_b_size = 0
+        if named_args.get("bias_ptr") is not None:
+            if named_args["bias_ndim"] == 1:
+                bias_size = block_size_n * 4
+            else:
+                bias_size = accumulator_size
+        else:
+            bias_size = 0
 
-        if pruned_configs:
-            configs = pruned_configs
-        elif not from_small:
+        final_register_req = accumulator_size + max(scale_a_size, scale_b_size, bias_size)
+        register_req = math.ceil(max(register_req, final_register_req) / 4) # 32 bit
+
+        num_warps, do_prune = get_num_warps(max(block_size_m, block_size_n, block_size_k), register_req=register_req, warp_props=warp_props, device=device, return_prune=True)
+        new_config = triton.Config(dict(config.kwargs), num_warps=num_warps, num_stages=config.num_stages)
+
+        if not do_prune and (cache_req <= cache_size or cache_size == 0) and (smem_req <= smem_size or smem_size == 0):
+            pruned_configs.append(new_config)
+        else:
+            if from_small:
+                updated_configs.append(new_config)
             if SDNQ_DEBUG_TRITON_AUTOTUNE:
-                logger.debug("SDNQ Triton MM: No configs fit in cache/smem, trying small configs.")
-            return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
+                logger.debug(f"SDNQ Triton MM: Pruned config cache_req={cache_req} smem_req={smem_req} register_req={register_req} config=({new_config.kwargs} num_warps={new_config.num_warps} num_stages={new_config.num_stages})")
+
+    if pruned_configs:
+        configs = pruned_configs
+    elif from_small:
+        configs = updated_configs
+    else:
+        if SDNQ_DEBUG_TRITON_AUTOTUNE:
+            logger.debug("SDNQ Triton MM: No configs fit in cache/smem, trying small configs.")
+        return prune_configs(small_autotune_configs, named_args, from_small=True, **kwargs)
     return configs
 
 
@@ -182,8 +217,10 @@ def sdnq_scaled_mm_kernel(
     tl.assume(use_tensor_descriptors == 0 or use_tensor_descriptors == 1) # pylint: disable=consider-using-in
 
     offs_k = tl.arange(0, BLOCK_SIZE_K)
-    offs_m = (off_m + tl.arange(0, BLOCK_SIZE_M)) % M
-    offs_n = (off_n + tl.arange(0, BLOCK_SIZE_N)) % N
+    offs_cm = off_m + tl.arange(0, BLOCK_SIZE_M)
+    offs_cn = off_n + tl.arange(0, BLOCK_SIZE_N)
+    offs_m = offs_cm % M
+    offs_n = offs_cn % N
 
     if use_tensor_descriptors:
         a_desc = tl.make_tensor_descriptor(base=a_ptr, shape=(M, K), strides=(K, 1), block_shape=(BLOCK_SIZE_M, BLOCK_SIZE_K))
@@ -228,8 +265,10 @@ def sdnq_scaled_mm_kernel(
             b = tl.mul(b.to(tl.float32), in_scale).to(tl.float16)
         accumulator = tl.dot(a, b, accumulator, out_dtype=accumulator_dtype)
         off_k += BLOCK_SIZE_K
+
+    accumulator = accumulator.to(tl.float32)
     if use_fp16_accum and a_ptr.type.element_ty == tl.float16:
-        accumulator = tl.mul(accumulator.to(tl.float32), fp16_scale)
+        accumulator = tl.mul(accumulator, fp16_scale)
 
     if scale_a_is_tensorwise:
         scale_a = tl.load(scale_a_ptr).to(tl.float32)
@@ -238,7 +277,8 @@ def sdnq_scaled_mm_kernel(
             scale_a_desc = tl.make_tensor_descriptor(base=scale_a_ptr, shape=(M,), strides=(1,), block_shape=(BLOCK_SIZE_M,))
             scale_a = scale_a_desc.load([off_m])[:, None].to(tl.float32)
         else:
-            scale_a = tl.load(scale_a_ptr + offs_m[:, None], mask=offs_m[:, None] < M, other=0.0).to(tl.float32)
+            scale_a = tl.load(scale_a_ptr + offs_cm[:, None], mask=offs_cm[:, None] < M, other=0.0).to(tl.float32)
+    accumulator = tl.mul(accumulator, scale_a)
 
     if scale_b_is_tensorwise:
         scale_b = tl.load(scale_b_ptr).to(tl.float32)
@@ -247,33 +287,31 @@ def sdnq_scaled_mm_kernel(
             scale_b_desc = tl.make_tensor_descriptor(base=scale_b_ptr, shape=(N,), strides=(1,), block_shape=(BLOCK_SIZE_N,))
             scale_b = scale_b_desc.load([off_n])[None, :].to(tl.float32)
         else:
-            scale_b = tl.load(scale_b_ptr + offs_n[None, :], mask=offs_n[None, :] < N, other=0.0).to(tl.float32)
+            scale_b = tl.load(scale_b_ptr + offs_cn[None, :], mask=offs_cn[None, :] < N, other=0.0).to(tl.float32)
 
     if bias_ndim == 1:
-        accumulator = tl.mul(accumulator.to(tl.float32), scale_a)
         if use_tensor_descriptors:
             bias_desc = tl.make_tensor_descriptor(base=bias_ptr, shape=(N,), strides=(1,), block_shape=(BLOCK_SIZE_N,))
             bias = bias_desc.load([off_n])[None, :].to(tl.float32)
         else:
-            bias = tl.load(bias_ptr + offs_n[None, :], mask=offs_n[None, :] < N, other=0.0).to(tl.float32)
+            bias = tl.load(bias_ptr + offs_cn[None, :], mask=offs_cn[None, :] < N, other=0.0).to(tl.float32)
         accumulator = tl.fma(accumulator, scale_b, bias)
     elif bias_ndim == 2:
-        accumulator = tl.mul(accumulator.to(tl.float32), scale_a)
         if use_tensor_descriptors:
             bias_desc = tl.make_tensor_descriptor(base=bias_ptr, shape=(M, N), strides=(N, 1), block_shape=(BLOCK_SIZE_M, BLOCK_SIZE_N))
             bias = bias_desc.load([off_m, off_n]).to(tl.float32)
         else:
-            bias = tl.load(bias_ptr + (offs_m[:, None] * N + offs_n[None, :]), mask=(offs_m[:, None] < M) & (offs_n[None, :] < N), other=0.0).to(tl.float32)
+            bias = tl.load(bias_ptr + (offs_cm[:, None] * N + offs_cn[None, :]), mask=(offs_cm[:, None] < M) & (offs_cn[None, :] < N), other=0.0).to(tl.float32)
         accumulator = tl.fma(accumulator, scale_b, bias)
     else:
-        accumulator = tl.mul(tl.mul(accumulator.to(tl.float32), scale_a), scale_b)
+        accumulator = tl.mul(accumulator, scale_b)
 
     accumulator = accumulator.to(c_ptr.type.element_ty)
     if use_tensor_descriptors:
         c_desc = tl.make_tensor_descriptor(base=c_ptr, shape=(M, N), strides=(N, 1), block_shape=(BLOCK_SIZE_M, BLOCK_SIZE_N))
         c_desc.store([off_m, off_n], accumulator)
     else:
-        tl.store(c_ptr + (offs_m[:, None] * N + offs_n[None, :]), accumulator, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))
+        tl.store(c_ptr + (offs_cm[:, None] * N + offs_cn[None, :]), accumulator, mask=(offs_cm[:, None] < M) & (offs_cn[None, :] < N))
 
 
 @triton_op("sdnq::scaled_mm", mutates_args={})

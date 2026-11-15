@@ -4,6 +4,7 @@ import torch
 from .common import (
     sdnq_keys,
     dtype_dict,
+    torch_device,
     common_skip_keys,
     module_skip_keys_dict,
     allowed_types,
@@ -14,6 +15,7 @@ from .common import (
 
 
 def is_pow2(n: int) -> bool:
+    assert n > 0 and isinstance(n, int), "n must be a positive integer"
     return (n & (n - 1)) == 0
 
 
@@ -25,6 +27,12 @@ def next_power_of_2(n: int) -> int:
     if is_pow2(n):
         return n
     return 2 ** n.bit_length()
+
+
+def prev_power_of_2(n: int) -> int:
+    if is_pow2(n):
+        return n
+    return 1 << (n.bit_length() - 1)
 
 
 def normalize_device(device: torch.device) -> torch.device:
@@ -76,6 +84,101 @@ def get_cache_sizes(device: torch.device) -> tuple[int, int]:
             cache_size = 0
             smem_size = get_smem_size(device_idx)
     return cache_size, smem_size
+
+
+def get_warp_props(device: torch.device) -> dict[str, int]:
+    device = torch.device(device)
+    device_idx = device.index if device.index is not None else 0
+
+    try:
+        import triton
+        triton_props = triton.runtime.driver.active.utils.get_device_properties(device_idx) or {}
+    except Exception:
+        triton_props = {}
+    try:
+        if device.type == "xpu":
+            torch_props = torch.xpu.get_device_properties(device_idx)
+        elif device.type == "cuda":
+            torch_props = torch.cuda.get_device_properties(device_idx)
+        else:
+            torch_props = None
+    except Exception:
+        torch_props = None
+
+    max_work_group_size = (
+        triton_props.get("max_work_group_size")
+        or getattr(torch_props, "max_work_group_size", None)
+        or getattr(torch_props, "max_threads_per_block", 0)
+        or 1024
+    )
+    max_threads_per_sm = (
+        triton_props.get("max_threads_per_sm")
+        or getattr(torch_props, "max_threads_per_multi_processor", 0)
+        or 1024
+    )
+    max_regs_per_sm = (
+        triton_props.get("max_num_regs")
+        or getattr(torch_props, "regs_per_multiprocessor", 0)
+        or (131072 if device.type == "xpu" else 65536)
+    )
+
+    if device.type == "xpu":
+        max_work_group_size = max_work_group_size // 2 # 256 GRF mode
+        sub_group_sizes = triton_props.get("sub_group_sizes") or getattr(torch_props, "sub_group_sizes", None) or (16, 32)
+        min_warp_size = min(sub_group_sizes)
+        warp_size = max(16, min_warp_size)
+    else:
+        warp_size = triton_props.get("warpSize") or getattr(torch_props, "warp_size", 0) or 32
+
+    max_warps = max_work_group_size // warp_size
+    if device.type == "xpu":
+        max_warps = min(max_warps, getattr(torch_props, "max_num_sub_groups", float("inf")))
+    else:
+        max_warps = min(max_warps, max_threads_per_sm // warp_size)
+
+    occupancy_factor = 4
+    max_warps = prev_power_of_2(max(1, max_warps))
+    min_warps = min(2, max_warps)
+    target_max_warps = min(max_warps, max(4, prev_power_of_2(max(1, max_threads_per_sm // warp_size // occupancy_factor))))
+
+    if device.type == "xpu":
+        register_threshold = 256 * min_warp_size
+    else:
+        register_threshold = 256 * warp_size
+
+    return {
+        "warp_size": warp_size,
+        "min_warps": min_warps,
+        "max_warps": max_warps,
+        "target_max_warps": target_max_warps,
+        "register_threshold": register_threshold,
+        "max_regs_per_sm": max_regs_per_sm,
+    }
+
+
+def get_num_warps(
+    block_size: int,
+    register_req: int = 0,
+    warp_props: dict[str, int] | None = None,
+    device: torch.device | None = None,
+    return_prune: bool = False,
+) -> int | tuple[int, bool]:
+    if warp_props is None:
+        warp_props = get_warp_props(device if device is not None else torch_device)
+    num_warps = max(
+        warp_props["min_warps"],
+        min(
+            warp_props["target_max_warps"],
+            next_power_of_2((max(block_size, warp_props["warp_size"]) + warp_props["warp_size"] - 1) // warp_props["warp_size"]),
+        ),
+    )
+    while num_warps < warp_props["max_warps"] and (register_req / num_warps) > warp_props["register_threshold"]:
+        num_warps *= 2
+    num_warps = max(warp_props["min_warps"], min(num_warps, warp_props["max_warps"]))
+    if return_prune:
+        do_prune = bool(register_req > warp_props["max_regs_per_sm"] or (register_req / num_warps) > warp_props["register_threshold"])
+        return num_warps, do_prune
+    return num_warps
 
 
 def get_module_from_name(module: torch.nn.Module, tensor_name: str) -> tuple[torch.nn.Module | torch.Tensor, str]:
