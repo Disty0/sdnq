@@ -107,7 +107,7 @@ def get_warp_props(device: torch.device, occupancy_factor: int = 4) -> dict[str,
 
     max_work_group_size = (
         triton_props.get("max_work_group_size")
-        or getattr(torch_props, "max_work_group_size", None)
+        or getattr(torch_props, "max_work_group_size", 0)
         or getattr(torch_props, "max_threads_per_block", 0)
         or 1024
     )
