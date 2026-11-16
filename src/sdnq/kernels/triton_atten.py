@@ -29,7 +29,7 @@ autotune_configs = [
 
 small_autotune_configs = [
     triton.Config({"BLOCK_SIZE_M": BM, "BLOCK_SIZE_N": BN, "GROUP_SIZE_M": GM}, num_warps=get_num_warps(max(BM, BN)), num_stages=s)
-    for BM in [32,64,128] for BN in [16,32,64] for GM in ([16,] if torch_backend in {"ipex", "xpu"} else [4,]) for s in ([2,4] if torch_backend == "cuda" else [1,2])
+    for BM in [16,32,64,128] for BN in [16,32,64] for GM in ([16,] if torch_backend in {"ipex", "xpu"} else [4,]) for s in ([2,4] if torch_backend == "cuda" else [1,2])
 ]
 
 
