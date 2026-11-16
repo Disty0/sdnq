@@ -72,66 +72,43 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
         khd = next_power_of_2(named_args["KHD"])
         vhd = next_power_of_2(named_args["VHD"])
 
-        register_req = block_size_m * qhd * named_args["q_ptr"].element_size()
-        register_req += block_size_n * khd * named_args["k_ptr"].element_size()
-        register_req += block_size_n * vhd * named_args["v_ptr"].element_size()
-        if named_args.get("do_ptr") is not None:
-            register_req += block_size_m * vhd * named_args["do_ptr"].element_size()
-
         smem_M = block_size_m * qhd * named_args["q_ptr"].element_size()
         if named_args.get("do_ptr") is not None:
             smem_M += block_size_m * vhd * named_args["do_ptr"].element_size()
         if named_args.get("q_scale_ptr") is not None:
             smem_M += block_size_m * named_args["q_scale_ptr"].element_size()
-            register_req += block_size_m * 4
         if named_args.get("do_scale_ptr") is not None:
             smem_M += block_size_m * named_args["do_scale_ptr"].element_size()
-            register_req += block_size_m * 4
-        if named_args.get("lse_ptr") is not None:
-            if named_args.get("save_lse", 0) or named_args.get("out_ptr") is None:
-                smem_M += block_size_m * named_args["lse_ptr"].element_size()
-            register_req += block_size_m * 4
-        if named_args.get("delta_ptr") is not None:
-            smem_M += block_size_m * named_args["delta_ptr"].element_size()
-            register_req += block_size_m * 4
         if named_args.get("block_count_ptr") is not None:
             smem_M += block_count_chunk * named_args["block_count_ptr"].element_size()
-            register_req += block_count_chunk * named_args["block_count_ptr"].element_size()
+        if named_args.get("delta_ptr") is not None:
+            smem_M += block_size_m * named_args["delta_ptr"].element_size()
+        if named_args.get("lse_ptr") is not None and (named_args.get("save_lse", 0) or named_args.get("out_ptr") is None):
+            smem_M += block_size_m * named_args["lse_ptr"].element_size()
 
         cache_M = smem_M
         if named_args.get("out_ptr") is not None:
             cache_M += block_size_m * vhd * named_args["out_ptr"].element_size()
-            register_req += block_size_m * vhd * 4
         if named_args.get("dq_ptr") is not None:
             cache_M += block_size_m * qhd * named_args["dq_ptr"].element_size()
-            register_req += block_size_m * qhd * 4
 
         smem_N = block_size_n * khd * named_args["k_ptr"].element_size()
         smem_N += block_size_n * vhd * named_args["v_ptr"].element_size()
-        if named_args.get("k_scale_ptr") is not None:
-            smem_N += block_size_n * named_args["k_scale_ptr"].element_size()
-            register_req += block_size_n * 4
-        if named_args.get("v_scale_ptr") is not None:
-            smem_N += block_size_n * named_args["v_scale_ptr"].element_size()
-            register_req += block_size_n * 4
         if named_args.get("block_index_ptr") is not None:
             smem_N += block_index_chunk * named_args["block_index_ptr"].element_size()
-            register_req += block_index_chunk * named_args["block_index_ptr"].element_size()
+        if named_args.get("k_scale_ptr") is not None:
+            smem_N += block_size_n * named_args["k_scale_ptr"].element_size()
+        if named_args.get("v_scale_ptr") is not None:
+            smem_N += block_size_n * named_args["v_scale_ptr"].element_size()
 
         cache_N = smem_N
         if named_args.get("dk_ptr") is not None:
             cache_N += block_size_n * khd * named_args["dk_ptr"].element_size()
-            register_req += block_size_n * khd * 4
         if named_args.get("dv_ptr") is not None:
             cache_N += block_size_n * vhd * named_args["dv_ptr"].element_size()
-            register_req += block_size_n * vhd * 4
 
         if named_args.get("mask_ptr") is not None:
             size_MN = block_size_m * block_size_n * named_args["mask_ptr"].element_size()
-            if named_args["mask_ptr"].dtype in {torch.int1, torch.int8}:
-                register_req += block_size_m * block_size_n
-            else:
-                register_req += block_size_m * block_size_n * 4
         else:
             size_MN = 0
         smem_MN = size_MN
@@ -144,9 +121,71 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             smem_req = smem_M + ((smem_N + smem_MN) * config.num_stages)
             cache_req = (cache_M * group_size_m) + ((cache_N + cache_MN) * config.num_stages)
 
-        register_req += 2 * (block_size_m * block_size_n * 4) # qk / p / ds
-        if not is_dkv_backward and not is_dq_backward:
+        q_register = block_size_m * qhd * named_args["q_ptr"].element_size()
+        k_register = block_size_n * khd * named_args["k_ptr"].element_size()
+        v_register = block_size_n * vhd * named_args["v_ptr"].element_size()
+        qk_register = block_size_m * block_size_n * 4
+
+        register_req = q_register + qk_register
+        if named_args.get("out_ptr") is not None:
+            register_req += block_size_m * vhd * 4
+        if named_args.get("dq_ptr") is not None:
+            register_req += block_size_m * qhd * 4
+        if named_args.get("dk_ptr") is not None:
+            register_req += block_size_n * khd * 4
+        if named_args.get("dv_ptr") is not None:
+            register_req += block_size_n * vhd * 4
+        if named_args.get("do_ptr") is not None:
+            register_req += block_size_m * vhd * named_args["do_ptr"].element_size()
+        if named_args.get("do_scale_ptr") is not None:
+            register_req += block_size_m * 4
+        if named_args.get("q_scale_ptr") is not None:
+            q_scale_register = block_size_m * 4
+            if is_dkv_backward:
+                register_req += max(q_scale_register, (block_size_n * 4)) # ds_scale
+            else:
+                register_req += q_scale_register
+
+        if is_dkv_backward:
+            if named_args.get("delta_ptr") is not None or named_args.get("lse_ptr") is not None:
+                register_req += block_size_m * 4
+        else:
+            if named_args.get("lse_ptr") is not None:
+                register_req += block_size_m * 4
+            if named_args.get("delta_ptr") is not None:
+                register_req += block_size_m * 4
+
+        if named_args.get("k_scale_ptr") is not None:
+            if is_dq_backward:
+                k_scale_register = max((block_size_n * 4), (block_size_m * 4)) # ds_scale
+            else:
+                k_scale_register = block_size_n * 4
+        else:
+            k_scale_register = 0
+        if named_args.get("v_scale_ptr") is not None:
+            # v_scale, p_scale
+            if is_dkv_backward:
+                v_scale_register = 2 * (block_size_n * 4)
+            else:
+                v_scale_register = max((block_size_n * 4), (block_size_m * 4))
+        else:
+            v_scale_register = 0
+
+        if named_args.get("mask_ptr") is not None:
+            if named_args["mask_ptr"].is_floating_point():
+                mask_register = block_size_m * block_size_n * 4
+            else:
+                mask_register = block_size_m * block_size_n
+        else:
+            mask_register = 0
+
+        if is_dkv_backward or is_dq_backward:
+            register_req += k_register + v_register + k_scale_register + v_scale_register
+            register_req += max(mask_register, qk_register) # ds
+        else:
             register_req += 2 * block_size_m * 4 # m_i, l_i
+            register_req += max(k_register, v_register) + max(k_scale_register, v_scale_register)
+            register_req += max(mask_register, (3 * block_size_m * 4)) # alpha, m_ij, qk_max / p_sum
         register_req = math.ceil(register_req / 4) # 32 bit
 
         num_warps, do_prune = get_num_warps(max(block_size_m, block_size_n), register_req=register_req, warp_props=warp_props, device=device, return_prune=True)
@@ -330,7 +369,7 @@ def sdnq_attn_kernel(
             k_scale_desc = tl.make_tensor_descriptor(k_scale_ptr + offset_k, shape=[KN], strides=[1,], block_shape=[BLOCK_SIZE_N])
             q_scale = q_scale_desc.load([start_m_block])[:, None].to(tl.float32)
         if pv_is_quantized:
-            v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr+ offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
+            v_scale_desc = tl.make_tensor_descriptor(v_scale_ptr + offset_v, shape=[VN], strides=[1,], block_shape=[BLOCK_SIZE_N])
     else:
         if qk_is_quantized:
             q_scale = tl.load(q_scale_ptr + offset_q + offs_m[:, None], mask=offs_m[:, None] < QN, other=0.0).to(tl.float32)
@@ -523,8 +562,8 @@ def sdnq_attn_kernel(
             l_i = tl.where(l_i == float("inf"), 0.0, l_i)
         l_i = l_i.to(out_ptr.type.element_ty)
         if use_tensor_descriptors_for_scales:
-            l_desc = tl.make_tensor_descriptor(lse_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
-            l_desc.store([start_m_block], l_i)
+            lse_desc = tl.make_tensor_descriptor(lse_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
+            lse_desc.store([start_m_block], l_i)
         else:
             tl.store(lse_ptr + offset_q + offs_m, l_i, mask=offs_m < QN)
 
