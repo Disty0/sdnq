@@ -86,7 +86,7 @@ def get_cache_sizes(device: torch.device) -> tuple[int, int]:
     return cache_size, smem_size
 
 
-def get_warp_props(device: torch.device) -> dict[str, int]:
+def get_warp_props(device: torch.device, occupancy_factor: int = 4) -> dict[str, int]:
     device = torch.device(device)
     device_idx = device.index if device.index is not None else 0
 
@@ -124,27 +124,21 @@ def get_warp_props(device: torch.device) -> dict[str, int]:
 
     if device.type == "xpu":
         max_work_group_size = max_work_group_size // 2 # 256 GRF mode
-        sub_group_sizes = triton_props.get("sub_group_sizes") or getattr(torch_props, "sub_group_sizes", None) or (16, 32)
-        min_warp_size = min(sub_group_sizes)
-        warp_size = max(16, min_warp_size)
+        warp_size = min(triton_props.get("sub_group_sizes") or getattr(torch_props, "sub_group_sizes", None) or (16, 32))
     else:
         warp_size = triton_props.get("warpSize") or getattr(torch_props, "warp_size", 0) or 32
 
     max_warps = max_work_group_size // warp_size
+
     if device.type == "xpu":
         max_warps = min(max_warps, getattr(torch_props, "max_num_sub_groups", float("inf")))
     else:
         max_warps = min(max_warps, max_threads_per_sm // warp_size)
 
-    occupancy_factor = 4
     max_warps = prev_power_of_2(max(1, max_warps))
     min_warps = min(2, max_warps)
     target_max_warps = min(max_warps, max(4, prev_power_of_2(max(1, max_threads_per_sm // warp_size // occupancy_factor))))
-
-    if device.type == "xpu":
-        register_threshold = 256 * min_warp_size
-    else:
-        register_threshold = 256 * warp_size
+    register_threshold = 256 * warp_size
 
     return {
         "warp_size": warp_size,
