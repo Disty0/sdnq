@@ -61,6 +61,10 @@ def sdnq_attn_bwd_dq_kernel(
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
     MZ: tl.constexpr, MH: tl.constexpr, MQN: tl.constexpr, MKN: tl.constexpr,
+    stride_qz: tl.constexpr, stride_qh: tl.constexpr, stride_qn: tl.constexpr, stride_qhd: tl.constexpr,
+    stride_kz: tl.constexpr, stride_kh: tl.constexpr, stride_kn: tl.constexpr, stride_khd: tl.constexpr,
+    stride_vz: tl.constexpr, stride_vh: tl.constexpr, stride_vn: tl.constexpr, stride_vhd: tl.constexpr,
+    stride_doz: tl.constexpr, stride_doh: tl.constexpr, stride_don: tl.constexpr, stride_dohd: tl.constexpr,
     BLOCK_MASK_M: tl.constexpr,
     BLOCK_MASK_N: tl.constexpr,
     BLOCK_COUNT_CHUNK: tl.constexpr,
@@ -148,12 +152,16 @@ def sdnq_attn_bwd_dq_kernel(
     offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
     offset_k = off_z_64 * (KN * KH) + ((off_h_64 * KH) // QH) * KN
     offset_v = off_z_64 * (VN * VH) + ((off_h_64 * VH) // QH) * VN
+    offset_q_ptr = off_z_64 * stride_qz + off_h_64 * stride_qh
+    offset_k_ptr = off_z_64 * stride_kz + ((off_h_64 * KH) // QH) * stride_kh
+    offset_v_ptr = off_z_64 * stride_vz + ((off_h_64 * VH) // QH) * stride_vh
+    offset_do_ptr = off_z_64 * stride_doz + off_h_64 * stride_doh
 
     if use_tensor_descriptors:
-        q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(QHD)])
-        k_desc = tl.make_tensor_descriptor(k_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(KHD)])
-        v_desc = tl.make_tensor_descriptor(v_ptr + offset_v * VHD, shape=[VN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(VHD)])
-        do_desc = tl.make_tensor_descriptor(do_ptr + offset_q * VHD, shape=[QN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(VHD)])
+        q_desc = tl.make_tensor_descriptor(q_ptr + offset_q_ptr, shape=[QN, QHD], strides=[stride_qn, stride_qhd], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(QHD)])
+        k_desc = tl.make_tensor_descriptor(k_ptr + offset_k_ptr, shape=[KN, KHD], strides=[stride_kn, stride_khd], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(KHD)])
+        v_desc = tl.make_tensor_descriptor(v_ptr + offset_v_ptr, shape=[VN, VHD], strides=[stride_vn, stride_vhd], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(VHD)])
+        do_desc = tl.make_tensor_descriptor(do_ptr + offset_do_ptr, shape=[QN, VHD], strides=[stride_don, stride_dohd], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(VHD)])
     else:
         offs_qhd = tl.arange(0, triton.next_power_of_2(QHD))
         offs_khd = tl.arange(0, triton.next_power_of_2(KHD))
@@ -214,8 +222,8 @@ def sdnq_attn_bwd_dq_kernel(
         q = q_desc.load([start_m_block, 0])
         do = do_desc.load([start_m_block, 0])
     else:
-        q = tl.load(q_ptr + offset_q * QHD + offs_m[:, None] * QHD + offs_qhd[None, :], mask=(offs_m[:, None] < QN) & (offs_qhd[None, :] < QHD), other=0.0 if q_ptr.type.element_ty != tl.int8 else 0)
-        do = tl.load(do_ptr + offset_q * VHD + offs_m[:, None] * VHD + offs_vhd[None, :], mask=(offs_m[:, None] < QN) & (offs_vhd[None, :] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
+        q = tl.load(q_ptr + offset_q_ptr + (offs_m[:, None] * stride_qn) + (offs_qhd[None, :] * stride_qhd), mask=(offs_m[:, None] < QN) & (offs_qhd[None, :] < QHD), other=0.0 if q_ptr.type.element_ty != tl.int8 else 0)
+        do = tl.load(do_ptr + offset_do_ptr + (offs_m[:, None] * stride_don) + (offs_vhd[None, :] * stride_dohd), mask=(offs_m[:, None] < QN) & (offs_vhd[None, :] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
 
     if use_tensor_descriptors_for_scales:
         lse = lse_desc.load([start_m_block])[:, None].to(tl.float32)
@@ -282,7 +290,7 @@ def sdnq_attn_bwd_dq_kernel(
                 if use_tensor_descriptors:
                     k = k_desc.load([start_n, 0])
                 else:
-                    k = tl.load(k_ptr + offset_k * KHD + offs_n[:, None] * KHD + offs_khd[None, :], mask=(offs_n[:, None] < KN) & (offs_khd[None, :] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
+                    k = tl.load(k_ptr + offset_k_ptr + (offs_n[:, None] * stride_kn) + (offs_khd[None, :] * stride_khd), mask=(offs_n[:, None] < KN) & (offs_khd[None, :] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
                 if qk_is_quantized:
                     if use_tensor_descriptors_for_scales:
                         k_scale = k_scale_desc.load([start_n])[None, :].to(tl.float32)
@@ -314,7 +322,7 @@ def sdnq_attn_bwd_dq_kernel(
                 if use_tensor_descriptors:
                     v = v_desc.load([start_n, 0]).T
                 else:
-                    v = tl.load(v_ptr + offset_v * VHD + offs_n[None, :] * VHD + offs_vhd[:, None], mask=(offs_n[None, :] < VN) & (offs_vhd[:, None] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
+                    v = tl.load(v_ptr + offset_v_ptr + (offs_n[None, :] * stride_vn) + (offs_vhd[:, None] * stride_vhd), mask=(offs_n[None, :] < VN) & (offs_vhd[:, None] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
                 if pv_is_quantized:
                     if use_tensor_descriptors_for_scales:
                         v_scale = v_scale_desc.load([start_n])[None, :].to(tl.float32)
@@ -407,6 +415,10 @@ def sdnq_attn_bwd_dkv_kernel(
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
     MZ: tl.constexpr, MH: tl.constexpr, MQN: tl.constexpr, MKN: tl.constexpr,
+    stride_qz: tl.constexpr, stride_qh: tl.constexpr, stride_qn: tl.constexpr, stride_qhd: tl.constexpr,
+    stride_kz: tl.constexpr, stride_kh: tl.constexpr, stride_kn: tl.constexpr, stride_khd: tl.constexpr,
+    stride_vz: tl.constexpr, stride_vh: tl.constexpr, stride_vn: tl.constexpr, stride_vhd: tl.constexpr,
+    stride_doz: tl.constexpr, stride_doh: tl.constexpr, stride_don: tl.constexpr, stride_dohd: tl.constexpr,
     BLOCK_MASK_M: tl.constexpr,
     BLOCK_MASK_N: tl.constexpr,
     BLOCK_COUNT_CHUNK: tl.constexpr,
@@ -490,10 +502,12 @@ def sdnq_attn_bwd_dkv_kernel(
     off_z_64 = off_z.to(tl.int64)
     offset_k = off_z_64 * (KN * KH) + off_h_k_64 * KN
     offset_v = off_z_64 * (VN * VH) + off_h_k_64 * VN
+    offset_k_ptr = off_z_64 * stride_kz + ((off_h_k_64 * KH) // QH) * stride_kh
+    offset_v_ptr = off_z_64 * stride_vz + ((off_h_k_64 * VH) // QH) * stride_vh
 
     if use_tensor_descriptors:
-        k_desc = tl.make_tensor_descriptor(k_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(KHD)])
-        v_desc = tl.make_tensor_descriptor(v_ptr + offset_v * VHD, shape=[VN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(VHD)])
+        k_desc = tl.make_tensor_descriptor(k_ptr + offset_k_ptr, shape=[KN, KHD], strides=[stride_kn, stride_khd], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(KHD)])
+        v_desc = tl.make_tensor_descriptor(v_ptr + offset_v_ptr, shape=[VN, VHD], strides=[stride_vn, stride_vhd], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(VHD)])
     else:
         offs_qhd = tl.arange(0, triton.next_power_of_2(QHD))
         offs_khd = tl.arange(0, triton.next_power_of_2(KHD))
@@ -516,8 +530,8 @@ def sdnq_attn_bwd_dkv_kernel(
         k = k_desc.load([start_n_block, 0]).T
         v = v_desc.load([start_n_block, 0]).T
     else:
-        k = tl.load(k_ptr + offset_k * KHD + offs_n[None, :] * KHD + offs_khd[:, None], mask=(offs_n[None, :] < KN) & (offs_khd[:, None] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
-        v = tl.load(v_ptr + offset_v * VHD + offs_n[None, :] * VHD + offs_vhd[:, None], mask=(offs_n[None, :] < VN) & (offs_vhd[:, None] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
+        k = tl.load(k_ptr + offset_k_ptr + (offs_n[None, :] * stride_kn) + (offs_khd[:, None] * stride_khd), mask=(offs_n[None, :] < KN) & (offs_khd[:, None] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
+        v = tl.load(v_ptr + offset_v_ptr + (offs_n[None, :] * stride_vn) + (offs_vhd[:, None] * stride_vhd), mask=(offs_n[None, :] < VN) & (offs_vhd[:, None] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
 
     if do_grad_k:
         dk_t = tl.zeros([triton.next_power_of_2(KHD), BLOCK_SIZE_N], dtype=tl.float32)
@@ -543,10 +557,12 @@ def sdnq_attn_bwd_dkv_kernel(
     for qh_idx in tl.range(0, qh_ratio):
         off_h_64 = off_h_k * qh_ratio + qh_idx
         offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
+        offset_q_ptr = off_z_64 * stride_qz + off_h_64 * stride_qh
+        offset_do_ptr = off_z_64 * stride_doz + off_h_64 * stride_doh
 
         if use_tensor_descriptors:
-            q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(QHD)])
-            do_desc = tl.make_tensor_descriptor(do_ptr + offset_q * VHD, shape=[QN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(VHD)])
+            q_desc = tl.make_tensor_descriptor(q_ptr + offset_q_ptr, shape=[QN, QHD], strides=[stride_qn, stride_qhd], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(QHD)])
+            do_desc = tl.make_tensor_descriptor(do_ptr + offset_do_ptr, shape=[QN, VHD], strides=[stride_don, stride_dohd], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(VHD)])
 
         if use_tensor_descriptors_for_scales:
             lse_desc = tl.make_tensor_descriptor(lse_ptr + offset_q, shape=[QN], strides=[1,], block_shape=[BLOCK_SIZE_M])
@@ -641,7 +657,7 @@ def sdnq_attn_bwd_dkv_kernel(
                 if use_tensor_descriptors:
                     q = q_desc.load([start_m, 0])
                 else:
-                    q = tl.load(q_ptr + offset_q * QHD + offs_m[:, None] * QHD + offs_qhd[None, :], mask=(offs_m[:, None] < QN) & (offs_qhd[None, :] < QHD), other=0.0 if q_ptr.type.element_ty != tl.int8 else 0)
+                    q = tl.load(q_ptr + offset_q_ptr + (offs_m[:, None] * stride_qn) + (offs_qhd[None, :] * stride_qhd), mask=(offs_m[:, None] < QN) & (offs_qhd[None, :] < QHD), other=0.0 if q_ptr.type.element_ty != tl.int8 else 0)
                 if qk_is_quantized:
                     if use_tensor_descriptors_for_scales:
                         q_scale = q_scale_desc.load([start_m])[:, None].to(tl.float32)
@@ -678,7 +694,7 @@ def sdnq_attn_bwd_dkv_kernel(
                 if use_tensor_descriptors:
                     do = do_desc.load([start_m, 0])
                 else:
-                    do = tl.load(do_ptr + offset_q * VHD + offs_m[:, None] * VHD + offs_vhd[None, :], mask=(offs_m[:, None] < QN) & (offs_vhd[None, :] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
+                    do = tl.load(do_ptr + offset_do_ptr + (offs_m[:, None] * stride_don) + (offs_vhd[None, :] * stride_dohd), mask=(offs_m[:, None] < QN) & (offs_vhd[None, :] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
 
                 if pv_is_quantized:
                     if use_tensor_descriptors_for_scales:
@@ -817,7 +833,7 @@ def sdnq_triton_atten_bwd_dq(
         block_mask_m = block_mask_n = 0
     def grid_dq(META):
         return (triton.cdiv(QN, META["BLOCK_SIZE_M"]) * QH, QZ)
-    dq = torch.empty_like(query, dtype=out_dtype)
+    dq = torch.empty(query.shape, device=query.device, dtype=out_dtype)
     wrap_triton(sdnq_attn_bwd_dq_kernel)[grid_dq](
         query, key, value, grad_output,
         query_scale, key_scale, value_scale, grad_output_scale,
@@ -831,6 +847,7 @@ def sdnq_triton_atten_bwd_dq(
         (1 if use_tensor_descriptors_for_masks else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
+        *query.stride(), *key.stride(), *value.stride(), *grad_output.stride(),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
         (1 if query_scale is not None else 0),
@@ -895,8 +912,8 @@ def sdnq_atten_bwd_dkv(
         block_mask_m = block_mask_n = 0
     def grid_dkv(META):
         return (triton.cdiv(KN, META["BLOCK_SIZE_N"]) * KH, QZ)
-    dk = torch.empty_like(key, dtype=out_dtype) if do_grad_k else None
-    dv = torch.empty_like(value, dtype=out_dtype) if do_grad_v else None
+    dk = torch.empty(key.shape, device=key.device, dtype=out_dtype) if do_grad_k else None
+    dv = torch.empty(value.shape, device=value.device, dtype=out_dtype) if do_grad_v else None
     wrap_triton(sdnq_attn_bwd_dkv_kernel)[grid_dkv](
         query, key, value, grad_output,
         query_scale, key_scale, value_scale, grad_output_scale,
@@ -912,6 +929,7 @@ def sdnq_atten_bwd_dkv(
         (1 if use_tensor_descriptors_for_masks else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
+        *query.stride(), *key.stride(), *value.stride(), *grad_output.stride(),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
         (1 if query_scale is not None else 0),
@@ -1090,11 +1108,10 @@ def get_attn_backward_inputs(
     pv_matmul_dtype: str | None = None,
     quantize_fp32: bool = True,
     quantize_pv: bool = True,
-) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor]:
-    out = out.contiguous()
-    grad_output = grad_output.contiguous()
-    delta = torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32)
+) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
+    delta = torch.sum(torch.mul(out, grad_output), dim=-1, dtype=torch.float32).contiguous()
     if quantize_pv:
+        grad_output = grad_output.contiguous()
         if pv_matmul_dtype in {"enabled", "uint8"}:
             pv_matmul_dtype = "int8"
         if hadamard_pv is not None:
@@ -1106,7 +1123,9 @@ def get_attn_backward_inputs(
         grad_output_scale = grad_output_scale.squeeze(-1)
     else:
         grad_output_scale = None
-    return grad_output, grad_output_scale, out, delta
+        if grad_output.stride(-1) != 1:
+            grad_output = grad_output.contiguous()
+    return grad_output, grad_output_scale, delta
 
 
 @inference_context()
@@ -1166,7 +1185,8 @@ def sdnq_triton_atten_bwd(
     else:
         hadamard_pv = None
 
-    grad_output, grad_output_scale, out, delta = get_attn_backward_inputs(
+    lse = lse.contiguous()
+    grad_output, grad_output_scale, delta = get_attn_backward_inputs(
         grad_output, out,
         hadamard_pv=hadamard_pv, pv_matmul_dtype=pv_matmul_dtype,
         quantize_fp32=quantize_fp32, quantize_pv=quantize_pv,

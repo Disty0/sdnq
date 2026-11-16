@@ -220,6 +220,9 @@ def sdnq_attn_kernel(
     KZ: tl.constexpr, KH: tl.constexpr, KN: tl.constexpr, KHD: tl.constexpr,
     VZ: tl.constexpr, VH: tl.constexpr, VN: tl.constexpr, VHD: tl.constexpr,
     MZ: tl.constexpr, MH: tl.constexpr, MQN: tl.constexpr, MKN: tl.constexpr,
+    stride_qz: tl.constexpr, stride_qh: tl.constexpr, stride_qn: tl.constexpr, stride_qhd: tl.constexpr,
+    stride_kz: tl.constexpr, stride_kh: tl.constexpr, stride_kn: tl.constexpr, stride_khd: tl.constexpr,
+    stride_vz: tl.constexpr, stride_vh: tl.constexpr, stride_vn: tl.constexpr, stride_vhd: tl.constexpr,
     BLOCK_MASK_M: tl.constexpr,
     BLOCK_MASK_N: tl.constexpr,
     BLOCK_COUNT_CHUNK: tl.constexpr,
@@ -302,6 +305,9 @@ def sdnq_attn_kernel(
     offset_q = off_z_64 * (QN * QH) + off_h_64 * QN
     offset_k = off_z_64 * (KN * KH) + ((off_h_64 * KH) // QH) * KN
     offset_v = off_z_64 * (VN * VH) + ((off_h_64 * VH) // QH) * VN
+    offset_q_ptr = off_z_64 * stride_qz + off_h_64 * stride_qh
+    offset_k_ptr = off_z_64 * stride_kz + ((off_h_64 * KH) // QH) * stride_kh
+    offset_v_ptr = off_z_64 * stride_vz + ((off_h_64 * VH) // QH) * stride_vh
 
     if do_block_mask:
         # a ragged last mask block puts whole sub tiles past KN, which the tail rule has to cover even when the tile divides KN
@@ -310,9 +316,9 @@ def sdnq_attn_kernel(
         do_k_mask = KN % BLOCK_SIZE_N != 0
 
     if use_tensor_descriptors:
-        q_desc = tl.make_tensor_descriptor(q_ptr + offset_q * QHD, shape=[QN, QHD], strides=[QHD, 1], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(QHD)])
-        k_desc = tl.make_tensor_descriptor(k_ptr + offset_k * KHD, shape=[KN, KHD], strides=[KHD, 1], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(KHD)])
-        v_desc = tl.make_tensor_descriptor(v_ptr + offset_v * VHD, shape=[VN, VHD], strides=[VHD, 1], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(VHD)])
+        q_desc = tl.make_tensor_descriptor(q_ptr + offset_q_ptr, shape=[QN, QHD], strides=[stride_qn, stride_qhd], block_shape=[BLOCK_SIZE_M, triton.next_power_of_2(QHD)])
+        k_desc = tl.make_tensor_descriptor(k_ptr + offset_k_ptr, shape=[KN, KHD], strides=[stride_kn, stride_khd], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(KHD)])
+        v_desc = tl.make_tensor_descriptor(v_ptr + offset_v_ptr, shape=[VN, VHD], strides=[stride_vn, stride_vhd], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(VHD)])
     else:
         offs_qhd = tl.arange(0, triton.next_power_of_2(QHD))
         offs_khd = tl.arange(0, triton.next_power_of_2(KHD))
@@ -370,7 +376,7 @@ def sdnq_attn_kernel(
     if use_tensor_descriptors:
         q = q_desc.load([start_m_block, 0])
     else:
-        q = tl.load(q_ptr + offset_q * QHD + offs_m[:, None] * QHD + offs_qhd[None, :], mask=(offs_m[:, None] < QN) & (offs_qhd[None, :] < QHD), other=0.0 if q_ptr.type.element_ty != tl.int8 else 0)
+        q = tl.load(q_ptr + offset_q_ptr + (offs_m[:, None] * stride_qn) + (offs_qhd[None, :] * stride_qhd), mask=(offs_m[:, None] < QN) & (offs_qhd[None, :] < QHD), other=0.0 if q_ptr.type.element_ty != tl.int8 else 0)
 
     m_i = tl.full([BLOCK_SIZE_M], float("-inf"), dtype=tl.float32)
     l_i = tl.full([BLOCK_SIZE_M], 1.0, dtype=tl.float32)
@@ -431,7 +437,7 @@ def sdnq_attn_kernel(
                 if use_tensor_descriptors:
                     k = k_desc.load([start_n, 0]).T
                 else:
-                    k = tl.load(k_ptr + offset_k * KHD + offs_n[None, :] * KHD + offs_khd[:, None], mask=(offs_n[None, :] < KN) & (offs_khd[:, None] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
+                    k = tl.load(k_ptr + offset_k_ptr + (offs_n[None, :] * stride_kn) + (offs_khd[:, None] * stride_khd), mask=(offs_n[None, :] < KN) & (offs_khd[:, None] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
                 if qk_is_quantized:
                     if use_tensor_descriptors_for_scales:
                         k_scale = k_scale_desc.load([start_n])[None, :].to(tl.float32)
@@ -472,7 +478,7 @@ def sdnq_attn_kernel(
                 if use_tensor_descriptors:
                     v = v_desc.load([start_n, 0])
                 else:
-                    v = tl.load(v_ptr + offset_v * VHD + offs_n[:, None] * VHD + offs_vhd[None, :], mask=(offs_n[:, None] < VN) & (offs_vhd[None, :] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
+                    v = tl.load(v_ptr + offset_v_ptr + (offs_n[:, None] * stride_vn) + (offs_vhd[None, :] * stride_vhd), mask=(offs_n[:, None] < VN) & (offs_vhd[None, :] < VHD), other=0.0 if v_ptr.type.element_ty != tl.int8 else 0)
                 if pv_is_quantized:
                     if use_tensor_descriptors_for_scales:
                         v_scale = v_scale_desc.load([start_n])[None, :].to(tl.float32)
@@ -580,6 +586,7 @@ def sdnq_atten_fwd(
         (1 if use_tensor_descriptors_for_masks else 0),
         *query.shape, *key.shape, *value.shape,
         *(attn_mask.shape if attn_mask is not None else (0, 0, 0, 0)),
+        *query.stride(), *key.stride(), *value.stride(),
         block_mask_m, block_mask_n, block_count_chunk, block_index_chunk,
         *(block_count.shape[:2] if block_count is not None else (0, 0)),
         (1 if query_scale is not None else 0),
@@ -873,8 +880,10 @@ def get_attn_inputs(
         )
     else:
         query_scale = key_scale = None
-        query = query.contiguous()
-        key = key.contiguous()
+        if query.stride(-1) != 1:
+            query = query.contiguous()
+        if key.stride(-1) != 1:
+            key = key.contiguous()
 
     if quantize_pv:
         value, value_scale = quantize_pv_mm(
@@ -886,7 +895,8 @@ def get_attn_inputs(
         )
     else:
         value_scale = None
-        value = value.contiguous()
+        if value.stride(-1) != 1:
+            value = value.contiguous()
 
     return (
         query, key, value, query_scale, key_scale, value_scale,
