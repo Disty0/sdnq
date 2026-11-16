@@ -796,15 +796,12 @@ def quantize_pv_mm(
 
 
 @inference_context()
-def sdnq_triton_atten(
+def get_attn_inputs(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
     attn_mask: torch.Tensor | None = None,
-    dropout_p: float = 0.0, # pylint: disable=unused-argument
-    is_causal: bool = False,
     scale: float | None = None,
-    enable_gqa: bool = False, # pylint: disable=unused-argument
     smooth_k: bool = True,
     use_hadamard: bool = False,
     hadamard_group_size: int = 256,
@@ -812,17 +809,16 @@ def sdnq_triton_atten(
     pv_matmul_dtype: str | None = None,
     do_quantize: bool = True,
     quantize_fp32: bool = True,
-    use_fp16_accum: bool = False,
-    use_tensor_descriptors: bool | None = None,
     out_dtype: torch.dtype | None = None,
-    return_backward: bool = False,
     block_mask: torch.Tensor | None = None,
-    block_mask_m: int = 0,
-    block_mask_n: int = 0,
-) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, float, bool, int]:
+) -> tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor,
+    torch.Tensor | None, torch.Tensor | None, torch.Tensor | None,
+    torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None,
+    float, torch.dtype, bool, int, bool, int,
+]:
     QHD = query.shape[-1]
     VHD = value.shape[-1]
-
     if scale is None:
         scale = QHD ** -0.5
     if out_dtype is None:
@@ -891,6 +887,51 @@ def sdnq_triton_atten(
     else:
         value_scale = None
         value = value.contiguous()
+
+    return (
+        query, key, value, query_scale, key_scale, value_scale,
+        attn_mask, block_mask, block_count, block_index, hadamard_pv, scale, out_dtype,
+        use_hadamard_qk, hadamard_group_size_qk, use_hadamard_pv, hadamard_group_size_pv,
+    )
+
+
+@inference_context()
+def sdnq_triton_atten(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    attn_mask: torch.Tensor | None = None,
+    dropout_p: float = 0.0, # pylint: disable=unused-argument
+    is_causal: bool = False,
+    scale: float | None = None,
+    enable_gqa: bool = False, # pylint: disable=unused-argument
+    smooth_k: bool = True,
+    use_hadamard: bool = False,
+    hadamard_group_size: int = 256,
+    matmul_dtype: str = "int8",
+    pv_matmul_dtype: str | None = None,
+    do_quantize: bool = True,
+    quantize_fp32: bool = True,
+    use_fp16_accum: bool = False,
+    use_tensor_descriptors: bool | None = None,
+    out_dtype: torch.dtype | None = None,
+    return_backward: bool = False,
+    block_mask: torch.Tensor | None = None,
+    block_mask_m: int = 0,
+    block_mask_n: int = 0,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, torch.Tensor | None, float, bool, int]:
+    (
+        query, key, value, query_scale, key_scale, value_scale,
+        attn_mask, block_mask, block_count, block_index, hadamard_pv, scale, out_dtype,
+        use_hadamard_qk, hadamard_group_size_qk, use_hadamard_pv, hadamard_group_size_pv,
+    ) = get_attn_inputs(
+        query, key, value,
+        attn_mask=attn_mask, scale=scale, smooth_k=smooth_k,
+        use_hadamard=use_hadamard, hadamard_group_size=hadamard_group_size,
+        matmul_dtype=matmul_dtype, pv_matmul_dtype=pv_matmul_dtype,
+        do_quantize=do_quantize, quantize_fp32=quantize_fp32,
+        out_dtype=out_dtype, block_mask=block_mask,
+    )
 
     if return_backward:
         out, lse = sdnq_triton_atten_lse_fwd(
