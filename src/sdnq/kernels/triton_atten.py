@@ -546,8 +546,8 @@ def sdnq_attn_kernel(
                         p = tl.mul(p, tl.fdiv(1.0, p_scale)).to(v.dtype)
                         if use_fp16_accum and v.dtype == tl.float16:
                             p_scale *= fp16_scale_pv # pylint: disable=used-before-assignment,possibly-used-before-assignment
-                            v = tl.mul(v.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
                             p = tl.mul(p.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                            v = tl.mul(v.to(tl.float32), in_scale_pv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
                             acc = tl.fma(tl.dot(p, v, out_dtype=tl.float16).to(tl.float32), p_scale, acc)
                         else:
                             acc = tl.fma(tl.dot(p, v, out_dtype=tl.float32), p_scale, acc)

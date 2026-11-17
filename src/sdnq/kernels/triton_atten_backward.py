@@ -300,8 +300,8 @@ def sdnq_attn_bwd_dq_kernel(
                     if q.dtype == tl.int8:
                         qk = tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale) #pylint: disable=used-before-assignment,possibly-used-before-assignment
                     elif use_fp16_accum and q.dtype == tl.float16:
-                        k_T = tl.mul(k.T.to(tl.float32), in_scale_qk).to(tl.float16)
-                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k_T, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk) #pylint: disable=used-before-assignment,possibly-used-before-assignment
+                        k_qk = tl.mul(k.to(tl.float32), in_scale_qk).to(tl.float16)
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k_qk.T, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk) #pylint: disable=used-before-assignment,possibly-used-before-assignment
                     else:
                         qk = tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.float32), q_scale), k_scale)
                 else:
@@ -736,9 +736,9 @@ def sdnq_attn_bwd_dkv_kernel(
                             ds = tl.mul(ds, tl.fdiv(1.0, ds_scale)).to(q.dtype)
                             if use_fp16_accum and q.dtype == tl.float16:
                                 ds_scale *= fp16_scale_dk # pylint: disable=used-before-assignment,possibly-used-before-assignment
-                                q_T = tl.mul(q.T.to(tl.float32), in_scale_dk).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
                                 ds = tl.mul(ds.to(tl.float32), in_scale_dk).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
-                                dk_t = tl.fma(tl.dot(q_T, ds, out_dtype=tl.float16).to(tl.float32), ds_scale, dk_t)
+                                q_dk = tl.mul(q.to(tl.float32), in_scale_dk).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                                dk_t = tl.fma(tl.dot(q_dk.T, ds, out_dtype=tl.float16).to(tl.float32), ds_scale, dk_t)
                             else:
                                 dk_t = tl.fma(tl.dot(q.T, ds, out_dtype=tl.float32), ds_scale, dk_t)
                     else:
@@ -760,9 +760,9 @@ def sdnq_attn_bwd_dkv_kernel(
                             p = tl.mul(p, tl.fdiv(1.0, p_scale)).to(do.dtype)
                             if use_fp16_accum and do.dtype == tl.float16:
                                 p_scale *= fp16_scale_dv # pylint: disable=used-before-assignment,possibly-used-before-assignment
-                                do_T = tl.mul(do.T.to(tl.float32), in_scale_dv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
                                 p = tl.mul(p.to(tl.float32), in_scale_dv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
-                                dv_t = tl.fma(tl.dot(do_T, p, out_dtype=tl.float16).to(tl.float32), p_scale, dv_t)
+                                do_dv = tl.mul(do.to(tl.float32), in_scale_dv).to(tl.float16) # pylint: disable=used-before-assignment,possibly-used-before-assignment
+                                dv_t = tl.fma(tl.dot(do_dv.T, p, out_dtype=tl.float16).to(tl.float32), p_scale, dv_t)
                             else:
                                 dv_t = tl.fma(tl.dot(do.T, p, out_dtype=tl.float32), p_scale, dv_t)
                     else:
