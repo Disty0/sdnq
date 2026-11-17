@@ -502,8 +502,8 @@ def sdnq_attn_bwd_dkv_kernel(
     off_z_64 = off_z.to(tl.int64)
     offset_k = off_z_64 * (KN * KH) + off_h_k_64 * KN
     offset_v = off_z_64 * (VN * VH) + off_h_k_64 * VN
-    offset_k_ptr = off_z_64 * stride_kz + ((off_h_k_64 * KH) // QH) * stride_kh
-    offset_v_ptr = off_z_64 * stride_vz + ((off_h_k_64 * VH) // QH) * stride_vh
+    offset_k_ptr = off_z_64 * stride_kz + off_h_k_64 * stride_kh
+    offset_v_ptr = off_z_64 * stride_vz + off_h_k_64 * stride_vh
 
     if use_tensor_descriptors:
         k_desc = tl.make_tensor_descriptor(k_ptr + offset_k_ptr, shape=[KN, KHD], strides=[stride_kn, stride_khd], block_shape=[BLOCK_SIZE_N, triton.next_power_of_2(KHD)])
