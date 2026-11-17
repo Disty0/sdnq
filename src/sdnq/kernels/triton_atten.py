@@ -620,7 +620,7 @@ def sdnq_atten_fwd(
     def grid(META):
         return (triton.cdiv(QN, META["BLOCK_SIZE_M"]) * QH, QZ)
     out = torch.empty((QZ, QH, QN, VHD), dtype=out_dtype, device=query.device)
-    lse = torch.empty((QZ, QH, QN), dtype=out_dtype, device=query.device) if return_lse else None
+    lse = torch.empty((QZ, QH, QN), dtype=torch.float32, device=query.device) if return_lse else None
     wrap_triton(sdnq_attn_kernel)[grid](
         query, key, value,
         query_scale, key_scale, value_scale,
