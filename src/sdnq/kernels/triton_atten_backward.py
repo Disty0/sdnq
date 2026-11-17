@@ -1369,7 +1369,7 @@ class SDNQAttenBackward(torch.autograd.Function):
             use_hadamard_pv=ctx.use_hadamard_pv,
             hadamard_group_size_pv=ctx.hadamard_group_size_pv,
             do_quantize=ctx.do_quantize,
-            quantize_fp32=ctx.do_quantize,
+            quantize_fp32=ctx.quantize_fp32,
             use_fp16_accum=ctx.use_fp16_accum,
             use_tensor_descriptors=ctx.use_tensor_descriptors,
             do_grad_q=ctx.needs_input_grad[0],
