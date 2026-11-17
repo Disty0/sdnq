@@ -35,8 +35,9 @@ small_autotune_configs = [
 
 def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bool = False, **kwargs): # pylint: disable=unused-argument
     device = named_args["q_ptr"].device
-    is_dkv_backward = bool(named_args.get("dk_ptr") is not None or named_args.get("dv_ptr") is not None)
     is_dq_backward = bool(named_args.get("dq_ptr") is not None)
+    is_dkv_backward = bool(named_args.get("dk_ptr") is not None or named_args.get("dv_ptr") is not None)
+    is_dkv_backward_without_dk = bool(is_dkv_backward and named_args.get("dk_ptr") is None)
     if (device.type == "xpu" or (device.type == "cuda" and torch_backend == "cuda")) and torch.int8 in {named_args["q_ptr"].dtype, named_args["v_ptr"].dtype}:
         is_int8 = True
         pruned_configs = [conf for conf in configs if (conf.kwargs["BLOCK_SIZE_M"] >= 32 and conf.kwargs["BLOCK_SIZE_N"] >= 32)]
@@ -79,11 +80,13 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             smem_M += block_size_m * named_args["q_scale_ptr"].element_size()
         if named_args.get("do_scale_ptr") is not None:
             smem_M += block_size_m * named_args["do_scale_ptr"].element_size()
-        if named_args.get("block_count_ptr") is not None:
+        if not is_dkv_backward and named_args.get("block_count_ptr") is not None:
             smem_M += block_count_chunk * named_args["block_count_ptr"].element_size()
+        if is_dkv_backward and named_args.get("block_index_ptr") is not None:
+            smem_M += block_index_chunk * named_args["block_index_ptr"].element_size()
         if named_args.get("delta_ptr") is not None:
             smem_M += block_size_m * named_args["delta_ptr"].element_size()
-        if named_args.get("lse_ptr") is not None and (named_args.get("save_lse", 0) or named_args.get("out_ptr") is None):
+        if named_args.get("lse_ptr") is not None and (named_args.get("save_lse", 0) or (is_dq_backward or is_dkv_backward)):
             smem_M += block_size_m * named_args["lse_ptr"].element_size()
 
         cache_M = smem_M
@@ -93,12 +96,15 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
             cache_M += block_size_m * qhd * named_args["dq_ptr"].element_size()
 
         smem_N = block_size_n * khd * named_args["k_ptr"].element_size()
-        smem_N += block_size_n * vhd * named_args["v_ptr"].element_size()
-        if named_args.get("block_index_ptr") is not None:
+        if not is_dkv_backward_without_dk:
+            smem_N += block_size_n * vhd * named_args["v_ptr"].element_size()
+        if is_dkv_backward and named_args.get("block_count_ptr") is not None:
+            smem_N += block_count_chunk * named_args["block_count_ptr"].element_size()
+        if not is_dkv_backward and named_args.get("block_index_ptr") is not None:
             smem_N += block_index_chunk * named_args["block_index_ptr"].element_size()
         if named_args.get("k_scale_ptr") is not None:
             smem_N += block_size_n * named_args["k_scale_ptr"].element_size()
-        if named_args.get("v_scale_ptr") is not None:
+        if not is_dkv_backward_without_dk and named_args.get("v_scale_ptr") is not None:
             smem_N += block_size_n * named_args["v_scale_ptr"].element_size()
 
         cache_N = smem_N
@@ -123,7 +129,10 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 
         q_register = block_size_m * qhd * named_args["q_ptr"].element_size()
         k_register = block_size_n * khd * named_args["k_ptr"].element_size()
-        v_register = block_size_n * vhd * named_args["v_ptr"].element_size()
+        if not is_dkv_backward_without_dk:
+            v_register = block_size_n * vhd * named_args["v_ptr"].element_size()
+        else:
+            v_register = 0
         qk_register = block_size_m * block_size_n * 4
 
         register_req = q_register + qk_register
@@ -162,7 +171,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
                 k_scale_register = block_size_n * 4
         else:
             k_scale_register = 0
-        if named_args.get("v_scale_ptr") is not None:
+        if not is_dkv_backward_without_dk and named_args.get("v_scale_ptr") is not None:
             # v_scale, p_scale
             if is_dkv_backward:
                 v_scale_register = 2 * (block_size_n * 4)
@@ -246,7 +255,8 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 def sdnq_attn_kernel(
     q_ptr, k_ptr, v_ptr,
     q_scale_ptr, k_scale_ptr, v_scale_ptr,
-    out_ptr, lse_ptr, mask_ptr, block_count_ptr, block_index_ptr, sm_scale,
+    out_ptr, lse_ptr, mask_ptr,
+    block_count_ptr, block_index_ptr, sm_scale,
     is_causal: tl.constexpr,
     do_mask: tl.constexpr,
     do_block_mask: tl.constexpr,

@@ -49,7 +49,8 @@ from .triton_atten import (
 def sdnq_attn_bwd_dq_kernel(
     q_ptr, k_ptr, v_ptr, do_ptr,
     q_scale_ptr, k_scale_ptr, v_scale_ptr, do_scale_ptr,
-    dq_ptr, lse_ptr, delta_ptr, mask_ptr, block_count_ptr, block_index_ptr, sm_scale,
+    dq_ptr, lse_ptr, delta_ptr, mask_ptr,
+    block_count_ptr, block_index_ptr, sm_scale,
     is_causal: tl.constexpr,
     do_mask: tl.constexpr,
     do_block_mask: tl.constexpr,
@@ -401,7 +402,8 @@ def sdnq_attn_bwd_dq_kernel(
 def sdnq_attn_bwd_dkv_kernel(
     q_ptr, k_ptr, v_ptr, do_ptr,
     q_scale_ptr, k_scale_ptr, v_scale_ptr, do_scale_ptr,
-    dk_ptr, dv_ptr, lse_ptr, delta_ptr, mask_ptr, block_count_ptr, block_index_ptr, sm_scale,
+    dk_ptr, dv_ptr, lse_ptr, delta_ptr, mask_ptr,
+    block_count_ptr, block_index_ptr, sm_scale,
     do_grad_k: tl.constexpr,
     do_grad_v: tl.constexpr,
     is_causal: tl.constexpr,
