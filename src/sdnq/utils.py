@@ -56,7 +56,7 @@ def check_tma_alignment(tensor: torch.Tensor, alignment: int = 16, dim: int | No
         dim = -1
         while tensor.shape[dim] == 1 and dim > -tensor.ndim:
             dim -= 1
-    return bool((tensor.shape[dim] % (alignment // tensor.element_size())) == 0)
+    return bool(tensor.stride(dim) == 1 and (tensor.shape[dim] % (alignment // tensor.element_size())) == 0)
 
 
 def get_smem_size(dev: int) -> int:
