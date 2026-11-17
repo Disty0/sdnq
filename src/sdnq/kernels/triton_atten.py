@@ -48,7 +48,7 @@ def prune_configs(configs: list[triton.Config], named_args: dict, from_small: bo
 
     pruned_configs = [
         conf for conf in configs if (
-            conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["QN"], 32 if from_small else 64)
+            conf.kwargs["BLOCK_SIZE_M"] <= max(named_args["QN"], 16 if (from_small and not is_int8) else 32)
             and conf.kwargs["BLOCK_SIZE_N"] <= max(named_args["KN"], 32 if is_int8 else 16)
             and (is_dkv_backward or (named_args["is_causal"] == 0 and named_args.get("mask_ptr") is None) or conf.kwargs["BLOCK_SIZE_M"] >= conf.kwargs["BLOCK_SIZE_N"])
         )
