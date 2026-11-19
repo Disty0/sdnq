@@ -35,11 +35,15 @@ from .triton_atten import (
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
         "VZ", "VH", "VN_AT", "VHD",
-        "block_size_divisor_at",
         "qk_is_quantized",
         "pv_is_quantized",
         "q_dtype", "v_dtype",
         "out_dtype", "mask_dtype",
+        "block_size_divisor_at",
+        "do_is_contiguous",
+        "q_is_contiguous",
+        "k_is_contiguous",
+        "v_is_contiguous",
         "BLOCK_MASK_M", "BLOCK_MASK_N",
     ],
     prune_configs_by={"early_config_prune": prune_configs},
@@ -81,6 +85,10 @@ def sdnq_attn_bwd_dq_kernel(
     KN_AT: tl.constexpr, # pylint: disable=unused-argument
     VN_AT: tl.constexpr, # pylint: disable=unused-argument
     block_size_divisor_at: tl.constexpr, # pylint: disable=unused-argument
+    do_is_contiguous: tl.constexpr, # pylint: disable=unused-argument
+    q_is_contiguous: tl.constexpr, # pylint: disable=unused-argument
+    k_is_contiguous: tl.constexpr, # pylint: disable=unused-argument
+    v_is_contiguous: tl.constexpr, # pylint: disable=unused-argument
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
     GROUP_SIZE_M: tl.constexpr,
@@ -388,11 +396,15 @@ def sdnq_attn_bwd_dq_kernel(
         "QZ", "QH", "QN_AT", "QHD",
         "KZ", "KH", "KN_AT", "KHD",
         "VZ", "VH", "VN_AT", "VHD",
-        "block_size_divisor_at",
         "qk_is_quantized",
         "pv_is_quantized",
         "q_dtype", "v_dtype",
         "out_dtype", "mask_dtype",
+        "block_size_divisor_at",
+        "do_is_contiguous",
+        "q_is_contiguous",
+        "k_is_contiguous",
+        "v_is_contiguous",
         "BLOCK_MASK_M", "BLOCK_MASK_N",
     ],
     prune_configs_by={"early_config_prune": prune_configs},
@@ -436,6 +448,10 @@ def sdnq_attn_bwd_dkv_kernel(
     KN_AT: tl.constexpr, # pylint: disable=unused-argument
     VN_AT: tl.constexpr, # pylint: disable=unused-argument
     block_size_divisor_at: tl.constexpr, # pylint: disable=unused-argument
+    do_is_contiguous: tl.constexpr, # pylint: disable=unused-argument
+    q_is_contiguous: tl.constexpr, # pylint: disable=unused-argument
+    k_is_contiguous: tl.constexpr, # pylint: disable=unused-argument
+    v_is_contiguous: tl.constexpr, # pylint: disable=unused-argument
     BLOCK_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
     GROUP_SIZE_M: tl.constexpr, # named as GROUP_SIZE_M to re-use the autotune configs
@@ -860,6 +876,10 @@ def sdnq_triton_atten_bwd_dq(
         math.ceil(KN / block_size_divisor),
         math.ceil(VN / block_size_divisor),
         block_size_divisor,
+        (1 if grad_output.is_contiguous() else 0),
+        (1 if query.is_contiguous() else 0),
+        (1 if key.is_contiguous() else 0),
+        (1 if value.is_contiguous() else 0),
     )
     return dq
 
@@ -942,6 +962,10 @@ def sdnq_atten_bwd_dkv(
         math.ceil(KN / block_size_divisor),
         math.ceil(VN / block_size_divisor),
         block_size_divisor,
+        (1 if grad_output.is_contiguous() else 0),
+        (1 if query.is_contiguous() else 0),
+        (1 if key.is_contiguous() else 0),
+        (1 if value.is_contiguous() else 0),
     )
     return dk, dv
 
