@@ -297,23 +297,23 @@ def sdnq_attn_bwd_dq_kernel(
                     skip = True
             if not skip:
                 if use_tensor_descriptors:
-                    k = k_desc.load([start_n, 0])
+                    k = k_desc.load([start_n, 0]).T
                 else:
-                    k = tl.load(k_ptr + offset_k_ptr + (offs_n[:, None] * stride_kn) + (offs_khd[None, :] * stride_khd), mask=(offs_n[:, None] < KN) & (offs_khd[None, :] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
+                    k = tl.load(k_ptr + offset_k_ptr + (offs_n[None, :] * stride_kn) + (offs_khd[:, None] * stride_khd), mask=(offs_n[None, :] < KN) & (offs_khd[:, None] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
                 if qk_is_quantized:
                     if use_tensor_descriptors_for_scales:
                         k_scale = k_scale_desc.load([start_n])[None, :].to(tl.float32)
                     else:
                         k_scale = tl.load(k_scale_ptr + offset_k + offs_n[None, :], mask=offs_n[None, :] < KN, other=0.0).to(tl.float32)
                     if q.dtype == tl.int8:
-                        qk = tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale) #pylint: disable=used-before-assignment,possibly-used-before-assignment
+                        qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.int32).to(tl.float32), q_scale), k_scale) #pylint: disable=used-before-assignment,possibly-used-before-assignment
                     elif use_fp16_accum and q.dtype == tl.float16:
                         k_qk = tl.mul(k.to(tl.float32), in_scale_qk).to(tl.float16)
-                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k_qk.T, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk) #pylint: disable=used-before-assignment,possibly-used-before-assignment
+                        qk = tl.mul(tl.mul(tl.mul(tl.dot(q, k_qk, out_dtype=tl.float16).to(tl.float32), q_scale), k_scale), fp16_scale_qk) #pylint: disable=used-before-assignment,possibly-used-before-assignment
                     else:
-                        qk = tl.mul(tl.mul(tl.dot(q, k.T, out_dtype=tl.float32), q_scale), k_scale)
+                        qk = tl.mul(tl.mul(tl.dot(q, k, out_dtype=tl.float32), q_scale), k_scale)
                 else:
-                    qk = tl.dot(q, k.T, out_dtype=tl.float32)
+                    qk = tl.dot(q, k, out_dtype=tl.float32)
 
                 if is_causal and start_m_block < (start_n + BLOCK_SIZE_N):
                     qk = tl.where(offs_m[:, None] >= offs_n[None, :], qk, float("-inf"))
@@ -347,8 +347,12 @@ def sdnq_attn_bwd_dq_kernel(
                             dp = tl.mul(tl.mul(tl.dot(do, v, out_dtype=tl.float32), do_scale), v_scale)
                 else:
                     dp = tl.dot(do, v, out_dtype=tl.float32)
-
                 ds = tl.mul(p, tl.sub(dp, delta))
+
+                if use_tensor_descriptors:
+                    k = k_desc.load([start_n, 0])
+                else:
+                    k = tl.load(k_ptr + offset_k_ptr + (offs_n[:, None] * stride_kn) + (offs_khd[None, :] * stride_khd), mask=(offs_n[:, None] < KN) & (offs_khd[None, :] < KHD), other=0.0 if k_ptr.type.element_ty != tl.int8 else 0)
                 if qk_is_quantized:
                     ds *= k_scale
                     ds_scale = tl.max(tl.abs(ds), 1)[:, None]
