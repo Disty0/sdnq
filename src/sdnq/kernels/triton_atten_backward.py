@@ -217,13 +217,13 @@ def sdnq_attn_bwd_dq_kernel(
         offs_index = tl.arange(0, BLOCK_INDEX_CHUNK)
         offset_lists = off_z_64 * (BH if BZ != 1 else 0) + (off_h_64 if BH != 1 else 0)
         if use_tensor_descriptors_for_scales:
+            index_desc = tl.make_tensor_descriptor(block_index_ptr + (offset_lists * NQB + q_block) * NKB_PAD, shape=[NKB_PAD], strides=[1,], block_shape=[BLOCK_INDEX_CHUNK])
             count_desc = tl.make_tensor_descriptor(block_count_ptr + offset_lists * NQB_PAD, shape=[NQB_PAD], strides=[1,], block_shape=[BLOCK_COUNT_CHUNK])
             counts = count_desc.load([(q_block // BLOCK_COUNT_CHUNK) * BLOCK_COUNT_CHUNK])
         else:
             index_base_ptr = block_index_ptr + (offset_lists * NQB + q_block) * NKB_PAD
             counts = tl.load(block_count_ptr + offset_lists * NQB_PAD + (q_block // BLOCK_COUNT_CHUNK) * BLOCK_COUNT_CHUNK + offs_count)
         num_tiles = tl.sum(tl.where(offs_count == (q_block % BLOCK_COUNT_CHUNK), counts, 0)) * SUB_TILES
-        index_desc = tl.make_tensor_descriptor(block_index_ptr + (offset_lists * NQB + q_block) * NKB_PAD, shape=[NKB_PAD], strides=[1,], block_shape=[BLOCK_INDEX_CHUNK])
     else:
         num_tiles = tl.cdiv(KN, BLOCK_SIZE_N)
 
